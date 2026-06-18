@@ -1,0 +1,1739 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CandelaModule {
+  ADMIN
+  FRONTDESK
+  NURSE
+  DOCTOR
+  PHARMACY
+  COUNSELLOR
+  CRM
+  HR
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum SessionStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+}
+
+model Tenant {
+  id           String        @id
+  slug         String        @unique
+  name         String
+  legalName    String?
+  timezone     String        @default("Asia/Kolkata")
+  locale       String        @default("en-IN")
+  active       Boolean       @default(true)
+  settings     Json?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  branches     Branch[]
+  users        User[]
+  roles        Role[]
+  sessions     Session[]
+  patients     Patient[]
+  appointments Appointment[]
+  documentTemplates DocumentTemplate[]
+}
+
+model Branch {
+  id             String            @id
+  tenantId       String
+  code           String
+  name           String
+  city           String?
+  state          String?
+  country        String?           @default("India")
+  phone          String?
+  email          String?
+  active         Boolean           @default(true)
+  meta           Json?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users          User[]
+  sessions       Session[]
+  patients       Patient[]
+  appointments   Appointment[]
+  opdVisits      OpdVisit[]
+  queues         Queue[]
+  visits         Visit[]
+  vitals         Vitals[]
+  nursingTasks   NursingTask[]
+  consents       Consent[]
+  prescriptions  Prescription[]
+  consultNotes   ConsultNote[]
+  drugs          Drug[]
+  inventory      Inventory[]
+  fulfillments   PrescriptionFulfillment[]
+  purchaseOrders PurchaseOrder[]
+  stockMoves     StockMovement[]
+  counsellorLogs CounsellorSession[]
+  approvals      Approval[]
+  billingHandoffs BillingHandoff[]
+  leads          Lead[]
+  agents         Agent[]
+  pipelines      Pipeline[]
+  stages         Stage[]
+  activities     Activity[]
+  rules          Rule[]
+  followUps      FollowUp[]
+  integrations   Integration[]
+  userRoles      UserRole[]
+  employees      Employee[]
+  departments    Department[]
+  suppliers      Supplier[]
+  packages       Package[]
+  shifts         Shift[]
+  leaveRequests  LeaveRequest[]
+  attendance     Attendance[]
+  payrollLines   PayrollLine[]
+  invoices       Invoice[]
+  payments       Payment[]
+  auditLogs      AuditLog[]
+  formSchemas    FormSchema[]
+  documentTemplates DocumentTemplate[]
+  staffAccesses  StaffAccess[]
+  geoPins        GeoPin[]
+  misAggregates  MisAggregate[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+}
+
+model User {
+  id            String      @id
+  tenantId      String
+  branchId      String?
+  email         String
+  name          String
+  passwordHash  String
+  status        UserStatus  @default(ACTIVE)
+  phone         String?
+  avatarUrl     String?
+  lastLoginAt   DateTime?
+  activeRoleId  String?
+  activeRole    Role?       @relation("ActiveRole", fields: [activeRoleId], references: [id], onDelete: SetNull)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch        Branch?     @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  sessions      Session[]
+  userRoles     UserRole[]
+  staffAccesses StaffAccess[]
+  auditLogs     AuditLog[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId, branchId])
+}
+
+model Role {
+  id          String       @id
+  tenantId    String
+  name        String
+  key         String
+  module      CandelaModule
+  description String?
+  isSystem    Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users       UserRole[]
+  permissions RolePermission[]
+  activeUsers User[]       @relation("ActiveRole")
+
+  @@unique([tenantId, key])
+  @@index([tenantId, module])
+}
+
+model Permission {
+  id          String           @id
+  module      CandelaModule
+  action      String
+  description String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  roles       RolePermission[]
+
+  @@unique([module, action])
+}
+
+model RolePermission {
+  id           String     @id @default(cuid())
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+}
+
+model UserRole {
+  id        String   @id @default(cuid())
+  userId    String
+  roleId    String
+  branchId  String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  branch    Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, roleId, branchId])
+  @@index([roleId])
+}
+
+model Session {
+  id              String        @id @default(cuid())
+  userId          String
+  tenantId        String
+  branchId        String?
+  sessionToken    String        @unique
+  ipAddress       String?
+  userAgent       String?
+  status          SessionStatus @default(ACTIVE)
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  lastActivityAt  DateTime      @default(now())
+  createdAt       DateTime      @default(now())
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch          Branch?       @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, branchId])
+  @@index([userId, status])
+}
+
+model Patient {
+  id              String      @id
+  tenantId        String?
+  branchId        String?
+  uhid            String
+  name            String?
+  fullName        String      @default("")
+  phone           String
+  email           String?
+  age             Int?
+  dateOfBirth     DateTime?
+  gender          String?
+  department      String?
+  departmentId    String?
+  departmentLabel String?
+  tags            String[]
+  balance         Decimal     @default(0)
+  lastVisit       String?
+  lastVisitAt     DateTime?
+  referrer        String?
+  address         Json?
+  meta            Json?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  tenant          Tenant?     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch          Branch?     @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  appointments    Appointment[]
+  opdVisits       OpdVisit[]
+  visits          Visit[]
+  queues          Queue[]
+  consents        Consent[]
+  counsellorLogs  CounsellorSession[]
+  leads           Lead[]
+  invoices        Invoice[]
+  billingHandoffs BillingHandoff[]
+
+  @@unique([tenantId, uhid])
+  @@index([branchId, fullName])
+}
+
+model Appointment {
+  id              String    @id
+  tenantId        String?
+  branchId        String?
+  patientId       String?
+  visitId         String?   @unique
+  date            String?
+  time            String?
+  doctorId        String?
+  doctorName      String?
+  departmentId    String?
+  appointmentDate DateTime?
+  durationMin     Int?
+  status          String
+  source          String?
+  notes           String?
+  meta            Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  tenant          Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch          Branch?   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  patient         Patient?  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  visits          Visit[]
+
+  @@index([tenantId, branchId, appointmentDate])
+}
+
+model OpdVisit {
+  id              String    @id
+  tenantId        String?
+  branchId        String?
+  patientId       String
+  visitId         String?
+  token           Int?
+  departmentId    String?
+  doctorId        String?
+  doctorName      String?
+  billing         String?
+  exam            String?
+  appointment     Boolean   @default(false)
+  appointmentTime String?
+  waitMin         Int       @default(0)
+  checkInAt       String?
+  billAmount      Float?
+  amountPaid      Float?
+  balanceDue      Float?
+  treatmentPath   String?
+  ipdAdmissionId  String?
+  counselPackageLabel String?
+  deferredReason  String?
+  routingNote     String?
+  complaint       String?
+  stage           String
+  juniorExam      Json?
+  diagnosis       Json?
+  treatment       Json?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  patient         Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  branch          Branch?   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, branchId, stage])
+}
+
+model Queue {
+  id              String    @id
+  tenantId        String
+  branchId        String
+  visitId         String?
+  patientId       String
+  token           Int?
+  stage           String
+  priority        String?
+  waitMin         Int       @default(0)
+  billingStatus   String?
+  examStatus      String?
+  doctorName      String?
+  queueMeta       Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  patient         Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  visit           Visit?    @relation(fields: [visitId], references: [id], onDelete: SetNull)
+  branch          Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, branchId, stage])
+}
+
+model Visit {
+  id                 String       @id
+  tenantId           String
+  branchId           String
+  patientId          String
+  appointmentId      String?
+  doctorId           String?
+  doctorName         String?
+  departmentId       String?
+  token              Int?
+  stage              String
+  billingStatus      String?
+  examStatus         String?
+  treatmentPath      String?
+  appointmentTime    DateTime?
+  checkInAt          DateTime?
+  billAmount         Decimal?
+  amountPaid         Decimal?
+  balanceDue         Decimal?
+  deferredReason     String?
+  routingNote        String?
+  packageLabel       String?
+  clinicalSummary    Json?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  patient            Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  appointment        Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  branch             Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  queues             Queue[]
+  vitals             Vitals[]
+  nursingTasks       NursingTask[]
+  consents           Consent[]
+  prescriptions      Prescription[]
+  consultNotes       ConsultNote[]
+  prescriptionFills  PrescriptionFulfillment[]
+  counsellorSessions CounsellorSession[]
+  approvals          Approval[]
+  billingHandoffs    BillingHandoff[]
+  invoice            Invoice?
+
+  @@index([tenantId, branchId, stage])
+}
+
+model Vitals {
+  id          String   @id @default(cuid())
+  visitId     String
+  branchId    String
+  bpSystolic  Int?
+  bpDiastolic Int?
+  pulse       Int?
+  spo2        Int?
+  temperature Decimal?
+  weight      Decimal?
+  painScore   Int?
+  allergies   String?
+  redFlags    String?
+  notes       String?
+  recordedAt  DateTime
+  recordedBy  String?
+  payload     Json?
+  visit       Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([visitId, recordedAt])
+}
+
+model NursingTask {
+  id          String    @id
+  visitId     String
+  branchId    String
+  patientId   String?
+  title       String
+  status      String
+  priority    String?
+  dueAt       DateTime?
+  startedAt   DateTime?
+  completedAt DateTime?
+  assignedTo  String?
+  notes       String?
+  payload     Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  visit       Visit     @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  branch      Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, status])
+}
+
+model Consent {
+  id              String    @id
+  visitId         String
+  branchId        String
+  patientId       String
+  templateId      String
+  templateVersion String
+  label           String
+  status          String
+  required        Boolean   @default(false)
+  captureMode     String?
+  signerRole      String?
+  signerName      String?
+  witnessName     String?
+  language        String?
+  signedAt        DateTime?
+  verifiedAt      DateTime?
+  verifiedBy      String?
+  declinedReason  String?
+  consentData     Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  visit           Visit     @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  patient         Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  branch          Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, status])
+}
+
+model Prescription {
+  id                String                    @id
+  visitId           String
+  branchId          String
+  patientId         String?
+  doctorId          String?
+  doctorName        String?
+  source            String?
+  priority          String?
+  status            String
+  assigneeId        String?
+  rejectReason      String?
+  counselingNotes   String?
+  witnessName       String?
+  prescriptionDate  DateTime                  @default(now())
+  verifiedAt        DateTime?
+  dispensedAt       DateTime?
+  lines             Json
+  meta              Json?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  visit             Visit                     @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  branch            Branch                    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  fulfillments      PrescriptionFulfillment[]
+
+  @@index([branchId, status])
+}
+
+model ConsultNote {
+  id                 String   @id @default(cuid())
+  visitId            String
+  branchId           String
+  doctorId           String?
+  doctorName         String?
+  status             String
+  treatmentMode      String?
+  recommendCounsellor Boolean @default(false)
+  skipCounsellor     Boolean  @default(false)
+  packageId          String?
+  counsellorNotes    String?
+  doctorAdvice       String?
+  notes              String?
+  examination        Json?
+  diagnosis          Json?
+  treatment          Json?
+  scribeTranscript   String?
+  templateId         String?
+  handoff            Json?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  visit              Visit    @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  branch             Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, status])
+}
+
+model DocumentTemplate {
+  id          String   @id
+  tenantId    String?
+  branchId    String?
+  kind        String
+  label       String
+  layout      String
+  description String?
+  enabled     Boolean  @default(true)
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch      Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, kind])
+}
+
+model Drug {
+  id               String          @id
+  tenantId         String
+  branchId         String
+  genericName      String
+  brandName        String
+  strength         String
+  form             String
+  route            String
+  therapeuticClass String
+  schedule         String
+  hsn              String?
+  gstPercent       Decimal?
+  unit             String?
+  reorderLevel     Int?
+  requiresRx       Boolean         @default(true)
+  coldChain        Boolean         @default(false)
+  substitutes      String[]
+  active           Boolean         @default(true)
+  defaultMrp       Decimal?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  branch           Branch          @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  inventory        Inventory[]
+  stockMoves       StockMovement[]
+
+  @@index([tenantId, branchId, active])
+}
+
+model Inventory {
+  id            String    @id
+  tenantId      String
+  branchId      String
+  drugId        String
+  supplierId    String?
+  batchNo       String
+  expiryDate    DateTime?
+  qtyOnHand     Int
+  reservedQty   Int       @default(0)
+  purchaseRate  Decimal?
+  mrp           Decimal?
+  rack          String?
+  quarantined   Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  branch        Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  drug          Drug      @relation(fields: [drugId], references: [id], onDelete: Cascade)
+  supplier      Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  stockMoves    StockMovement[]
+
+  @@index([branchId, drugId])
+  @@unique([branchId, batchNo])
+}
+
+model PrescriptionFulfillment {
+  id              String       @id
+  branchId        String
+  visitId         String?
+  prescriptionId  String
+  status          String
+  lineItems       Json
+  subtotal        Decimal?
+  gstTotal        Decimal?
+  discount        Decimal?
+  total           Decimal?
+  paymentMode     String?
+  paid            Boolean      @default(false)
+  fulfilledBy     String?
+  fulfilledAt     DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  branch          Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  visit           Visit?       @relation(fields: [visitId], references: [id], onDelete: SetNull)
+  prescription    Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, status])
+}
+
+model Supplier {
+  id             String          @id
+  tenantId       String
+  branchId       String
+  name           String
+  gstin          String?
+  drugLicense    String?
+  contactPerson  String?
+  phone          String?
+  email          String?
+  address        String?
+  paymentTerms   String?
+  preferred      Boolean         @default(false)
+  active         Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  branch         Branch          @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  inventory      Inventory[]
+  purchaseOrders PurchaseOrder[]
+
+  @@index([tenantId, branchId])
+}
+
+model PurchaseOrder {
+  id           String    @id
+  tenantId     String
+  branchId     String
+  supplierId   String
+  status       String
+  expectedAt   DateTime?
+  lines        Json
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  supplier     Supplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  branch       Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, status])
+}
+
+model StockMovement {
+  id           String     @id
+  tenantId     String
+  branchId     String
+  drugId       String
+  inventoryId  String?
+  movementType String
+  qty          Int
+  reason       String?
+  referenceId  String?
+  payload      Json?
+  movedAt      DateTime   @default(now())
+  createdAt    DateTime   @default(now())
+  branch       Branch     @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  drug         Drug       @relation(fields: [drugId], references: [id], onDelete: Cascade)
+  inventory    Inventory? @relation(fields: [inventoryId], references: [id], onDelete: SetNull)
+
+  @@index([branchId, movementType, movedAt])
+}
+
+model Package {
+  id           String             @id
+  tenantId     String
+  branchId     String
+  label        String
+  amount       Decimal
+  sessions     Int?
+  dept         String?
+  addons       Json?
+  active       Boolean            @default(true)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  branch       Branch             @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  counsellorSessions CounsellorSession[]
+  approvals    Approval[]
+  billingHandoffs BillingHandoff[]
+
+  @@index([tenantId, branchId, active])
+}
+
+model CounsellorSession {
+  id               String    @id
+  tenantId         String
+  branchId         String
+  visitId          String
+  patientId        String
+  packageId        String?
+  counsellorId     String
+  counsellorName   String
+  startedAt        DateTime
+  completedAt      DateTime?
+  outcome          String?
+  quote            Json?
+  internalNotes    String?
+  patientObjections String[]
+  callbackAt       DateTime?
+  voiceNote        String?
+  aiScript         String?
+  sentToBilling    Boolean   @default(false)
+  billingSentAt    DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  branch           Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  visit            Visit     @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  patient          Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  package          Package?  @relation(fields: [packageId], references: [id], onDelete: SetNull)
+
+  @@index([branchId, outcome])
+}
+
+model Approval {
+  id               String    @id
+  tenantId         String
+  branchId         String
+  visitId          String
+  patientId        String?
+  packageId        String?
+  approvalType     String
+  requestedPercent Decimal?
+  reason           String?
+  status           String
+  requestedAt      DateTime
+  resolvedAt       DateTime?
+  quoteSnapshot    Json?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  branch           Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  visit            Visit     @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  package          Package?  @relation(fields: [packageId], references: [id], onDelete: SetNull)
+
+  @@index([branchId, status, approvalType])
+}
+
+model BillingHandoff {
+  id                 String    @id
+  tenantId           String?
+  branchId           String?
+  visitId            String
+  patientId          String
+  patientName        String?
+  uhid               String?
+  packageId          String?
+  quote              Json
+  counsellorName     String
+  counselNotes       String?
+  doctorName         String?
+  doctorId           String?
+  paymentExpectation String?
+  treatmentMode      String?
+  admissionRecommended Boolean?
+  diagnosisSummary   String?
+  sentAt             DateTime
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  branch             Branch?   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  visit              Visit     @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  patient            Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  package            Package?  @relation(fields: [packageId], references: [id], onDelete: SetNull)
+
+  @@index([branchId, sentAt])
+}
+
+model Agent {
+  id               String    @id
+  tenantId         String
+  branchId         String
+  name             String
+  email            String
+  role             String
+  active           Boolean   @default(true)
+  specialtyTags    String[]
+  maxOpenLeads     Int?
+  unavailableUntil DateTime?
+  unavailableReason String?
+  backupAgentId    String?
+  leadWeightPercent Int?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  branch           Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  leads            Lead[]
+  followUps        FollowUp[]
+
+  @@unique([tenantId, email])
+  @@index([branchId, role])
+}
+
+model Pipeline {
+  id          String   @id
+  tenantId    String
+  branchId    String
+  label       String
+  description String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  stages      Stage[]
+  leads       Lead[]
+
+  @@index([tenantId, branchId])
+}
+
+model Stage {
+  id         String   @id
+  pipelineId String
+  branchId   String
+  label      String
+  color      String?
+  order      Int
+  slaHours   Int?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  pipeline   Pipeline @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  branch     Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  leads      Lead[]
+
+  @@index([pipelineId, order])
+}
+
+model Lead {
+  id               String    @id
+  tenantId         String
+  branchId         String
+  pipelineId       String?
+  stageId          String
+  assigneeId       String?
+  patientId        String?
+  fullName         String
+  phone            String
+  alternatePhone   String?
+  email            String?
+  age              Int?
+  gender           String?
+  city             String?
+  district         String?
+  state            String?
+  country          String?
+  doctorName       String?
+  appointmentDate  DateTime?
+  source           String
+  sourceDetail     String?
+  integrationId    String?
+  specialty        String?
+  valueEstimate    Decimal?
+  priority         String?
+  tags             String[]
+  notes            String?
+  convertedVisitId String?
+  uhid             String?
+  lostReason       String?
+  createdAt        DateTime
+  updatedAt        DateTime
+  lastContactAt    DateTime?
+  nextFollowUpAt   DateTime?
+  branch           Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  stage            Stage     @relation(fields: [stageId], references: [id], onDelete: Restrict)
+  assignee         Agent?    @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
+  patient          Patient?  @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  pipeline         Pipeline? @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
+  followUps        FollowUp[]
+  activities       Activity[]
+
+  @@index([branchId, stageId])
+  @@index([branchId, assigneeId])
+}
+
+model Activity {
+  id         String   @id
+  tenantId   String
+  branchId   String
+  leadId     String
+  actor      String
+  type       String
+  summary    String
+  at         DateTime
+  payload    Json?
+  createdAt  DateTime @default(now())
+  branch     Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, at])
+}
+
+model Rule {
+  id             String   @id
+  tenantId       String
+  branchId       String
+  label          String
+  active         Boolean  @default(true)
+  strategy       String
+  source         String?
+  specialty      String?
+  assignToAgentIds String[]
+  agentWeights   Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  branch         Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, active, strategy])
+}
+
+model FollowUp {
+  id          String   @id
+  tenantId    String
+  branchId    String
+  leadId      String
+  assigneeId  String?
+  scheduledAt DateTime
+  channel     String
+  status      String
+  outcome     String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  lead        Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  assignee    Agent?   @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  @@index([branchId, scheduledAt, status])
+}
+
+model Integration {
+  id           String   @id
+  tenantId     String
+  branchId     String
+  kind         String
+  label        String
+  description  String?
+  icon         String?
+  connected    Boolean  @default(false)
+  webhookUrl   String?
+  lastEventAt  DateTime?
+  leadsToday   Int      @default(0)
+  config       Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  branch       Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, connected])
+}
+
+model Employee {
+  id             String      @id
+  tenantId       String
+  branchId       String
+  departmentId   String
+  userId         String?
+  name           String
+  email          String
+  phone          String?
+  designation    String
+  managerId      String?
+  joinDate       DateTime
+  employmentType String
+  active         Boolean     @default(true)
+  role           String
+  crmAgentId     String?
+  salaryMonthly  Decimal?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  branch         Branch      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  department     Department  @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  shifts         Shift[]
+  leaveRequests  LeaveRequest[]
+  attendance     Attendance[]
+  payrollLines   PayrollLine[]
+
+  @@unique([tenantId, email])
+  @@index([branchId, departmentId, active])
+}
+
+model Department {
+  id              String            @id
+  tenantId        String
+  branchId        String
+  label           String
+  headEmployeeId  String?
+  doctorIds       String[]
+  defaultPackageIds String[]
+  revenuePolicyId String?
+  bays            String[]
+  active          Boolean           @default(true)
+  config          Json?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  branch          Branch            @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  employees       Employee[]
+
+  @@index([tenantId, branchId, active])
+}
+
+model Shift {
+  id         String   @id
+  tenantId   String
+  branchId   String
+  employeeId String
+  date       DateTime
+  startTime  String
+  endTime    String
+  location   String?
+  role       String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  branch     Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, date])
+}
+
+model LeaveRequest {
+  id            String   @id
+  tenantId      String
+  branchId      String
+  employeeId    String
+  type          String
+  fromDate      DateTime
+  toDate        DateTime
+  reason        String?
+  status        String
+  requestedAt   DateTime
+  resolvedAt    DateTime?
+  approverId    String?
+  syncCrmAbsence Boolean @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  branch        Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  employee      Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, status, fromDate])
+}
+
+model Attendance {
+  id         String   @id
+  tenantId   String
+  branchId   String
+  employeeId String
+  date       DateTime
+  checkIn    String?
+  checkOut   String?
+  status     String
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  branch     Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, date, status])
+}
+
+model PayrollLine {
+  id          String   @id
+  tenantId    String
+  branchId    String
+  employeeId  String
+  period      String
+  basic       Decimal
+  allowances  Decimal
+  deductions  Decimal
+  net         Decimal
+  status      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, period, status])
+}
+
+model Invoice {
+  id              String        @id
+  tenantId        String
+  branchId        String
+  patientId       String?
+  visitId         String?       @unique
+  invoiceNumber   String
+  status          String
+  subtotal        Decimal       @default(0)
+  discount        Decimal       @default(0)
+  taxAmount       Decimal       @default(0)
+  totalAmount     Decimal       @default(0)
+  amountPaid      Decimal       @default(0)
+  balanceAmount   Decimal       @default(0)
+  paymentScope    String?
+  dueDate         DateTime?
+  notes           String?
+  payload         Json?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  branch          Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  patient         Patient?      @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  visit           Visit?        @relation(fields: [visitId], references: [id], onDelete: SetNull)
+  lines           InvoiceLine[]
+  payments        Payment[]
+
+  @@unique([tenantId, invoiceNumber])
+  @@index([branchId, status])
+}
+
+model InvoiceLine {
+  id          String   @id
+  invoiceId   String
+  label       String
+  category    String?
+  quantity    Int      @default(1)
+  unitPrice   Decimal
+  discount    Decimal  @default(0)
+  taxPercent  Decimal  @default(0)
+  lineTotal   Decimal
+  payload     Json?
+  createdAt   DateTime @default(now())
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+}
+
+model Payment {
+  id            String    @id
+  tenantId      String
+  branchId      String
+  invoiceId      String
+  amount        Decimal
+  mode          String
+  status        String
+  referenceNo   String?
+  paidAt        DateTime
+  collectedBy   String?
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  branch        Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  invoice       Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, paidAt])
+}
+
+model AuditLog {
+  id          String   @id
+  tenantId    String
+  branchId    String?
+  actorUserId String?
+  actor       String
+  actorRole   String?
+  module      String
+  action      String
+  entityType  String
+  entityId    String
+  summary     String
+  severity    String
+  payload     Json?
+  createdAt   DateTime @default(now())
+  branch      Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  actorUser   User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, module, createdAt])
+}
+
+model FormSchema {
+  id          String   @id
+  tenantId    String
+  branchId    String?
+  module      String
+  title       String
+  schema      Json
+  active      Boolean  @default(true)
+  version     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  branch      Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, module, active])
+}
+
+model StaffAccess {
+  id           String   @id @default(cuid())
+  tenantId     String
+  branchId     String?
+  userId       String
+  departmentId String?
+  module       String
+  scope        Json?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  branch       Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, module, active])
+}
+
+model GeoPin {
+  id            String   @id
+  tenantId      String
+  branchId      String?
+  pincode       String
+  city          String
+  lat           Decimal
+  lng           Decimal
+  patientCount  Int      @default(0)
+  opdCount      Int      @default(0)
+  ipdCount      Int      @default(0)
+  revenue       Decimal  @default(0)
+  topDiagnosis  String?
+  severity      String?
+  payload       Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  branch        Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, city])
+}
+
+model MisAggregate {
+  id          String   @id
+  tenantId    String
+  branchId    String?
+  metric      String
+  category    String
+  bucketDate  DateTime?
+  value       Decimal?
+  payload     Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  branch      Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, category, metric])
+}
+
+model FormSubmission {
+  id          String   @id
+  formId      String
+  patientId   String?
+  visitId     String?
+  data        Json
+  submittedAt String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Consultation {
+  id                  String   @id
+  visitId             String   @unique
+  patientId           String
+  doctorId            String
+  startedAt           String
+  completedAt         String?
+  status              String
+  treatmentMode       String
+  recommendCounsellor Boolean  @default(false)
+  skipCounsellor      Boolean  @default(false)
+  packageId           String?
+  counsellorNotes     String?
+  doctorAdvice        String?
+  whatsappRxSent      Boolean  @default(false)
+  examination         Json
+  diagnosis           Json
+  treatment           Json
+  prescription        Json
+  notes               String
+  scribeTranscript    String?
+  scribeLanguage      String?
+  scribeAppliedAt     String?
+  templateId          String?
+  handoff             Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model DoctorTemplate {
+  id           String   @id
+  label        String
+  doctorId     String
+  disease      String
+  diagnosis    Json
+  treatment    Json
+  prescription Json
+  isSystem     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model IpdAdmission {
+  id                String   @id
+  visitId           String   @unique
+  patientId         String
+  ward              String
+  bed               String
+  admittedAt        String
+  diagnosis         String
+  attendingDoctorId String
+  lastRoundAt       String?
+  lastRoundNote     String?
+  status            String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model NursingHandoff {
+  id                 String   @id
+  visitId            String   @unique
+  patientId          String
+  patientName        String
+  uhid               String
+  doctorId           String
+  doctorName         String
+  treatmentPath      String
+  packageId          String
+  packageLabel       String
+  billingStatus      String
+  amountPaid         Float
+  balanceDue         Float?
+  netAmount          Float
+  commercialConsent  Boolean  @default(false)
+  billingHandoff     Json?
+  consultation       Json?
+  ipdWard            String?
+  ipdBed             String?
+  sentAt             String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model NursingEpisode {
+  id            String   @id
+  visitId       String   @unique
+  patientId     String
+  nurseId       String
+  nurseName     String
+  branchId      String
+  treatmentPath String
+  packageLabel  String
+  packageId     String
+  doctorName    String
+  doctorId      String
+  billingStatus String
+  balanceDue    Float?
+  status        String
+  priority      String
+  queuedAt      String
+  vitals        Json?
+  consents      Json
+  sessions      Json
+  internalNotes String
+  completedAt   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model CounsellorQueueItem {
+  id           String   @id
+  visitId      String   @unique
+  patientId    String
+  doctorId     String
+  doctorName   String
+  sentAt       String
+  treatmentMode String
+  packageId    String?
+  packageLabel String?
+  priority     String
+  payload      Json
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model PharmacyWorkspaceState {
+  id        String   @id @default("default")
+  payload   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CounsellorWorkspaceState {
+  id        String   @id @default("default")
+  payload   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CrmWorkspaceState {
+  id        String   @id @default("default")
+  payload   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PharmacyOperatorCredential {
+  id           String   @id
+  name         String
+  email        String   @unique
+  role         String
+  active       Boolean  @default(true)
+  licenseNo    String?
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model CrmOperatorCredential {
+  id            String   @id
+  name          String
+  email         String   @unique
+  role          String
+  active        Boolean  @default(true)
+  specialtyTags Json
+  maxOpenLeads  Int      @default(20)
+  backupAgentId String?
+  leadWeightPct Int      @default(0)
+  passwordHash  String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model CounsellorOperatorCredential {
+  id           String   @id
+  name         String
+  email        String   @unique
+  role         String
+  active       Boolean  @default(true)
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model CrmWebhookConfig {
+  id          String   @id
+  label       String
+  description String
+  icon        String
+  connected   Boolean  @default(false)
+  webhookUrl  String
+  headers     Json?
+  lastEventAt String?
+  leadsToday  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model HrDepartment {
+  id        String   @id
+  name      String
+  headId    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model HrEmployee {
+  id             String   @id
+  name           String
+  email          String   @unique
+  phone          String
+  departmentId   String
+  designation    String
+  managerId      String?
+  joinDate       String
+  employmentType String
+  branchId       String
+  active         Boolean  @default(true)
+  role           String
+  crmAgentId     String?
+  salaryMonthly  Float
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model HrShift {
+  id         String   @id
+  employeeId String
+  date       String
+  startTime  String
+  endTime    String
+  location   String
+  role       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model HrLeaveRequest {
+  id             String   @id
+  employeeId     String
+  type           String
+  fromDate       String
+  toDate         String
+  reason         String
+  status         String
+  requestedAt    String
+  resolvedAt     String?
+  approverId     String?
+  syncCrmAbsence Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model HrAttendance {
+  id         String   @id
+  employeeId String
+  date       String
+  checkIn    String?
+  checkOut   String?
+  status     String
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model HrPayrollLine {
+  id         String   @id
+  employeeId String
+  period     String
+  basic      Float
+  allowances Float
+  deductions Float
+  net        Float
+  status     String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model HrCredential {
+  employeeId String @id
+  password   String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model HrSetting {
+  id                   String   @id
+  autoCrmSync          Boolean  @default(true)
+  leaveApprovalNotify  Boolean  @default(true)
+  attendanceReminder   Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model CrmAgent {
+  id                String   @id
+  name              String
+  email             String   @unique
+  role              String
+  active            Boolean  @default(true)
+  specialtyTags     Json
+  maxOpenLeads      Int
+  unavailableUntil  String?
+  unavailableReason String?
+  backupAgentId     String?
+  leadWeightPercent Int?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model CrmLead {
+  id               String   @id
+  fullName         String
+  phone            String
+  stageId          String
+  assigneeId       String?
+  source           String
+  valueEstimate    Float
+  priority         String
+  tags             Json
+  notes            String
+  createdAt        String
+  updatedAt        String
+  convertedVisitId String?
+  lostReason       String?
+  createdOn        DateTime @default(now())
+  updatedOn        DateTime @updatedAt
+}
+
+model AdminStaff {
+  id            String   @id
+  name          String
+  email         String   @unique
+  phone         String
+  role          String
+  departmentIds Json
+  branchId      String
+  licenseNo     String?
+  onDuty        Boolean  @default(false)
+  joinedAt      String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model AdminDepartment {
+  id                String   @id
+  label             String
+  headStaffId       String?
+  doctorIds         Json
+  defaultPackageIds Json
+  revenuePolicyId   String?
+  bays              Json
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model AdminDiseaseNode {
+  id                 String   @id
+  icd                String
+  label              String
+  departmentId       String
+  templateId         String?
+  packageIds         Json
+  consentTemplateIds Json
+  billingTemplateId  String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model AdminGeoPin {
+  id           String   @id
+  pincode      String
+  city         String
+  lat          Float
+  lng          Float
+  patientCount Int
+  opdCount     Int
+  ipdCount     Int
+  revenue      Float
+  topDiagnosis String
+  severity     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model AdminDiseaseCluster {
+  id           String   @id
+  locality     String
+  lat          Float
+  lng          Float
+  caseCount    Int
+  severity     String
+  topDisease   String
+  surgePercent Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model AdminExpense {
+  id           String   @id
+  date         String
+  vendor       String
+  category     String
+  departmentId String
+  amount       Float
+  status       String
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model AdminRevenuePolicy {
+  id                String   @id
+  label             String
+  departmentId      String
+  doctorId          String?
+  opdConsultPercent Float
+  packageNetPercent Float
+  ipdDayFixed       Float
+  appliesToPartial  Boolean  @default(false)
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model AdminMrdRequest {
+  id          String   @id
+  patientName String
+  uhid        String
+  requestType String
+  requestedAt String
+  status      String
+  slaDue      String
+  documents   Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AdminMisReport {
+  id       String   @id
+  label    String
+  category String
+  schedule String
+  lastRun  String?
+  format   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AdminSetting {
+  id                 String   @id
+  kAnonymityMin      Int
+  geoAggregateOnly   Boolean
+  auditRetentionYears Int
+  outbreakAlerts     Boolean
+  autoMisDaily       Boolean
+  whatsappConsentFlag Boolean
+  resolvedLeakageIds Json
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model FormSchemaOverride {
+  id        String   @id
+  schemaId  String   @unique
+  payload   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AdminAuditLog {
+  id         String   @id
+  at         String
+  actor      String
+  actorRole  String
+  module     String
+  action     String
+  entityType String
+  entityId   String
+  summary    String
+  severity   String
+  payload    Json?
+  createdAt  DateTime @default(now())
+}

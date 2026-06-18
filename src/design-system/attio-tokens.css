@@ -1,0 +1,17 @@
+/* Attio-grade workspace tokens */
+
+:root {
+  --attio-sidebar: #f4f4f3;
+  --attio-canvas: #ffffff;
+  --attio-surface: #fafaf9;
+  --attio-border: #e6e6e4;
+  --attio-border-subtle: #efefed;
+  --attio-text: #1b1b1b;
+  --attio-text-secondary: #5c5c5a;
+  --attio-text-tertiary: #8a8a88;
+  --attio-hover: #ececea;
+  --attio-active: #e8e8e6;
+  --attio-accent: #4263eb;
+  --attio-sidebar-width: 248px;
+  --attio-insights-width: 340px;
+}

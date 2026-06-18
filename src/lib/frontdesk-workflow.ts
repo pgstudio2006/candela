@@ -1,0 +1,199 @@
+import type { BillingStatus, ExamStatus, Patient, Visit, VisitStage } from "@/design-system/frontdesk-data";
+import { BILLING_TEMPLATES } from "@/design-system/frontdesk-data";
+import { DEPARTMENTS, DOCTORS_BY_DEPT } from "@/design-system/mock-data";
+
+export const DOCTOR_NAMES: Record<string, string> = Object.fromEntries(
+  Object.values(DOCTORS_BY_DEPT)
+    .flat()
+    .map((d) => [d.id, d.name]),
+);
+
+export const DEPT_LABELS: Record<string, string> = Object.fromEntries(
+  DEPARTMENTS.map((d) => [d.id, d.label]),
+);
+
+export function doctorName(id: string) {
+  return DOCTOR_NAMES[id] ?? id;
+}
+
+export function deptLabel(id: string) {
+  return DEPT_LABELS[id] ?? id;
+}
+
+export function nowTime() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+export function nextUhid(counter: number) {
+  return `NV-2026-${String(counter).padStart(4, "0")}`;
+}
+
+export function templateAmount(templateId: string) {
+  return BILLING_TEMPLATES.find((t) => t.id === templateId)?.amount ?? 1500;
+}
+
+export function normalizePhone(phone: string) {
+  return phone.replace(/\D/g, "").slice(-10);
+}
+
+export function matchPatientByQuery(patients: Patient[], query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) return undefined;
+  return patients.find(
+    (p) =>
+      p.uhid.toLowerCase() === q ||
+      p.id === q ||
+      normalizePhone(p.phone) === normalizePhone(q) ||
+      p.name.toLowerCase().includes(q),
+  );
+}
+
+export function findDuplicatePatients(patients: Patient[], phone: string, firstName?: string) {
+  const phoneNorm = normalizePhone(phone);
+  return patients.filter((p) => {
+    if (phoneNorm && normalizePhone(p.phone) === phoneNorm) return true;
+    if (firstName && p.name.toLowerCase().startsWith(firstName.toLowerCase())) return true;
+    return false;
+  });
+}
+
+export const STAGE_ORDER: VisitStage[] = [
+  "registered",
+  "checked_in",
+  "billing",
+  "queued",
+  "junior_exam",
+  "with_doctor",
+  "completed",
+];
+
+export function canTransition(from: VisitStage, to: VisitStage) {
+  return STAGE_ORDER.indexOf(to) >= STAGE_ORDER.indexOf(from);
+}
+
+export function billingFromMode(mode: string): BillingStatus {
+  if (mode === "defer") return "deferred";
+  return "paid";
+}
+
+export function ageFromDob(dob: string) {
+  const birth = new Date(dob);
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const m = today.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
+  return Math.max(0, age);
+}
+
+export type FormSubmission = {
+  id: string;
+  formId: string;
+  patientId?: string;
+  visitId?: string;
+  data: Record<string, string | number | boolean>;
+  submittedAt: string;
+};
+
+export type Appointment = {
+  id: string;
+  patientId: string;
+  departmentId: string;
+  doctorId: string;
+  doctorName: string;
+  date: string;
+  time: string;
+  durationMin: number;
+  notes?: string;
+  status: "booked" | "checked_in" | "cancelled";
+};
+
+export type FrontdeskCounters = {
+  patient: number;
+  visit: number;
+  token: number;
+  appointment: number;
+};
+
+export type ActionItem = {
+  id: string;
+  priority: "urgent" | "high" | "normal";
+  text: string;
+  action: string;
+  href: string;
+};
+
+export function buildActionItems(visits: Visit[], patients: Patient[]): ActionItem[] {
+  const items: ActionItem[] = [];
+  for (const v of visits) {
+    const p = patients.find((x) => x.id === v.patientId);
+    if (!p) continue;
+    if (v.stage === "junior_exam" && v.exam !== "done") {
+      items.push({
+        id: `je-${v.id}`,
+        priority: v.billing === "deferred" ? "urgent" : "high",
+        text: `${p.name} — junior exam ${v.exam.replace("_", " ")}`,
+        action: "Open junior exam",
+        href: `/app/frontdesk/junior-exam/${v.id}`,
+      });
+    } else if (v.stage === "nursing_queue" || v.stage === "nursing_active") {
+      items.push({
+        id: `nurse-${v.id}`,
+        priority: "high",
+        text: `${p.name} — nursing intake · ${v.counselPackageLabel ?? "care package"}`,
+        action: "Open episode",
+        href: `/app/nurse/episode/${v.id}`,
+      });
+    } else if (v.stage === "ipd_admitted") {
+      items.push({
+        id: `ipd-${v.id}`,
+        priority: v.billing === "partial" ? "high" : "normal",
+        text: `${p.name} — IPD admitted · ${v.billing}${v.balanceDue ? ` · ₹${v.balanceDue} due` : ""}`,
+        action: "Open patient",
+        href: `/app/frontdesk/patients/${p.id}`,
+      });
+    } else if (v.stage === "billing" || (v.stage === "checked_in" && v.billing === "pending")) {
+      items.push({
+        id: `bill-${v.id}`,
+        priority: "high",
+        text: `${p.name} — billing ${v.billing}`,
+        action: "Create bill",
+        href: `/app/frontdesk/billing?visit=${v.id}`,
+      });
+    } else if (v.stage === "registered") {
+      items.push({
+        id: `ci-${v.id}`,
+        priority: "normal",
+        text: `${p.name} — registered, awaiting check-in`,
+        action: "Check in",
+        href: `/app/frontdesk/check-in?visit=${v.id}`,
+      });
+    }
+  }
+  return items.slice(0, 6);
+}
+
+export function computeKpis(visits: Visit[]) {
+  const todayVisits = visits.filter((v) => v.checkInAt || v.stage !== "registered");
+  const checkedIn = todayVisits.filter((v) => v.stage !== "registered").length;
+  const billed = todayVisits.filter((v) => v.billing === "paid" || v.billing === "deferred").length;
+  const inQueue = visits.filter((v) => ["queued", "junior_exam"].includes(v.stage)).length;
+  const junior = visits.filter((v) => v.stage === "junior_exam").length;
+  const withDoctor = visits.filter((v) => v.stage === "with_doctor").length;
+  const collected = todayVisits
+    .filter((v) => v.billing === "paid" && v.billAmount)
+    .reduce((s, v) => s + (v.billAmount ?? 0), 0);
+
+  return [
+    { label: "Arrivals today", value: String(todayVisits.length || visits.length), delta: "Live count", trend: "neutral" as const },
+    { label: "Checked in", value: String(checkedIn), delta: checkedIn ? `${Math.round((checkedIn / Math.max(todayVisits.length, 1)) * 100)}% of arrivals` : "—", trend: "neutral" as const },
+    { label: "Billed (paid)", value: String(billed), delta: collected ? `₹${(collected / 1000).toFixed(1)}k collected` : "—", trend: "up" as const },
+    { label: "In queue", value: String(inQueue), delta: inQueue ? `${inQueue} waiting` : "Clear", trend: inQueue > 3 ? ("down" as const) : ("neutral" as const) },
+    { label: "Junior exam", value: String(junior), delta: junior ? `${junior} active` : "None", trend: "neutral" as const },
+    { label: "With doctor", value: String(withDoctor), delta: withDoctor ? "In consult" : "—", trend: "neutral" as const },
+  ];
+}
+
+export function examStatusFromForm(_data: Record<string, string | number | boolean>): ExamStatus {
+  return "done";
+}

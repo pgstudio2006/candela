@@ -1,0 +1,236 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./clinical.db"
+}
+
+model Patient {
+  id           String   @id
+  uhid         String   @unique
+  name         String
+  phone        String
+  email        String?
+  age          Int
+  gender       String
+  department   String
+  departmentId String
+  tags         Json
+  balance      Float    @default(0)
+  lastVisit    String?
+  referrer     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model OpdVisit {
+  id                 String   @id
+  patientId          String
+  token              Int?
+  stage              String
+  departmentId       String
+  doctorId           String
+  doctorName         String
+  billing            String
+  exam               String
+  appointment        Boolean
+  appointmentTime    String?
+  waitMin            Int      @default(0)
+  checkInAt          String?
+  billAmount         Float?
+  amountPaid         Float?
+  balanceDue         Float?
+  treatmentPath      String?
+  ipdAdmissionId     String?
+  counselPackageLabel String?
+  deferredReason     String?
+  routingNote        String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model Appointment {
+  id           String   @id
+  patientId    String
+  visitId      String   @unique
+  departmentId String
+  doctorId     String
+  doctorName   String
+  date         String
+  time         String
+  durationMin  Int
+  notes        String?
+  status       String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model FormSubmission {
+  id          String   @id
+  formId      String
+  patientId   String?
+  visitId     String?
+  data        Json
+  submittedAt String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Consultation {
+  id                  String   @id
+  visitId             String   @unique
+  patientId           String
+  doctorId            String
+  startedAt           String
+  completedAt         String?
+  status              String
+  treatmentMode       String
+  recommendCounsellor Boolean
+  skipCounsellor      Boolean
+  packageId           String?
+  counsellorNotes     String?
+  doctorAdvice        String?
+  whatsappRxSent      Boolean
+  examination         Json
+  diagnosis           Json
+  treatment           Json
+  prescription        Json
+  notes               String
+  scribeTranscript    String?
+  scribeLanguage      String?
+  scribeAppliedAt     String?
+  templateId          String?
+  handoff             Json?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model DoctorTemplate {
+  id           String   @id
+  label        String
+  doctorId     String
+  disease      String
+  diagnosis    Json
+  treatment    Json
+  prescription Json
+  isSystem     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model CounsellorQueueItem {
+  id           String   @id
+  visitId      String   @unique
+  patientId    String
+  doctorId     String
+  doctorName   String
+  sentAt       String
+  treatmentMode String
+  packageId    String?
+  packageLabel String?
+  priority     String
+  payload      Json
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model BillingHandoff {
+  id                   String   @id
+  visitId              String   @unique
+  patientId            String
+  patientName          String
+  uhid                 String
+  quote                Json
+  counsellorName       String
+  counselNotes         String
+  doctorName           String
+  doctorId             String
+  sentAt               String
+  paymentExpectation   String
+  treatmentMode        String?
+  admissionRecommended Boolean?
+  diagnosisSummary     String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model NursingHandoff {
+  id                String   @id
+  visitId           String   @unique
+  patientId         String
+  patientName       String
+  uhid              String
+  doctorId          String
+  doctorName        String
+  treatmentPath     String
+  packageId         String
+  packageLabel      String
+  billingStatus     String
+  amountPaid        Float
+  balanceDue        Float?
+  netAmount         Float
+  commercialConsent Boolean
+  billingHandoff    Json?
+  consultation      Json?
+  ipdWard           String?
+  ipdBed            String?
+  sentAt            String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model NursingEpisode {
+  id            String   @id
+  visitId       String   @unique
+  patientId     String
+  nurseId       String
+  nurseName     String
+  branchId      String
+  treatmentPath String
+  packageLabel  String
+  packageId     String
+  doctorName    String
+  doctorId      String
+  billingStatus String
+  balanceDue    Float?
+  status        String
+  priority      String
+  queuedAt      String
+  vitals        Json?
+  consents      Json
+  sessions      Json
+  internalNotes String
+  completedAt   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model IpdAdmission {
+  id                String   @id
+  visitId           String   @unique
+  patientId         String
+  ward              String
+  bed               String
+  admittedAt        String
+  diagnosis         String
+  attendingDoctorId String
+  lastRoundAt       String?
+  lastRoundNote     String?
+  status            String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model DocumentTemplate {
+  id          String   @id
+  kind        String
+  label       String
+  layout      String
+  description String
+  enabled     Boolean
+  isSystem    Boolean
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

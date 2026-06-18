@@ -1,0 +1,208 @@
+"use client";
+
+import { PrintableConsultRecord } from "@/components/doctor/print/printable-consult-record";
+import { PrintableInvoice } from "@/components/doctor/print/printable-invoice";
+import { PrintablePrescription } from "@/components/doctor/print/printable-prescription";
+import { PrintPreviewModal } from "@/components/doctor/print/print-preview-modal";
+import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
+import type { Patient, Visit } from "@/design-system/frontdesk-data";
+import type { ConsultationRecord } from "@/design-system/doctor-data";
+import {
+  consultPrimaryDiagnosis,
+  fieldEntries,
+  formatConsultDate,
+  humanizeFieldKey,
+  scribeLanguageLabel,
+} from "@/lib/doctor-records";
+import { FileText, Printer, Receipt } from "lucide-react";
+import { useState } from "react";
+
+type ConsultRecordViewProps = {
+  patient: Patient;
+  visit: Visit;
+  consult: ConsultationRecord;
+  doctorName: string;
+  compact?: boolean;
+};
+
+export function ConsultRecordView({
+  patient,
+  visit,
+  consult,
+  doctorName,
+  compact,
+}: ConsultRecordViewProps) {
+  const [printKind, setPrintKind] = useState<"rx" | "invoice" | "record" | null>(null);
+  const invoiceNo = `NV-INV-${visit.id.toUpperCase()}-${new Date().getFullYear()}`;
+
+  return (
+    <>
+      <div className="mb-4 flex flex-wrap gap-2">
+        <StatusBadge label={consult.status.replace("_", " ")} variant={consult.status === "completed" ? "success" : "info"} />
+        <StatusBadge label={consult.treatmentMode.toUpperCase()} variant="neutral" />
+        {consult.scribeTranscript && <StatusBadge label="AI Scribe" variant="info" />}
+        {consult.whatsappRxSent && <StatusBadge label="WhatsApp Rx" variant="success" />}
+      </div>
+
+      {!compact && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          <AttioButton variant="secondary" className="gap-1.5" onClick={() => setPrintKind("rx")}>
+            <Printer className="size-3.5" />
+            Print prescription
+          </AttioButton>
+          <AttioButton variant="secondary" className="gap-1.5" onClick={() => setPrintKind("invoice")}>
+            <Receipt className="size-3.5" />
+            Print invoice
+          </AttioButton>
+          <AttioButton variant="secondary" className="gap-1.5" onClick={() => setPrintKind("record")}>
+            <FileText className="size-3.5" />
+            Print full record
+          </AttioButton>
+        </div>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Panel title="Visit meta">
+          <dl className="space-y-2 text-[13px]">
+            <div className="flex justify-between"><dt className="text-[var(--attio-text-tertiary)]">Date</dt><dd>{formatConsultDate(consult.completedAt ?? consult.startedAt)}</dd></div>
+            <div className="flex justify-between"><dt className="text-[var(--attio-text-tertiary)]">Doctor</dt><dd>{doctorName}</dd></div>
+            <div className="flex justify-between"><dt className="text-[var(--attio-text-tertiary)]">Token</dt><dd>#{visit.token ?? "—"}</dd></div>
+            <div className="flex justify-between"><dt className="text-[var(--attio-text-tertiary)]">Billing</dt><dd>{visit.billing}</dd></div>
+            <div className="flex justify-between"><dt className="text-[var(--attio-text-tertiary)]">Diagnosis</dt><dd className="max-w-[60%] text-right">{consultPrimaryDiagnosis(consult)}</dd></div>
+          </dl>
+        </Panel>
+
+        {consult.scribeTranscript && (
+          <Panel title={`AI Scribe · ${scribeLanguageLabel(consult.scribeLanguage)}`}>
+            <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-[var(--attio-text-secondary)]">
+              {consult.scribeTranscript}
+            </p>
+            {consult.scribeAppliedAt && (
+              <p className="mt-2 text-[11px] text-[var(--attio-text-tertiary)]">
+                Applied to examination {formatConsultDate(consult.scribeAppliedAt)}
+              </p>
+            )}
+          </Panel>
+        )}
+
+        {fieldEntries(consult.examination).length > 0 && (
+          <Panel title="Examination">
+            <dl className="space-y-2 text-[13px]">
+              {fieldEntries(consult.examination).map(([k, v]) => (
+                <div key={k}>
+                  <dt className="text-[11px] font-medium text-[var(--attio-text-tertiary)]">{humanizeFieldKey(k)}</dt>
+                  <dd className="mt-0.5 text-[var(--attio-text-secondary)]">{String(v)}</dd>
+                </div>
+              ))}
+            </dl>
+          </Panel>
+        )}
+
+        {fieldEntries(consult.diagnosis).length > 0 && (
+          <Panel title="Diagnosis">
+            <dl className="space-y-2 text-[13px]">
+              {fieldEntries(consult.diagnosis).map(([k, v]) => (
+                <div key={k}>
+                  <dt className="text-[11px] font-medium text-[var(--attio-text-tertiary)]">{humanizeFieldKey(k)}</dt>
+                  <dd className="mt-0.5">{String(v)}</dd>
+                </div>
+              ))}
+            </dl>
+          </Panel>
+        )}
+
+        {fieldEntries(consult.treatment).length > 0 && (
+          <Panel title="Treatment">
+            <dl className="space-y-2 text-[13px]">
+              {fieldEntries(consult.treatment).map(([k, v]) => (
+                <div key={k}>
+                  <dt className="text-[11px] font-medium text-[var(--attio-text-tertiary)]">{humanizeFieldKey(k)}</dt>
+                  <dd className="mt-0.5">{String(v)}</dd>
+                </div>
+              ))}
+            </dl>
+          </Panel>
+        )}
+
+        {consult.prescription.length > 0 && (
+          <Panel title="Prescription" className="lg:col-span-2">
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="border-b border-[var(--attio-border-subtle)] text-left text-[11px] text-[var(--attio-text-tertiary)]">
+                  <th className="pb-2 pr-2">#</th>
+                  <th className="pb-2 pr-2">Medicine</th>
+                  <th className="pb-2 pr-2">Dose</th>
+                  <th className="pb-2 pr-2">Freq</th>
+                  <th className="pb-2">Duration</th>
+                </tr>
+              </thead>
+              <tbody>
+                {consult.prescription.map((rx, i) => (
+                  <tr key={rx.id} className="border-b border-[var(--attio-border-subtle)]">
+                    <td className="py-2 pr-2">{i + 1}</td>
+                    <td className="py-2 pr-2">{rx.drug}</td>
+                    <td className="py-2 pr-2">{rx.dose}</td>
+                    <td className="py-2 pr-2">{rx.frequency}</td>
+                    <td className="py-2">{rx.duration}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Panel>
+        )}
+
+        {consult.notes && (
+          <Panel title="Private notes">
+            <p className="text-[13px] text-[var(--attio-text-secondary)]">{consult.notes}</p>
+          </Panel>
+        )}
+
+        {consult.handoff && fieldEntries(consult.handoff).length > 0 && (
+          <Panel title="Counsellor handoff">
+            <dl className="space-y-2 text-[13px]">
+              {fieldEntries(consult.handoff).map(([k, v]) => (
+                <div key={k} className="flex justify-between gap-4">
+                  <dt className="text-[var(--attio-text-tertiary)]">{humanizeFieldKey(k)}</dt>
+                  <dd className="text-right">{String(v)}</dd>
+                </div>
+              ))}
+            </dl>
+          </Panel>
+        )}
+      </div>
+
+      <PrintPreviewModal
+        open={printKind === "rx"}
+        onClose={() => setPrintKind(null)}
+        title="Prescription"
+        printId="print-rx"
+      >
+        <PrintablePrescription patient={patient} visit={visit} consult={consult} doctorName={doctorName} />
+      </PrintPreviewModal>
+
+      <PrintPreviewModal
+        open={printKind === "invoice"}
+        onClose={() => setPrintKind(null)}
+        title="Invoice"
+        printId="print-inv"
+      >
+        <PrintableInvoice
+          patient={patient}
+          visit={visit}
+          consult={consult}
+          doctorName={doctorName}
+          invoiceNo={invoiceNo}
+        />
+      </PrintPreviewModal>
+
+      <PrintPreviewModal
+        open={printKind === "record"}
+        onClose={() => setPrintKind(null)}
+        title="Consultation record"
+        printId="print-record"
+      >
+        <PrintableConsultRecord patient={patient} visit={visit} consult={consult} doctorName={doctorName} />
+      </PrintPreviewModal>
+    </>
+  );
+}

@@ -1,0 +1,139 @@
+"use client";
+
+import { DiseaseMappingGraph } from "@/components/admin/disease-graph";
+import { AdminLeafletMap, diseaseToMapPoints } from "@/components/admin/leaflet-map";
+import { useAdminStore } from "@/components/admin/admin-store";
+import { GroupedBarChart, ChartCard } from "@/components/doctor/analytics-charts";
+import { PageChrome } from "@/components/frontdesk/page-chrome";
+import { AttioButton, Panel } from "@/components/frontdesk/ui";
+import { SEED_DISEASE_CLUSTERS, SEED_SEASONAL_PATTERNS } from "@/design-system/admin-data";
+import { cn } from "@/lib/utils";
+import { AlertTriangle, Download } from "lucide-react";
+import { useMemo, useState } from "react";
+
+const SEVERITY_DOT = {
+  high: "bg-red-500",
+  medium: "bg-orange-500",
+  low: "bg-blue-500",
+} as const;
+
+export default function AdminDiseaseMappingPage() {
+  const { diseaseMap, logAdminAction } = useAdminStore();
+  const [selectedId, setSelectedId] = useState(SEED_DISEASE_CLUSTERS[1]?.id);
+  const [tab, setTab] = useState<"clusters" | "clinical">("clusters");
+
+  const mapPoints = useMemo(() => diseaseToMapPoints(SEED_DISEASE_CLUSTERS), []);
+  const selected = SEED_DISEASE_CLUSTERS.find((c) => c.id === selectedId);
+
+  const seasonalGroups = useMemo(
+    () =>
+      SEED_SEASONAL_PATTERNS.map((m) => ({
+        label: m.month,
+        values: [
+          { key: "dengue", value: m.dengue, color: "#dc2626" },
+          { key: "tb", value: m.tuberculosis, color: "#1b1b1b" },
+          { key: "diabetes", value: m.diabetes, color: "#94a3b8" },
+          { key: "hypertension", value: m.hypertension, color: "#f97316" },
+        ],
+      })),
+    [],
+  );
+
+  return (
+    <PageChrome
+      breadcrumbs={[{ label: "Admin", href: "/app/admin" }, { label: "Disease mapping" }]}
+      title="Disease cluster mapping"
+      meta="Geospatial disease prevalence · seasonal patterns · clinical care routing"
+      actions={
+        <AttioButton variant="secondary" onClick={() => logAdminAction("Exported disease cluster report")}>
+          <Download className="size-3.5" />
+          Export
+        </AttioButton>
+      }
+      tabs={[
+        { id: "clusters", label: "Cluster map" },
+        { id: "clinical", label: "Clinical care mapping" },
+      ]}
+      activeTab={tab}
+      onTabChange={(id) => setTab(id as "clusters" | "clinical")}
+    >
+      {tab === "clusters" ? (
+        <>
+          <div className="mb-4 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-600" />
+            <div className="text-[13px] text-red-900">
+              <p className="font-medium">Active outbreak alert</p>
+              <p className="mt-0.5 text-red-800">
+                Dengue cases up 65% in Navrangpura zone. Seasonal surge detected in 3 localities — Satellite, Navrangpura, Vastrapur.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
+            <AdminLeafletMap points={mapPoints} selectedId={selectedId} flyToId={selectedId} />
+            <Panel title="Select an area">
+              <ul className="divide-y divide-[var(--attio-border-subtle)]">
+                {SEED_DISEASE_CLUSTERS.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(c.id)}
+                      className={cn(
+                        "flex w-full items-center justify-between py-3 text-left text-[13px] transition-colors",
+                        selectedId === c.id && "bg-[var(--attio-surface)]",
+                      )}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className={cn("size-2 rounded-full", SEVERITY_DOT[c.severity])} />
+                        <span className="font-medium">{c.locality}</span>
+                      </span>
+                      <span className="tabular-nums text-[var(--attio-text-secondary)]">{c.caseCount}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {selected && (
+                <div className="mt-3 rounded-md border border-[var(--attio-border-subtle)] bg-[var(--attio-surface)] p-3 text-[12px]">
+                  <p className="font-medium">{selected.locality}</p>
+                  <p className="mt-1 text-[var(--attio-text-tertiary)]">Top disease: {selected.topDisease}</p>
+                  {selected.surgePercent && (
+                    <p className="mt-1 text-red-600">+{selected.surgePercent}% vs last month</p>
+                  )}
+                </div>
+              )}
+            </Panel>
+          </div>
+
+          <ChartCard title="Seasonal disease pattern" subtitle="Cases per month · anonymized aggregate" className="mt-4">
+            <GroupedBarChart
+              groups={seasonalGroups}
+              legend={[
+                { key: "dengue", label: "Dengue", color: "#dc2626" },
+                { key: "tb", label: "Tuberculosis", color: "#1b1b1b" },
+                { key: "diabetes", label: "Diabetes", color: "#94a3b8" },
+                { key: "hypertension", label: "Hypertension", color: "#f97316" },
+              ]}
+            />
+          </ChartCard>
+        </>
+      ) : (
+        <>
+          <div className="mb-4 flex gap-2">
+            <AttioButton variant="secondary" onClick={() => logAdminAction("Exported disease mapping graph")}>
+              Export mapping
+            </AttioButton>
+            <AttioButton variant="primary" onClick={() => logAdminAction("Synced disease map to doctor templates")}>
+              Sync to clinical
+            </AttioButton>
+          </div>
+          <DiseaseMappingGraph nodes={diseaseMap} />
+          <Panel title="Mapping rules" className="mt-4">
+            <p className="text-[13px] text-[var(--attio-text-secondary)]">
+              ICD → template → package → consent → billing. Changes propagate to Doctor template suggestions, Counsellor package tiers, Nursing consent templates, and Front Desk billing quick templates.
+            </p>
+          </Panel>
+        </>
+      )}
+    </PageChrome>
+  );
+}

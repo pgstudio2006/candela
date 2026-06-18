@@ -1,0 +1,76 @@
+import {
+  BarChart3,
+  ClipboardList,
+  FileText,
+  FlaskConical,
+  LayoutDashboard,
+  Package,
+  Pill,
+  Receipt,
+  RotateCcw,
+  Settings,
+  Shield,
+  ShoppingCart,
+  Truck,
+  Warehouse,
+  type LucideIcon,
+} from "lucide-react";
+
+export type PharmacyNavItem = {
+  id: string;
+  label: string;
+  href: string;
+  icon: LucideIcon;
+  group: "workspace" | "operations" | "supply" | "compliance" | "insights";
+  managerOnly?: boolean;
+  purchaseOnly?: boolean;
+};
+
+export const PHARMACY_NAV: PharmacyNavItem[] = [
+  { id: "dashboard", label: "Dashboard", href: "/app/pharmacy", icon: LayoutDashboard, group: "workspace" },
+  { id: "prescriptions", label: "Prescriptions", href: "/app/pharmacy/prescriptions", icon: ClipboardList, group: "operations" },
+  { id: "billing", label: "Billing", href: "/app/pharmacy/billing", icon: Receipt, group: "operations" },
+  { id: "indents", label: "Ward indents", href: "/app/pharmacy/indents", icon: FileText, group: "operations" },
+  { id: "returns", label: "Returns", href: "/app/pharmacy/returns", icon: RotateCcw, group: "operations" },
+  { id: "inventory", label: "Inventory", href: "/app/pharmacy/inventory", icon: Warehouse, group: "supply" },
+  { id: "drugs", label: "Drugs & formulary", href: "/app/pharmacy/drugs", icon: Pill, group: "supply" },
+  { id: "suppliers", label: "Suppliers", href: "/app/pharmacy/suppliers", icon: Truck, group: "supply", managerOnly: true, purchaseOnly: true },
+  { id: "purchase-orders", label: "Purchase orders", href: "/app/pharmacy/purchase-orders", icon: ShoppingCart, group: "supply", managerOnly: true, purchaseOnly: true },
+  { id: "expiry", label: "Expiry", href: "/app/pharmacy/expiry", icon: FlaskConical, group: "supply" },
+  { id: "schedule-h", label: "Schedule H", href: "/app/pharmacy/schedule-h", icon: Shield, group: "compliance", managerOnly: true },
+  { id: "audit", label: "Audit trail", href: "/app/pharmacy/audit", icon: FileText, group: "compliance", managerOnly: true },
+  { id: "reports", label: "Reports", href: "/app/pharmacy/reports", icon: BarChart3, group: "insights" },
+  { id: "settings", label: "Settings", href: "/app/pharmacy/settings", icon: Settings, group: "insights" },
+];
+
+export const PHARMACY_NAV_GROUPS = [
+  { id: "workspace", label: "Workspace" },
+  { id: "operations", label: "Operations" },
+  { id: "supply", label: "Supply chain" },
+  { id: "compliance", label: "Compliance" },
+  { id: "insights", label: "Insights" },
+] as const;
+
+export function getPharmacyNavItem(pathname: string) {
+  return (
+    PHARMACY_NAV.find((n) => (n.href === "/app/pharmacy" ? pathname === n.href : pathname.startsWith(n.href))) ??
+    PHARMACY_NAV[0]
+  );
+}
+
+export function canAccessPharmacyNav(
+  item: PharmacyNavItem,
+  role: "manager" | "opd" | "purchase",
+): boolean {
+  if (role === "manager") return true;
+  if (item.managerOnly) {
+    if (item.purchaseOnly && role === "purchase") return true;
+    return false;
+  }
+  if (role === "purchase") {
+    const purchasePaths = ["dashboard", "inventory", "drugs", "suppliers", "purchase-orders", "expiry", "reports", "settings"];
+    return purchasePaths.includes(item.id);
+  }
+  const opdPaths = ["dashboard", "prescriptions", "billing", "indents", "returns", "inventory", "expiry", "reports", "settings"];
+  return opdPaths.includes(item.id);
+}

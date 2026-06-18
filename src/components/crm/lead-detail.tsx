@@ -1,0 +1,367 @@
+"use client";
+
+import { LeadPipelineBoard } from "@/components/crm/lead-pipeline";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { CrmActivity, CrmAgent, CrmFollowUp, CrmLead } from "@/design-system/crm-data";
+import { SOURCE_LABELS } from "@/design-system/crm-data";
+import { AttioButton, StatusBadge } from "@/components/frontdesk/ui";
+import { cn } from "@/lib/utils";
+import { getCrmLeadClinicalHistoryAction, type CrmPatientHistory } from "@/server/crm/actions";
+import { useEffect, useState } from "react";
+
+type HistoryEvent = CrmPatientHistory["timeline"][number];
+
+function DetailRow({ label, value }: { label: string; value?: string | number | null }) {
+  if (value == null || value === "") return null;
+  return (
+    <div className="flex justify-between gap-4 border-b border-[var(--attio-border-subtle)] py-2 last:border-0">
+      <dt className="shrink-0 text-[var(--attio-text-tertiary)]">{label}</dt>
+      <dd className="text-right text-[13px] font-medium">{value}</dd>
+    </div>
+  );
+}
+
+function SummaryCard({ label, value, tone }: { label: string; value: string; tone?: "danger" | "success" }) {
+  return (
+    <div className="rounded-lg border border-[var(--attio-border-subtle)] bg-[var(--attio-surface)] px-3 py-2">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--attio-text-tertiary)]">{label}</p>
+      <p
+        className={cn(
+          "mt-0.5 text-[15px] font-semibold tabular-nums",
+          tone === "danger" && "text-red-600",
+          tone === "success" && "text-emerald-600",
+        )}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+const CATEGORY_LABELS: Record<HistoryEvent["category"], string> = {
+  crm: "CRM",
+  visit: "Visit",
+  billing: "Billing",
+  pharmacy: "Pharmacy",
+  counselling: "Counselling",
+  follow_up: "Follow-up",
+};
+
+const CATEGORY_VARIANT: Record<HistoryEvent["category"], "info" | "success" | "warning" | "neutral" | "danger"> = {
+  crm: "neutral",
+  visit: "info",
+  billing: "success",
+  pharmacy: "warning",
+  counselling: "info",
+  follow_up: "neutral",
+};
+
+function HistoryTimeline({ events }: { events: HistoryEvent[] }) {
+  if (events.length === 0) {
+    return (
+      <p className="py-6 text-center text-[12px] text-[var(--attio-text-tertiary)]">
+        No history yet — link this lead to a registered patient by phone or UHID.
+      </p>
+    );
+  }
+  return (
+    <ul className="space-y-2">
+      {events.map((e) => (
+        <li key={e.id} className="rounded-lg border border-[var(--attio-border-subtle)] p-3">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge label={CATEGORY_LABELS[e.category]} variant={CATEGORY_VARIANT[e.category]} />
+                <p className="text-[13px] font-medium">{e.title}</p>
+              </div>
+              <p className="mt-1 text-[12px] leading-relaxed text-[var(--attio-text-secondary)]">{e.detail}</p>
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="text-[11px] text-[var(--attio-text-tertiary)]">
+                {new Date(e.at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+              </p>
+              {e.amount != null && (
+                <p className="mt-0.5 text-[12px] font-semibold tabular-nums">₹{e.amount.toLocaleString("en-IN")}</p>
+              )}
+              {e.status && (
+                <p className="mt-0.5 text-[10px] capitalize text-[var(--attio-text-tertiary)]">{e.status.replace(/_/g, " ")}</p>
+              )}
+            </div>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function LeadDetailPanel({
+  lead,
+  agent,
+  stageLabel,
+  onClose,
+  onAssign,
+  onEdit,
+  agents,
+  activities,
+  followUps,
+}: {
+  lead: CrmLead;
+  agent?: CrmAgent;
+  stageLabel: string;
+  onClose: () => void;
+  onAssign: (agentId: string) => void;
+  onEdit: () => void;
+  agents: { id: string; name: string }[];
+  activities: CrmActivity[];
+  followUps: CrmFollowUp[];
+}) {
+  const [tab, setTab] = useState("overview");
+  const [historyTick, setHistoryTick] = useState(0);
+  const [history, setHistory] = useState<CrmPatientHistory>({
+    matchType: "none",
+    patient: undefined,
+    visits: [],
+    pharmacyRx: [],
+    pharmacyBills: [],
+    counselSessions: [],
+    crmActivities: [],
+    followUps: [],
+    timeline: [],
+    billing: {
+      totalBilled: 0,
+      totalPaid: 0,
+      outstanding: 0,
+      visitCount: 0,
+      pharmacyTotal: 0,
+      pharmacyPaid: 0,
+    },
+  });
+
+  useEffect(() => {
+    const refresh = () => setHistoryTick((n) => n + 1);
+    window.addEventListener("candela-clinical-updated", refresh);
+    window.addEventListener("candela-pharmacy-updated", refresh);
+    window.addEventListener("candela-counsellor-updated", refresh);
+    return () => {
+      window.removeEventListener("candela-clinical-updated", refresh);
+      window.removeEventListener("candela-pharmacy-updated", refresh);
+      window.removeEventListener("candela-counsellor-updated", refresh);
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      const next = await getCrmLeadClinicalHistoryAction(lead);
+      if (!mounted) return;
+      setHistory(next);
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [lead, activities, followUps, historyTick]);
+
+  const genderLabel =
+    lead.gender === "prefer_not" ? "Prefer not to say" : lead.gender ? lead.gender.charAt(0).toUpperCase() + lead.gender.slice(1) : undefined;
+
+  const { billing, patient, timeline, visits, pharmacyRx, pharmacyBills, counselSessions } = history;
+
+  return (
+    <div className="fixed inset-y-0 right-0 z-40 flex w-full max-w-xl flex-col border-l border-[var(--attio-border)] bg-white shadow-xl">
+      <div className="flex items-center justify-between border-b px-4 py-3">
+        <div className="min-w-0">
+          <h2 className="truncate text-[15px] font-semibold">{lead.fullName}</h2>
+          {patient && (
+            <p className="text-[11px] text-[var(--attio-text-tertiary)]">
+              {patient.uhid} · Registered patient · {history.matchType.replace("_", " ")} match
+            </p>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <AttioButton variant="secondary" className="!h-7 !text-[11px]" onClick={onEdit}>
+            Edit
+          </AttioButton>
+          <button type="button" onClick={onClose} className="text-[12px] text-[var(--attio-text-tertiary)] hover:underline">
+            Close
+          </button>
+        </div>
+      </div>
+
+      <div className="border-b bg-[var(--attio-surface)] px-4 py-3">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <SummaryCard label="Total billed" value={`₹${billing.totalBilled.toLocaleString("en-IN")}`} />
+          <SummaryCard label="Collected" value={`₹${billing.totalPaid.toLocaleString("en-IN")}`} tone="success" />
+          <SummaryCard
+            label="Outstanding"
+            value={`₹${billing.outstanding.toLocaleString("en-IN")}`}
+            tone={billing.outstanding > 0 ? "danger" : undefined}
+          />
+          <SummaryCard label="Visits" value={String(billing.visitCount)} />
+        </div>
+      </div>
+
+      <Tabs value={tab} onValueChange={(v) => v && v !== tab && setTab(v)} className="flex min-h-0 flex-1 flex-col">
+        <TabsList className="mx-4 mt-3 w-auto justify-start">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="history">Full history</TabsTrigger>
+          <TabsTrigger value="billing">Billing</TabsTrigger>
+        </TabsList>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 text-[13px]">
+          <TabsContent value="overview" className="mt-0 space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <StatusBadge label={stageLabel} variant="info" />
+              <StatusBadge label={SOURCE_LABELS[lead.source]} variant="neutral" />
+              {lead.priority === "high" && <StatusBadge label="High priority" variant="danger" />}
+            </div>
+
+            <dl className="rounded-lg border border-[var(--attio-border-subtle)] px-3">
+              <DetailRow label="Status" value={stageLabel} />
+              <DetailRow label="Lost reason" value={lead.lostReason} />
+              <DetailRow label="Assignee" value={agent?.name} />
+              <DetailRow label="UHID" value={lead.uhid ?? patient?.uhid} />
+              <DetailRow label="Est. pipeline value" value={lead.valueEstimate ? `₹${lead.valueEstimate.toLocaleString("en-IN")}` : undefined} />
+            </dl>
+
+            <p className="text-[11px] font-semibold uppercase text-[var(--attio-text-tertiary)]">Patient</p>
+            <dl className="rounded-lg border border-[var(--attio-border-subtle)] px-3">
+              <DetailRow label="Phone" value={lead.phone} />
+              <DetailRow label="Alternate" value={lead.alternatePhone} />
+              <DetailRow label="Email" value={lead.email} />
+              <DetailRow label="Age" value={lead.age ?? patient?.age} />
+              <DetailRow label="Gender" value={genderLabel} />
+              <DetailRow label="City" value={lead.city} />
+              <DetailRow label="Department" value={patient?.department} />
+              <DetailRow label="Referrer" value={patient?.referrer} />
+              <DetailRow label="Last visit" value={patient?.lastVisit} />
+            </dl>
+
+            <p className="text-[11px] font-semibold uppercase text-[var(--attio-text-tertiary)]">Appointment intent</p>
+            <dl className="rounded-lg border border-[var(--attio-border-subtle)] px-3">
+              <DetailRow label="Doctor" value={lead.doctorName} />
+              <DetailRow label="Specialty" value={lead.specialty} />
+              <DetailRow label="Date" value={lead.appointmentDate} />
+              <DetailRow label="Time" value={lead.appointmentTime} />
+              <DetailRow label="Centre" value={lead.appointmentCentre} />
+            </dl>
+
+            {lead.notes && (
+              <p className="rounded-lg bg-[var(--attio-surface)] p-3 text-[12px] leading-relaxed">{lead.notes}</p>
+            )}
+
+            {history.followUps.length > 0 && (
+              <>
+                <p className="text-[11px] font-semibold uppercase text-[var(--attio-text-tertiary)]">Upcoming follow-ups</p>
+                <ul className="space-y-2">
+                  {history.followUps.map((f) => (
+                    <li key={f.id} className="rounded-lg border border-[var(--attio-border-subtle)] px-3 py-2 text-[12px]">
+                      <span className="font-medium capitalize">{f.channel}</span> · {new Date(f.scheduledAt).toLocaleString("en-IN")}
+                      {f.notes && <p className="mt-1 text-[var(--attio-text-secondary)]">{f.notes}</p>}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+
+            <div>
+              <p className="mb-2 text-[11px] font-medium uppercase text-[var(--attio-text-tertiary)]">Reassign</p>
+              <div className="flex flex-wrap gap-1">
+                {agents.map((a) => (
+                  <AttioButton key={a.id} variant="secondary" className="!h-7 !text-[11px]" onClick={() => onAssign(a.id)}>
+                    {a.name}
+                  </AttioButton>
+                ))}
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="history" className="mt-0">
+            <p className="mb-3 text-[12px] text-[var(--attio-text-secondary)]">
+              {timeline.length} events — CRM touchpoints, visits, counselling, pharmacy
+            </p>
+            <HistoryTimeline events={timeline} />
+          </TabsContent>
+
+          <TabsContent value="billing" className="mt-0 space-y-4">
+            <div className="grid grid-cols-2 gap-2">
+              <SummaryCard label="OPD / IPD billed" value={`₹${(billing.totalBilled - billing.pharmacyTotal).toLocaleString("en-IN")}`} />
+              <SummaryCard label="Pharmacy" value={`₹${billing.pharmacyTotal.toLocaleString("en-IN")}`} />
+            </div>
+
+            <div>
+              <p className="mb-2 text-[11px] font-semibold uppercase text-[var(--attio-text-tertiary)]">Visit billing</p>
+              {visits.length === 0 ? (
+                <p className="text-[12px] text-[var(--attio-text-tertiary)]">No registered visits linked to this lead.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {visits.map((v) => (
+                    <li key={v.id} className="rounded-lg border border-[var(--attio-border-subtle)] p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="font-medium">{v.doctorName}</p>
+                        <StatusBadge label={v.billing} variant={v.billing === "paid" ? "success" : v.billing === "partial" ? "warning" : "neutral"} />
+                      </div>
+                      <p className="mt-1 text-[12px] text-[var(--attio-text-tertiary)]">
+                        {v.stage.replace(/_/g, " ")}
+                        {v.token != null ? ` · Token #${v.token}` : ""}
+                      </p>
+                      {v.billAmount != null && (
+                        <p className="mt-1 text-[13px] font-semibold tabular-nums">
+                          ₹{v.billAmount.toLocaleString("en-IN")}
+                          {v.amountPaid != null && ` · paid ₹${v.amountPaid.toLocaleString("en-IN")}`}
+                          {v.balanceDue ? ` · due ₹${v.balanceDue.toLocaleString("en-IN")}` : ""}
+                        </p>
+                      )}
+                      {v.counselPackageLabel && (
+                        <p className="mt-1 text-[12px] text-[var(--attio-text-secondary)]">{v.counselPackageLabel}</p>
+                      )}
+                      {v.deferredReason && (
+                        <p className="mt-1 text-[11px] text-amber-700">{v.deferredReason}</p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {counselSessions.length > 0 && (
+              <div>
+                <p className="mb-2 text-[11px] font-semibold uppercase text-[var(--attio-text-tertiary)]">Counselling quotes</p>
+                <ul className="space-y-2">
+                  {counselSessions.map((s) => (
+                    <li key={s.id} className="rounded-lg border border-[var(--attio-border-subtle)] p-3 text-[12px]">
+                      <p className="font-medium">{s.quote?.packageLabel ?? "Session"}</p>
+                      {s.quote && <p className="mt-1 tabular-nums">Net ₹{s.quote.netAmount.toLocaleString("en-IN")}</p>}
+                      {s.outcome && <p className="mt-1 capitalize text-[var(--attio-text-tertiary)]">Outcome: {s.outcome}</p>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div>
+              <p className="mb-2 text-[11px] font-semibold uppercase text-[var(--attio-text-tertiary)]">Pharmacy</p>
+              {pharmacyRx.length === 0 && pharmacyBills.length === 0 ? (
+                <p className="text-[12px] text-[var(--attio-text-tertiary)]">No pharmacy Rx or bills for this patient.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {pharmacyRx.map((r) => (
+                    <li key={r.id} className="rounded-lg border border-[var(--attio-border-subtle)] px-3 py-2 text-[12px]">
+                      Rx {r.id} · {r.status.replace(/_/g, " ")} · {r.lines.length} items
+                    </li>
+                  ))}
+                  {pharmacyBills.map((b) => (
+                    <li key={b.id} className="rounded-lg border border-[var(--attio-border-subtle)] px-3 py-2 text-[12px]">
+                      Bill {b.id} · ₹{b.total.toLocaleString("en-IN")} · {b.paid ? "Paid" : "Pending"}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </TabsContent>
+        </div>
+      </Tabs>
+    </div>
+  );
+}
+
+export { LeadPipelineBoard };

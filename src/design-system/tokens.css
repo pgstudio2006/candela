@@ -1,0 +1,85 @@
+/* Candela — unified light tokens (Attio / Linear quality) */
+
+:root {
+  --c-canvas: #fafafa;
+  --c-surface: #ffffff;
+  --c-surface-raised: #f4f4f5;
+  --c-surface-hover: #ececee;
+  --c-overlay: rgba(0, 0, 0, 0.4);
+
+  --c-text: #18181b;
+  --c-text-secondary: #52525b;
+  --c-text-tertiary: #71717a;
+  --c-text-placeholder: #a1a1aa;
+
+  --c-border: rgba(0, 0, 0, 0.08);
+  --c-border-strong: rgba(0, 0, 0, 0.12);
+
+  /* Brand blue from Candela logo mark */
+  --c-brand: #4285f4;
+  --c-brand-hover: #3367d6;
+  --c-brand-muted: rgba(66, 133, 244, 0.1);
+  --c-brand-ring: rgba(66, 133, 244, 0.25);
+
+  /* Healthcare action red */
+  --c-accent: #e53935;
+  --c-accent-hover: #c62828;
+  --c-accent-muted: rgba(229, 57, 53, 0.1);
+  --c-accent-ring: rgba(229, 57, 53, 0.25);
+
+  --c-success: #16a34a;
+  --c-success-muted: rgba(22, 163, 74, 0.1);
+  --c-warning: #d97706;
+  --c-warning-muted: rgba(217, 119, 6, 0.1);
+  --c-critical: #dc2626;
+  --c-critical-muted: rgba(220, 38, 38, 0.1);
+  --c-info: #4285f4;
+  --c-info-muted: rgba(66, 133, 244, 0.1);
+
+  --c-focus-panel: #ffffff;
+  --c-focus-ink: #18181b;
+  --c-focus-muted: #71717a;
+  --c-focus-border: #e4e4e7;
+
+  --c-font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --c-font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --c-text-xs: 11px;
+  --c-text-sm: 12px;
+  --c-text-base: 14px;
+  --c-text-lg: 16px;
+  --c-text-xl: 20px;
+  --c-text-2xl: 24px;
+
+  --c-space-1: 4px;
+  --c-space-2: 8px;
+  --c-space-3: 12px;
+  --c-space-4: 16px;
+  --c-space-5: 20px;
+  --c-space-6: 24px;
+  --c-space-8: 32px;
+
+  --c-radius-sm: 4px;
+  --c-radius-md: 6px;
+  --c-radius-lg: 8px;
+  --c-radius-xl: 12px;
+
+  --c-shell-sidebar: 240px;
+  --c-patient-bar: 44px;
+  --c-drawer-width: 480px;
+
+  --c-row: 36px;
+  --c-row-compact: 30px;
+
+  --c-transition: 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  --c-z-palette: 800;
+  --c-z-drawer: 500;
+}
+
+[data-candela-app] {
+  background: var(--c-canvas);
+  color: var(--c-text);
+  font-family: var(--c-font-sans);
+  font-size: var(--c-text-base);
+  min-height: 100vh;
+}

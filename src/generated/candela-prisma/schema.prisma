@@ -1,0 +1,353 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/candela-prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./candela.db"
+}
+
+model Patient {
+  id           String   @id
+  uhid         String   @unique
+  name         String
+  phone        String
+  email        String?
+  age          Int
+  gender       String
+  department   String
+  departmentId String
+  tags         Json
+  balance      Float    @default(0)
+  lastVisit    String?
+  referrer     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model OpdVisit {
+  id                  String   @id
+  patientId           String
+  token               Int?
+  stage               String
+  departmentId        String
+  doctorId            String
+  doctorName          String
+  billing             String
+  exam                String
+  appointment         Boolean
+  appointmentTime     String?
+  waitMin             Int      @default(0)
+  checkInAt           String?
+  billAmount          Float?
+  amountPaid          Float?
+  balanceDue          Float?
+  treatmentPath       String?
+  ipdAdmissionId      String?
+  counselPackageLabel String?
+  deferredReason      String?
+  routingNote         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model DocumentTemplate {
+  id          String   @id
+  kind        String
+  label       String
+  layout      String
+  description String
+  enabled     Boolean
+  isSystem    Boolean
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model HrDepartment {
+  id        String   @id
+  name      String
+  headId    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model HrEmployee {
+  id             String   @id
+  name           String
+  email          String   @unique
+  phone          String
+  departmentId   String
+  designation    String
+  managerId      String?
+  joinDate       String
+  employmentType String
+  branchId       String
+  active         Boolean  @default(true)
+  role           String
+  crmAgentId     String?
+  salaryMonthly  Float
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model HrShift {
+  id         String   @id
+  employeeId String
+  date       String
+  startTime  String
+  endTime    String
+  location   String
+  role       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model HrLeaveRequest {
+  id             String   @id
+  employeeId     String
+  type           String
+  fromDate       String
+  toDate         String
+  reason         String
+  status         String
+  requestedAt    String
+  resolvedAt     String?
+  approverId     String?
+  syncCrmAbsence Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model HrAttendance {
+  id         String   @id
+  employeeId String
+  date       String
+  checkIn    String?
+  checkOut   String?
+  status     String
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model HrPayrollLine {
+  id         String   @id
+  employeeId String
+  period     String
+  basic      Float
+  allowances Float
+  deductions Float
+  net        Float
+  status     String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model HrCredential {
+  employeeId String   @id
+  password   String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model HrSetting {
+  id                  String   @id
+  autoCrmSync         Boolean  @default(true)
+  leaveApprovalNotify Boolean  @default(true)
+  attendanceReminder  Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model CrmAgent {
+  id                String   @id
+  name              String
+  email             String   @unique
+  role              String
+  active            Boolean  @default(true)
+  specialtyTags     Json
+  maxOpenLeads      Int
+  unavailableUntil  String?
+  unavailableReason String?
+  backupAgentId     String?
+  leadWeightPercent Int?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model CrmLead {
+  id               String   @id
+  fullName         String
+  phone            String
+  stageId          String
+  assigneeId       String?
+  source           String
+  valueEstimate    Float
+  priority         String
+  tags             Json
+  notes            String
+  createdAt        String
+  updatedAt        String
+  convertedVisitId String?
+  lostReason       String?
+  createdOn        DateTime @default(now())
+  updatedOn        DateTime @updatedAt
+}
+
+model AdminStaff {
+  id            String   @id
+  name          String
+  email         String   @unique
+  phone         String
+  role          String
+  departmentIds Json
+  branchId      String
+  licenseNo     String?
+  onDuty        Boolean  @default(false)
+  joinedAt      String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model AdminDepartment {
+  id                String   @id
+  label             String
+  headStaffId       String?
+  doctorIds         Json
+  defaultPackageIds Json
+  revenuePolicyId   String?
+  bays              Json
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model AdminDiseaseNode {
+  id                 String   @id
+  icd                String
+  label              String
+  departmentId       String
+  templateId         String?
+  packageIds         Json
+  consentTemplateIds Json
+  billingTemplateId  String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model AdminGeoPin {
+  id           String   @id
+  pincode      String
+  city         String
+  lat          Float
+  lng          Float
+  patientCount Int
+  opdCount     Int
+  ipdCount     Int
+  revenue      Float
+  topDiagnosis String
+  severity     String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model AdminDiseaseCluster {
+  id           String   @id
+  locality     String
+  lat          Float
+  lng          Float
+  caseCount    Int
+  severity     String
+  topDisease   String
+  surgePercent Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model AdminExpense {
+  id           String   @id
+  date         String
+  vendor       String
+  category     String
+  departmentId String
+  amount       Float
+  status       String
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model AdminRevenuePolicy {
+  id                String   @id
+  label             String
+  departmentId      String
+  doctorId          String?
+  opdConsultPercent Float
+  packageNetPercent Float
+  ipdDayFixed       Float
+  appliesToPartial  Boolean  @default(false)
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model AdminMrdRequest {
+  id          String   @id
+  patientName String
+  uhid        String
+  requestType String
+  requestedAt String
+  status      String
+  slaDue      String
+  documents   Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AdminMisReport {
+  id        String   @id
+  label     String
+  category  String
+  schedule  String
+  lastRun   String?
+  format    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AdminSetting {
+  id                  String   @id
+  kAnonymityMin       Int
+  geoAggregateOnly    Boolean
+  auditRetentionYears Int
+  outbreakAlerts      Boolean
+  autoMisDaily        Boolean
+  whatsappConsentFlag Boolean
+  resolvedLeakageIds  Json
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model FormSchemaOverride {
+  id        String   @id
+  schemaId  String   @unique
+  payload   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AdminAuditLog {
+  id         String   @id
+  at         String
+  actor      String
+  actorRole  String
+  module     String
+  action     String
+  entityType String
+  entityId   String
+  summary    String
+  severity   String
+  payload    Json?
+  createdAt  DateTime @default(now())
+}
