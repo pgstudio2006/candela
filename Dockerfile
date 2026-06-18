@@ -1,5 +1,5 @@
 FROM node:20-alpine
-RUN apk add --no-cache libc6-compat openssl
+RUN apk add --no-cache libc6-compat openssl postgresql-client
 WORKDIR /app
 
 COPY package.json package-lock.json ./
