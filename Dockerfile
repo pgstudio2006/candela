@@ -3,12 +3,12 @@ RUN apk add --no-cache libc6-compat openssl postgresql-client
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN NODE_ENV=development npm ci
 
 COPY . .
 RUN npx prisma generate
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+RUN NODE_ENV=production npm run build
 
 EXPOSE 3000
 ENV PORT=3000
