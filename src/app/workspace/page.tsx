@@ -204,34 +204,44 @@ export default function WorkspacePage() {
         {role === "pharmacy" && (
           <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/90 px-3 py-2.5 text-[11px] leading-relaxed text-emerald-900">
             <p className="font-medium">Pharmacy demo logins</p>
-            <p className="mt-1">Manager: {PHARMACY_MANAGER_EMAIL}</p>
-            <p>OPD pharmacist: opd@navayu.in</p>
-            <p>Purchase: purchase@navayu.in</p>
+            <p className="mt-1">Manager: {PHARMACY_MANAGER_EMAIL} · password: pharma2026</p>
+            <p>OPD pharmacist: opd@navayu.in · password: opd2026</p>
+            <p>Purchase: purchase@navayu.in · password: purchase2026</p>
           </div>
         )}
 
         {role === "crm" && (
           <div className="rounded-xl border border-blue-200/80 bg-blue-50/90 px-3 py-2.5 text-[11px] leading-relaxed text-blue-900">
             <p className="font-medium">CRM demo logins</p>
-            <p className="mt-1">Manager: {CRM_MANAGER_EMAIL}</p>
-            <p>Counsellor: priya@navayu.in</p>
-            <p>Caller: rahul@navayu.in</p>
+            <p className="mt-1">Manager: {CRM_MANAGER_EMAIL} · password: crm2026</p>
+            <p>Counsellor: priya@navayu.in · password: priya2026</p>
+            <p>Caller: rahul@navayu.in · password: rahul2026</p>
           </div>
         )}
 
         {role === "hr" && (
           <div className="rounded-xl border border-violet-200/80 bg-violet-50/90 px-3 py-2.5 text-[11px] leading-relaxed text-violet-900">
             <p className="font-medium">HR demo logins</p>
-            <p className="mt-1">Manager: {HR_MANAGER_EMAIL}</p>
-            <p>Executive: kavita.hr@navayu.in</p>
+            <p className="mt-1">Manager: {HR_MANAGER_EMAIL} · password: hr2026</p>
+            <p>Executive: kavita.hr@navayu.in · password: kavita2026</p>
           </div>
         )}
 
         {role === "counsellor" && (
           <div className="rounded-xl border border-amber-200/80 bg-amber-50/90 px-3 py-2.5 text-[11px] leading-relaxed text-amber-900">
             <p className="font-medium">Counsellor demo logins</p>
-            <p className="mt-1">Priya: {COUNSELLOR_MANAGER_EMAIL}</p>
-            <p>Anita: anita@navayu.in</p>
+            <p className="mt-1">Priya: {COUNSELLOR_MANAGER_EMAIL} · password: priya2026</p>
+            <p>Anita: anita@navayu.in · password: anita2026</p>
+          </div>
+        )}
+
+        {(role === "frontdesk" || role === "doctor" || role === "nurse" || role === "admin") && (
+          <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/90 px-3 py-2.5 text-[11px] leading-relaxed text-zinc-800">
+            <p className="font-medium">Core demo logins</p>
+            <p className="mt-1">Front desk: staff@navayu.in · demo2026</p>
+            <p>Doctor: doctor@navayu.in · demo2026</p>
+            <p>Nurse: nurse@navayu.in · demo2026</p>
+            <p>Admin: admin@navayu.in · admin2026</p>
           </div>
         )}
 

@@ -21,6 +21,7 @@ function CheckInContent() {
     getVisit,
     getWaitingCheckIns,
     patients,
+    ready,
     saveSubmission,
   } = useFrontdeskStore();
 
@@ -34,10 +35,10 @@ function CheckInContent() {
     if (!patient && !visit) return undefined;
     return {
       uhid: patient?.uhid ?? "",
-      department: visit?.departmentId ?? patient?.departmentId ?? "dept_spine",
-      doctor: visit?.doctorId ?? "dr_1",
+      department: visit?.departmentId || patient?.departmentId || "dept_spine",
+      doctor: visit?.doctorId || "dr_1",
     };
-  }, [visitParam, patientParam, getPatient, getVisit]);
+  }, [visitParam, patientParam, getPatient, getVisit, ready]);
 
   const waiting = getWaitingCheckIns();
 
@@ -55,7 +56,7 @@ function CheckInContent() {
         <Panel title="Check-in form">
           <SchemaForm
             schema={schema}
-            formKey={`${schema.id}-${visitParam ?? "new"}`}
+            formKey={`${schema.id}-${visitParam ?? "new"}-${prefill?.uhid ?? "blank"}-${ready ? "ready" : "loading"}`}
             initialValues={prefill}
             submitLabel="Complete check-in → Billing"
             onSubmit={(data) => {

@@ -4,6 +4,7 @@ import { useSession } from "@/components/candela/session-provider";
 import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, DataTable, MetricStrip, Panel, StatusBadge } from "@/components/frontdesk/ui";
+import { formatStageStatus } from "@/lib/frontdesk-workflow";
 import { Zap } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -99,7 +100,7 @@ export default function FrontdeskDashboardPage() {
                 return {
                   name: p.name,
                   uhid: p.uhid,
-                  stage: v?.stage.replace("_", " ") ?? "—",
+                  stage: v ? formatStageStatus(v.stage) : "—",
                 };
               })}
               onRowClick={(i) => router.push(`/app/frontdesk/patients/${patients[i].id}`)}
@@ -115,7 +116,7 @@ export default function FrontdeskDashboardPage() {
               <div key={stage} className="rounded-md bg-[var(--attio-surface)] px-2 py-3 text-center">
                 <p className="text-[18px] font-semibold tabular-nums">{count}</p>
                 <p className="mt-0.5 text-[10px] text-[var(--attio-text-tertiary)] capitalize">
-                  {stage.replace("_", " ")}
+                  {formatStageStatus(stage)}
                 </p>
               </div>
             ))}

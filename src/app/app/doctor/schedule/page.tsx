@@ -4,6 +4,7 @@ import { useDoctorStore } from "@/components/doctor/doctor-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { DOCTOR_SCHEDULE_BLOCKS } from "@/design-system/doctor-data";
+import { formatStageStatus } from "@/lib/frontdesk-workflow";
 import { cn } from "@/lib/utils";
 
 export default function DoctorSchedulePage() {
@@ -56,7 +57,7 @@ export default function DoctorSchedulePage() {
                 <li key={v.id} className="flex items-center justify-between py-3 text-[13px]">
                   <span>{v.appointmentTime}</span>
                   <StatusBadge label={`Token #${v.token}`} variant="info" />
-                  <span className="text-[var(--attio-text-secondary)]">{v.stage.replace(/_/g, " ")}</span>
+                  <span className="text-[var(--attio-text-secondary)]">{formatStageStatus(v.stage)}</span>
                 </li>
               ))}
             {visits.filter((v) => v.doctorId === activeDoctorId && v.appointment).length === 0 && (

@@ -8,6 +8,7 @@ import {
   type Prescription,
 } from "@/design-system/pharmacy-data";
 import { loadClinicalCore } from "@/lib/clinical-shared";
+import { formatStageStatus } from "@/lib/frontdesk-workflow";
 
 const PHARMACY_STORAGE_KEY = "candela-pharmacy-v1";
 const COUNSELLOR_STORAGE_KEY = "candela-counsellor-v1";
@@ -110,7 +111,7 @@ function visitEvents(visits: Visit[]): HistoryEvent[] {
     category: v.billAmount ? "billing" : "visit",
     title: `Visit — ${v.doctorName || "Unassigned"}`,
     detail: [
-      `Stage: ${v.stage.replace(/_/g, " ")}`,
+      `Stage: ${formatStageStatus(v.stage)}`,
       v.token != null ? `Token #${v.token}` : null,
       v.counselPackageLabel,
       v.routingNote,

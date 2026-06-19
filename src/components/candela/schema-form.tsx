@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { FormSchema, SchemaField } from "@/design-system/frontdesk-schemas";
 import { validateFormValues } from "@/lib/schema-registry";
 import { cn } from "@/lib/utils";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 function SchemaFieldInput({
   field,
@@ -115,8 +115,11 @@ function SchemaFieldInput({
   }
 
   if (field.type === "select") {
+    const optionValues = field.options?.map((o) => o.value) ?? [];
+    const raw = String(value ?? "");
+    const safeValue = optionValues.includes(raw) ? raw : "";
     return (
-      <Select value={String(value ?? "")} onValueChange={(v) => v != null && onChange(v)}>
+      <Select value={safeValue} onValueChange={(v) => v != null && onChange(v)}>
         <SelectTrigger className={cn(base, "h-9 w-full")}>
           <SelectValue placeholder={field.placeholder ?? "Select…"} />
         </SelectTrigger>
@@ -222,11 +225,12 @@ export function SchemaForm({
 }) {
   const [values, setValues] = useState(() => defaultValues(schema, initialValues));
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const initialKey = useMemo(() => JSON.stringify(initialValues ?? {}), [initialValues]);
 
   useEffect(() => {
     setValues(defaultValues(schema, initialValues));
     setErrors({});
-  }, [formKey, schema.id]);
+  }, [formKey, schema.id, initialKey, initialValues, schema]);
 
   const set = (id: string, v: string | number | boolean) => {
     setValues((prev) => ({ ...prev, [id]: v }));

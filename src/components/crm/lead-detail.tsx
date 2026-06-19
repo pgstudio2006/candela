@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { CrmActivity, CrmAgent, CrmFollowUp, CrmLead } from "@/design-system/crm-data";
 import { SOURCE_LABELS } from "@/design-system/crm-data";
 import { AttioButton, StatusBadge } from "@/components/frontdesk/ui";
+import { formatStageStatus } from "@/lib/frontdesk-workflow";
 import { cn } from "@/lib/utils";
 import { getCrmLeadClinicalHistoryAction, type CrmPatientHistory } from "@/server/crm/actions";
 import { useEffect, useState } from "react";
@@ -301,7 +302,7 @@ export function LeadDetailPanel({
                         <StatusBadge label={v.billing} variant={v.billing === "paid" ? "success" : v.billing === "partial" ? "warning" : "neutral"} />
                       </div>
                       <p className="mt-1 text-[12px] text-[var(--attio-text-tertiary)]">
-                        {v.stage.replace(/_/g, " ")}
+                        {formatStageStatus(v.stage)}
                         {v.token != null ? ` · Token #${v.token}` : ""}
                       </p>
                       {v.billAmount != null && (

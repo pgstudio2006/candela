@@ -1,6 +1,7 @@
 "use server";
 
 import { Prisma } from "@prisma/client";
+import { formatStageStatus } from "@/lib/frontdesk-workflow";
 import { prisma } from "@/lib/prisma";
 import { requireAnyModule, requireModule } from "@/server/auth";
 import { ensureRevenueSeeded } from "@/server/revenue/bootstrap";
@@ -272,7 +273,7 @@ export async function getCrmLeadClinicalHistoryAction(lead: CrmLead): Promise<Cr
     category: (visit.billAmount ? "billing" : "visit") as "billing" | "visit",
     title: `Visit — ${visit.doctorName || "Unassigned"}`,
     detail: [
-      `Stage: ${visit.stage.replace(/_/g, " ")}`,
+      `Stage: ${formatStageStatus(visit.stage)}`,
       visit.token != null ? `Token #${visit.token}` : null,
       visit.packageLabel ?? null,
       visit.routingNote ?? null,

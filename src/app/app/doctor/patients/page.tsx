@@ -4,6 +4,7 @@ import { useDoctorStore } from "@/components/doctor/doctor-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { DataTable, Panel } from "@/components/frontdesk/ui";
 import { Input } from "@/components/ui/input";
+import { formatStageStatus } from "@/lib/frontdesk-workflow";
 import { Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -47,7 +48,7 @@ export default function DoctorPatientsPage() {
               name: p.name,
               uhid: p.uhid,
               dept: p.department,
-              stage: v?.stage.replace(/_/g, " ") ?? "—",
+              stage: v ? formatStageStatus(v.stage) : "—",
             };
           })}
           onRowClick={(i) => router.push(`/app/doctor/patients/${patients[i].id}`)}

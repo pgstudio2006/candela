@@ -4,6 +4,7 @@ import { useDoctorStore } from "@/components/doctor/doctor-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { consultPrimaryDiagnosis, formatConsultDate } from "@/lib/doctor-records";
+import { formatStageStatus } from "@/lib/frontdesk-workflow";
 import { ArrowLeft, ChevronRight, FileText, Mic, Pill, Stethoscope } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -95,7 +96,7 @@ export default function DoctorPatientDetailPage() {
               {allVisits.map((v) => (
                 <li key={v.id} className="flex items-center justify-between py-2.5 text-[13px]">
                   <div>
-                    <StatusBadge label={v.stage.replace(/_/g, " ")} variant="info" />
+                    <StatusBadge label={formatStageStatus(v.stage)} variant="info" />
                     <p className="mt-1">Token #{v.token} · {v.doctorName}</p>
                   </div>
                   <StatusBadge label={v.billing} variant={v.billing === "paid" ? "success" : "warning"} />

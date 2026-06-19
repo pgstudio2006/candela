@@ -127,6 +127,10 @@ export function formatExamStatus(exam: ExamStatus | null | undefined): string {
   return (exam ?? "not_started").replace(/_/g, " ");
 }
 
+export function formatStageStatus(stage: VisitStage | string | null | undefined): string {
+  return (stage ?? "unknown").replace(/_/g, " ");
+}
+
 export function buildActionItems(visits: Visit[], patients: Patient[]): ActionItem[] {
   const items: ActionItem[] = [];
   for (const v of visits) {

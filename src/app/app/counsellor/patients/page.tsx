@@ -4,6 +4,7 @@ import { useCounsellorStore } from "@/components/counsellor/counsellor-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { DataTable, Panel } from "@/components/frontdesk/ui";
 import { Input } from "@/components/ui/input";
+import { formatStageStatus } from "@/lib/frontdesk-workflow";
 import { Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -34,7 +35,7 @@ export default function CounsellorPatientsPage() {
               name: p.name,
               uhid: p.uhid,
               sessions: String(getPatientCommercialHistory(p.id).length),
-              stage: v?.stage.replace(/_/g, " ") ?? "—",
+              stage: v ? formatStageStatus(v.stage) : "—",
             };
           })}
           onRowClick={(i) => router.push(`/app/counsellor/patients/${patients[i].id}`)}

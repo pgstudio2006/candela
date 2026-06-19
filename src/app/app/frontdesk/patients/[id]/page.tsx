@@ -5,6 +5,7 @@ import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { formatStageStatus } from "@/lib/frontdesk-workflow";
 import { ArrowLeft, CreditCard, ListOrdered } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -91,7 +92,7 @@ export default function PatientRecordPage() {
               {activeVisit ? (
                 <>
                   <p className="text-[13px] text-[var(--attio-text-secondary)]">
-                    Active visit at <strong>{activeVisit.stage.replace("_", " ")}</strong> stage
+                    Active visit at <strong>{formatStageStatus(activeVisit.stage)}</strong> stage
                   </p>
                   {activeVisit.stage === "billing" && (
                     <Link href={`/app/frontdesk/billing?visit=${activeVisit.id}`} className="mt-3 inline-block">
@@ -118,7 +119,7 @@ export default function PatientRecordPage() {
                 <li key={v.id} className="flex items-center justify-between rounded-lg border border-[var(--attio-border-subtle)] p-3 text-[13px]">
                   <div>
                     <p className="font-medium">{v.doctorName || "Unassigned"}</p>
-                    <p className="text-[var(--attio-text-tertiary)]">Token #{v.token ?? "—"} · {v.stage.replace("_", " ")}</p>
+                    <p className="text-[var(--attio-text-tertiary)]">Token #{v.token ?? "—"} · {formatStageStatus(v.stage)}</p>
                   </div>
                   <StatusBadge label={v.billing} variant={v.billing === "paid" ? "success" : "warning"} />
                 </li>
