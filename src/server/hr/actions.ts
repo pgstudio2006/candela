@@ -56,7 +56,18 @@ export async function validateHrLoginAction(email: string, password: string): Pr
   if (!employee) return { ok: false, error: "No HR account for this email." };
 
   const cred = await prisma.hrCredential.findUnique({ where: { employeeId: employee.id } });
-  if (!cred || cred.password !== pwd) return { ok: false, error: "Incorrect password." };
+  if (!cred) return { ok: false, error: "Incorrect password." };
+
+  const { verifyPassword, hashPassword, isLegacyHash } = await import("@/server/revenue/password");
+  const valid = await verifyPassword(pwd, cred.password);
+  if (!valid) return { ok: false, error: "Incorrect password." };
+
+  if (isLegacyHash(cred.password)) {
+    await prisma.hrCredential.update({
+      where: { employeeId: employee.id },
+      data: { password: await hashPassword(pwd) },
+    });
+  }
 
   return { ok: true, operatorId: employee.id, name: employee.name, email: employee.email };
 }

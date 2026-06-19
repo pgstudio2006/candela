@@ -79,9 +79,12 @@ export type DoctorSnapshot = {
   documentTemplates: DocumentTemplate[];
 };
 
-export async function getDoctorSnapshot(activeDoctorId = DEMO_DOCTOR_ID): Promise<DoctorSnapshot> {
+export async function getDoctorSnapshot(activeDoctorId = DEMO_DOCTOR_ID, ctx?: import("@/server/context").ServerContext): Promise<DoctorSnapshot> {
   const [clinical, consultRows, queueRows, ipdRows, templateRows, docRows] = await Promise.all([
-    getClinicalSnapshot(),
+    ctx ? getClinicalSnapshot(ctx) : getClinicalSnapshot(await (async () => {
+      const { getServerContext } = await import("@/server/context");
+      return getServerContext();
+    })()),
     prisma.consultation.findMany({ orderBy: { createdAt: "asc" } }),
     prisma.counsellorQueueItem.findMany({ orderBy: { createdAt: "asc" } }),
     prisma.ipdAdmission.findMany({ orderBy: { createdAt: "asc" } }),
@@ -241,6 +244,7 @@ export async function completeConsultation(
     handoff: Record<string, string | number | boolean>;
     sendWhatsapp: boolean;
   },
+  ctx?: import("@/server/context").ServerContext,
 ) {
   const consult = await prisma.consultation.findUnique({ where: { visitId } });
   const visit = await prisma.opdVisit.findUnique({ where: { id: visitId } });
@@ -320,6 +324,20 @@ export async function completeConsultation(
       });
     }
   });
+
+  if (ctx && consult.prescription && Array.isArray(consult.prescription) && consult.prescription.length) {
+    const patient = await prisma.patient.findUnique({ where: { id: visit.patientId } });
+    const { pushPrescriptionToPharmacy } = await import("@/server/pharmacy-rx-bridge");
+    await pushPrescriptionToPharmacy(ctx, {
+      visitId,
+      patientId: visit.patientId,
+      patientName: patient?.name ?? patient?.fullName ?? "Patient",
+      uhid: patient?.uhid ?? "",
+      doctorId: visit.doctorId ?? consult.doctorId,
+      doctorName: visit.doctorName ?? consult.doctorId,
+      lines: consult.prescription as PrescriptionLine[],
+    });
+  }
 }
 
 export async function createDoctorTemplate(doctorId: string, tpl: Omit<DoctorTemplate, "id" | "doctorId">) {

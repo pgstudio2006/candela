@@ -18,6 +18,11 @@ export async function ensureRevenueSeeded() {
   ]);
 
   if (pharmacyCredentialCount === 0) {
+    const [pharmaHash, opdHash, purchaseHash] = await Promise.all([
+      hashPassword("pharma2026"),
+      hashPassword("opd2026"),
+      hashPassword("purchase2026"),
+    ]);
     await prisma.pharmacyOperatorCredential.createMany({
       data: [
         {
@@ -27,7 +32,7 @@ export async function ensureRevenueSeeded() {
           role: "manager",
           active: true,
           licenseNo: "DL-GJ-12345",
-          passwordHash: hashPassword("pharma2026"),
+          passwordHash: pharmaHash,
         },
         {
           id: "phm_opd",
@@ -36,7 +41,7 @@ export async function ensureRevenueSeeded() {
           role: "opd",
           active: true,
           licenseNo: "DL-GJ-67890",
-          passwordHash: hashPassword("opd2026"),
+          passwordHash: opdHash,
         },
         {
           id: "phm_pur",
@@ -45,7 +50,7 @@ export async function ensureRevenueSeeded() {
           role: "purchase",
           active: true,
           licenseNo: "DL-GJ-11223",
-          passwordHash: hashPassword("purchase2026"),
+          passwordHash: purchaseHash,
         },
       ],
       skipDuplicates: true,
@@ -53,6 +58,12 @@ export async function ensureRevenueSeeded() {
   }
 
   if (crmCredentialCount === 0) {
+    const [crmHash, priyaHash, anitaHash, rahulHash] = await Promise.all([
+      hashPassword("crm2026"),
+      hashPassword("priya2026"),
+      hashPassword("anita2026"),
+      hashPassword("rahul2026"),
+    ]);
     await prisma.crmOperatorCredential.createMany({
       data: [
         {
@@ -64,7 +75,7 @@ export async function ensureRevenueSeeded() {
           specialtyTags: [],
           maxOpenLeads: 999,
           leadWeightPct: 0,
-          passwordHash: hashPassword("crm2026"),
+          passwordHash: crmHash,
         },
         {
           id: "ag_priya",
@@ -76,7 +87,7 @@ export async function ensureRevenueSeeded() {
           maxOpenLeads: 25,
           backupAgentId: "ag_anita",
           leadWeightPct: 40,
-          passwordHash: hashPassword("priya2026"),
+          passwordHash: priyaHash,
         },
         {
           id: "ag_anita",
@@ -88,7 +99,7 @@ export async function ensureRevenueSeeded() {
           maxOpenLeads: 25,
           backupAgentId: "ag_priya",
           leadWeightPct: 35,
-          passwordHash: hashPassword("anita2026"),
+          passwordHash: anitaHash,
         },
         {
           id: "ag_rahul",
@@ -100,7 +111,7 @@ export async function ensureRevenueSeeded() {
           maxOpenLeads: 40,
           backupAgentId: "ag_priya",
           leadWeightPct: 25,
-          passwordHash: hashPassword("rahul2026"),
+          passwordHash: rahulHash,
         },
       ],
       skipDuplicates: true,
@@ -108,6 +119,10 @@ export async function ensureRevenueSeeded() {
   }
 
   if (counsellorCredentialCount === 0) {
+    const [priyaCounsellorHash, anitaCounsellorHash] = await Promise.all([
+      hashPassword("priya2026"),
+      hashPassword("anita2026"),
+    ]);
     await prisma.counsellorOperatorCredential.createMany({
       data: [
         {
@@ -116,7 +131,7 @@ export async function ensureRevenueSeeded() {
           email: "priya@navayu.in",
           role: "counsellor",
           active: true,
-          passwordHash: hashPassword("priya2026"),
+          passwordHash: priyaCounsellorHash,
         },
         {
           id: "counsellor_2",
@@ -124,7 +139,7 @@ export async function ensureRevenueSeeded() {
           email: "anita@navayu.in",
           role: "counsellor",
           active: true,
-          passwordHash: hashPassword("anita2026"),
+          passwordHash: anitaCounsellorHash,
         },
       ],
       skipDuplicates: true,

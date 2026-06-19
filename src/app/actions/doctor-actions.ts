@@ -19,8 +19,8 @@ import {
 } from "@/server/doctor";
 
 export async function getDoctorSnapshotAction(activeDoctorId?: string) {
-  await requireModule("doctor");
-  return getDoctorSnapshot(activeDoctorId);
+  const ctx = await requireModule("doctor");
+  return getDoctorSnapshot(activeDoctorId, ctx);
 }
 
 export async function startConsultationAction(visitId: string, doctorId: string) {
@@ -57,8 +57,8 @@ export async function completeConsultationAction(
     sendWhatsapp: boolean;
   },
 ) {
-  await requireModule("doctor");
-  return completeConsultation(visitId, opts);
+  const ctx = await requireModule("doctor");
+  return completeConsultation(visitId, opts, ctx);
 }
 
 export async function createDoctorTemplateAction(doctorId: string, tpl: Omit<DoctorTemplate, "id" | "doctorId">) {

@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { db } from "@/lib/db";
 import { ServerActionError } from "@/server/errors";
 
 export type ServerContext = {
@@ -17,6 +18,19 @@ export async function getServerContext(): Promise<ServerContext> {
 
   if (!session.user.tenantId || !session.user.branchId || !session.user.id) {
     throw new ServerActionError("INVALID_SESSION", "Session is missing tenant or branch context.");
+  }
+
+  if (session.user.sessionToken) {
+    const dbSession = await db.session.findFirst({
+      where: {
+        sessionToken: session.user.sessionToken,
+        status: "ACTIVE",
+        userId: session.user.id,
+      },
+    });
+    if (!dbSession) {
+      throw new ServerActionError("UNAUTHORIZED", "Your session has expired. Please sign in again.");
+    }
   }
 
   return {

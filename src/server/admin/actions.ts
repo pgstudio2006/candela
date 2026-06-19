@@ -545,9 +545,27 @@ export async function addMrdRequest(
 export async function runMisReport(idValue: string, actor = "admin") {
   return auditedMutation(
     async () => {
+      const report = await prisma.adminMisReport.findUnique({ where: { id: idValue } });
+      const visitCount = await prisma.opdVisit.count();
+      const revenue = await prisma.invoice.aggregate({ _sum: { amountPaid: true } });
+      const rev = Number(revenue._sum.amountPaid ?? 0);
+      const csvPreview = [
+        "report,generated_at,active_visits,revenue_collected",
+        `${report?.label ?? idValue},${new Date().toISOString()},${visitCount},${rev}`,
+      ].join("\n");
       await prisma.adminMisReport.update({
         where: { id: idValue },
         data: { lastRun: new Date().toISOString() },
+      });
+      await writeAuditLog({
+        actor,
+        actorRole: "admin",
+        module: "mis",
+        action: "mis_output",
+        entityType: "mis_report",
+        entityId: idValue,
+        summary: `MIS output generated (${visitCount} visits, ₹${rev})`,
+        payload: { csvPreview, visitCount, revenue: rev },
       });
     },
     {

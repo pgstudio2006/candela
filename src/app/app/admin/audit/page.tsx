@@ -3,6 +3,7 @@
 import { useAdminStore } from "@/components/admin/admin-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { Panel, StatusBadge } from "@/components/frontdesk/ui";
+import { exportAuditCsv } from "@/lib/admin-utils";
 import { useState } from "react";
 
 export default function AdminAuditPage() {
@@ -28,7 +29,18 @@ export default function AdminAuditPage() {
           </button>
         ))}
       </div>
-      <Panel title={`${events.length} events`} action={<button type="button" className="text-[11px] text-[var(--attio-accent)]">Export CSV</button>}>
+      <Panel
+        title={`${events.length} events`}
+        action={
+          <button
+            type="button"
+            className="text-[11px] text-[var(--attio-accent)]"
+            onClick={() => exportAuditCsv(events)}
+          >
+            Export CSV
+          </button>
+        }
+      >
         <ul className="divide-y divide-[var(--attio-border-subtle)]">
           {events.map((e) => (
             <li key={e.id} className="grid gap-1 py-3 sm:grid-cols-[140px_100px_1fr] sm:items-center">

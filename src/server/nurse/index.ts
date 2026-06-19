@@ -136,9 +136,9 @@ export type NurseSnapshot = {
   episodes: NursingEpisode[];
 };
 
-export async function getNurseSnapshot(): Promise<NurseSnapshot> {
+export async function getNurseSnapshot(ctx: import("@/server/context").ServerContext): Promise<NurseSnapshot> {
   const [clinical, handoffRows, episodeRows] = await Promise.all([
-    getClinicalSnapshot(),
+    getClinicalSnapshot(ctx),
     prisma.nursingHandoff.findMany({ orderBy: { createdAt: "asc" } }),
     prisma.nursingEpisode.findMany({ orderBy: { createdAt: "asc" } }),
   ]);

@@ -8,6 +8,12 @@ import type { Appointment, FormSubmission, FrontdeskCounters } from "@/lib/front
 import { ageFromDob, deptLabel, doctorName, matchPatientByQuery, nextUhid, nowTime, templateAmount } from "@/lib/frontdesk-workflow";
 import { billingFromPayment, resolveOpdFirstRoute, resolvePostCounselRoute, treatmentPathFromConvert, type PaymentScope } from "@/lib/billing-routing";
 import { prisma } from "@/lib/prisma";
+import type { ServerContext } from "@/server/context";
+import { ServerActionError } from "@/server/errors";
+import { upsertVisitInvoice } from "@/server/invoicing";
+import { writePlatformAudit } from "@/server/platform-audit";
+import { branchScope } from "@/server/tenancy";
+import { syncVisitFromOpdVisit } from "@/server/visit-sync";
 
 type PrimitiveRecord = Record<string, string | number | boolean>;
 
@@ -230,6 +236,47 @@ async function ensureClinicalSeed() {
   });
 }
 
+async function backfillBranchScope(ctx: ServerContext) {
+  const scope = branchScope(ctx);
+  await prisma.patient.updateMany({
+    where: { tenantId: null, branchId: null },
+    data: scope,
+  });
+  await prisma.opdVisit.updateMany({
+    where: { tenantId: null, branchId: null },
+    data: scope,
+  });
+}
+
+async function assertNoDuplicatePatient(
+  ctx: ServerContext,
+  phone: string,
+  uhid: string,
+  excludeId?: string,
+  force = false,
+) {
+  if (force) return;
+  const scope = branchScope(ctx);
+  const phoneDigits = phone.replace(/\D/g, "").slice(-10);
+  const existing = await prisma.patient.findFirst({
+    where: {
+      tenantId: scope.tenantId,
+      branchId: scope.branchId,
+      ...(excludeId ? { NOT: { id: excludeId } } : {}),
+      OR: [
+        { uhid },
+        ...(phoneDigits.length >= 10 ? [{ phone: { endsWith: phoneDigits } }] : []),
+      ],
+    },
+  });
+  if (existing) {
+    throw new ServerActionError(
+      "DUPLICATE_PATIENT",
+      `Patient already registered: ${existing.name ?? "Unknown"} (${existing.uhid}). Use supervisor override to proceed.`,
+    );
+  }
+}
+
 function buildCounters(patients: Patient[], visits: Visit[], appointments: Appointment[]): FrontdeskCounters {
   const patientCounter = Math.max(0, ...patients.map((p) => parseUhidCounter(p.uhid)));
   const visitCounter = Math.max(0, ...visits.map((v) => parseCounterFromId("v", v.id)));
@@ -243,15 +290,17 @@ function buildCounters(patients: Patient[], visits: Visit[], appointments: Appoi
   };
 }
 
-export async function getClinicalSnapshot(): Promise<ClinicalSnapshot> {
+export async function getClinicalSnapshot(ctx: ServerContext): Promise<ClinicalSnapshot> {
   await ensureClinicalSeed();
+  await backfillBranchScope(ctx);
+  const scope = branchScope(ctx);
 
   const [patientsRows, visitsRows, appointmentRows, submissionRows, handoffRows] = await Promise.all([
-    prisma.patient.findMany({ orderBy: { createdAt: "asc" } }),
-    prisma.opdVisit.findMany({ orderBy: { createdAt: "asc" } }),
-    prisma.appointment.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.patient.findMany({ where: scope, orderBy: { createdAt: "asc" } }),
+    prisma.opdVisit.findMany({ where: scope, orderBy: { createdAt: "asc" } }),
+    prisma.appointment.findMany({ where: { branchId: scope.branchId }, orderBy: { createdAt: "asc" } }),
     prisma.formSubmission.findMany({ orderBy: { createdAt: "asc" } }),
-    prisma.billingHandoff.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.billingHandoff.findMany({ where: { branchId: scope.branchId }, orderBy: { createdAt: "asc" } }),
   ]);
 
   const patients: Patient[] = patientsRows.map((row) => ({
@@ -341,22 +390,36 @@ export async function saveSubmission(formId: string, data: PrimitiveRecord, ctx?
   });
 }
 
-export async function registerPatient(input: { data: RegisterInput; patientId: string; visitId?: string; startVisit?: boolean }) {
+export async function registerPatient(
+  ctx: ServerContext,
+  input: {
+    data: RegisterInput;
+    patientId: string;
+    visitId?: string;
+    startVisit?: boolean;
+    forceDuplicate?: boolean;
+  },
+) {
   await ensureClinicalSeed();
-  const { data, patientId, visitId, startVisit = true } = input;
-  const current = await getClinicalSnapshot();
+  const { data, patientId, visitId, startVisit = true, forceDuplicate = false } = input;
+  const scope = branchScope(ctx);
+  const current = await getClinicalSnapshot(ctx);
   const uhid = data.uhid ? String(data.uhid) : nextUhid(current.counters.patient + 1);
   const deptId = String(data.department ?? "dept_spine");
   const first = String(data.firstName ?? "").trim();
   const last = String(data.lastName ?? "").trim();
   const name = `${first} ${last}`.trim() || "New Patient";
+  const phone = String(data.phone ?? "");
+
+  await assertNoDuplicatePatient(ctx, phone, uhid, patientId, forceDuplicate);
 
   await prisma.patient.upsert({
     where: { id: patientId },
     update: {
       uhid,
       name,
-      phone: String(data.phone ?? ""),
+      fullName: name,
+      phone,
       email: String(data.email ?? "") || null,
       age: data.dob ? ageFromDob(String(data.dob)) : 0,
       gender: String(data.gender ?? "O"),
@@ -364,12 +427,16 @@ export async function registerPatient(input: { data: RegisterInput; patientId: s
       departmentId: deptId,
       tags: [String(data.visitType ?? "opd")],
       referrer: String(data.referrerName ?? "") || null,
+      tenantId: scope.tenantId,
+      branchId: scope.branchId,
     },
     create: {
       id: patientId,
+      ...scope,
       uhid,
       name,
-      phone: String(data.phone ?? ""),
+      fullName: name,
+      phone,
       email: String(data.email ?? "") || null,
       age: data.dob ? ageFromDob(String(data.dob)) : 0,
       gender: String(data.gender ?? "O"),
@@ -386,9 +453,12 @@ export async function registerPatient(input: { data: RegisterInput; patientId: s
       update: {
         stage: "registered",
         departmentId: deptId,
+        tenantId: scope.tenantId,
+        branchId: scope.branchId,
       },
       create: {
         id: visitId,
+        ...scope,
         patientId,
         stage: "registered",
         departmentId: deptId,
@@ -400,15 +470,32 @@ export async function registerPatient(input: { data: RegisterInput; patientId: s
         waitMin: 0,
       },
     });
+    const opd = await prisma.opdVisit.findUnique({ where: { id: visitId } });
+    if (opd) await syncVisitFromOpdVisit(ctx, opd);
   }
+
+  await writePlatformAudit({
+    ctx,
+    module: "frontdesk",
+    action: "patient_registered",
+    entityType: "patient",
+    entityId: patientId,
+    summary: `Registered ${name} (${uhid})`,
+  });
 
   return { patientId, visitId: visitId ?? "", uhid };
 }
 
-export async function checkInVisit(input: { data: CheckInInput; existingVisitId?: string; newVisitId?: string }) {
+export async function checkInVisit(
+  ctx: ServerContext,
+  input: { data: CheckInInput; existingVisitId?: string; newVisitId?: string },
+) {
   await ensureClinicalSeed();
+  const scope = branchScope(ctx);
   const { data, existingVisitId, newVisitId } = input;
-  const patients = (await prisma.patient.findMany({ orderBy: { createdAt: "asc" } })).map((row) => ({
+  const patients = (
+    await prisma.patient.findMany({ where: scope, orderBy: { createdAt: "asc" } })
+  ).map((row) => ({
     id: row.id,
     uhid: row.uhid,
     name: row.name,
@@ -430,7 +517,7 @@ export async function checkInVisit(input: { data: CheckInInput; existingVisitId?
 
   const doctorId = String(data.doctor ?? "dr_1");
   const deptId = String(data.department ?? patient.departmentId);
-  const allVisits = await prisma.opdVisit.findMany({ orderBy: { createdAt: "asc" } });
+  const allVisits = await prisma.opdVisit.findMany({ where: scope, orderBy: { createdAt: "asc" } });
   const existing = existingVisitId
     ? allVisits.find((v) => v.id === existingVisitId)
     : allVisits.find(
@@ -449,8 +536,12 @@ export async function checkInVisit(input: { data: CheckInInput; existingVisitId?
         doctorName: doctorName(doctorId),
         checkInAt: nowTime(),
         billing: existing.billing === "paid" ? "paid" : "pending",
+        tenantId: scope.tenantId,
+        branchId: scope.branchId,
       },
     });
+    const updated = await prisma.opdVisit.findUnique({ where: { id: existing.id } });
+    if (updated) await syncVisitFromOpdVisit(ctx, updated);
     return { visitId: existing.id, patientId: patient.id };
   }
 
@@ -459,6 +550,7 @@ export async function checkInVisit(input: { data: CheckInInput; existingVisitId?
   await prisma.opdVisit.create({
     data: {
       id: newVisitId,
+      ...scope,
       patientId: patient.id,
       stage: "billing",
       departmentId: deptId,
@@ -471,10 +563,16 @@ export async function checkInVisit(input: { data: CheckInInput; existingVisitId?
       checkInAt: nowTime(),
     },
   });
+  const created = await prisma.opdVisit.findUnique({ where: { id: newVisitId } });
+  if (created) await syncVisitFromOpdVisit(ctx, created);
   return { visitId: newVisitId, patientId: patient.id };
 }
 
-export async function processBilling(visitId: string, data: BillingInput): Promise<BillingResult> {
+export async function processBilling(
+  ctx: ServerContext,
+  visitId: string,
+  data: BillingInput,
+): Promise<BillingResult> {
   await ensureClinicalSeed();
   const visit = await prisma.opdVisit.findUnique({ where: { id: visitId } });
   if (!visit) {
@@ -495,15 +593,18 @@ export async function processBilling(visitId: string, data: BillingInput): Promi
   const balanceDue = Math.max(0, net - collected);
 
   const route = resolveOpdFirstRoute({ paymentScope, mode, visitId, netAmount: net, collected });
-  const maxToken = await prisma.opdVisit.aggregate({ _max: { token: true } });
+  const maxToken = await prisma.opdVisit.aggregate({
+    where: branchScope(ctx),
+    _max: { token: true },
+  });
   const token = (maxToken._max.token ?? 0) + 1;
 
-  await prisma.$transaction([
-    prisma.patient.update({
+  await prisma.$transaction(async (tx) => {
+    await tx.patient.update({
       where: { id: visit.patientId },
       data: { balance: { increment: balanceDue } },
-    }),
-    prisma.opdVisit.update({
+    });
+    await tx.opdVisit.update({
       where: { id: visitId },
       data: {
         stage: route.stage,
@@ -516,14 +617,46 @@ export async function processBilling(visitId: string, data: BillingInput): Promi
         routingNote: route.routingNote,
         deferredReason: route.billing === "deferred" ? String(data.deferReason ?? "") : null,
         waitMin: 0,
+        tenantId: ctx.tenantId,
+        branchId: ctx.branchId,
       },
-    }),
-  ]);
+    });
+    await upsertVisitInvoice(
+      ctx,
+      {
+        visitId,
+        patientId: visit.patientId,
+        label: String(data.customLine ?? data.template ?? "OPD consultation"),
+        subtotal: amount,
+        discount,
+        collected,
+        mode,
+        paymentScope,
+      },
+      tx,
+    );
+  });
+
+  const updated = await prisma.opdVisit.findUnique({ where: { id: visitId } });
+  if (updated) await syncVisitFromOpdVisit(ctx, updated);
+
+  await writePlatformAudit({
+    ctx,
+    module: "frontdesk",
+    action: "billing_processed",
+    entityType: "visit",
+    entityId: visitId,
+    summary: `Billing ₹${net} (${mode}) — ${route.routingLabel}`,
+  });
 
   return { routeHref: route.routeHref, routingLabel: route.routingLabel, routingNote: route.routingNote };
 }
 
-export async function processCounselBilling(visitId: string, input: CounselBillingInput): Promise<BillingResult> {
+export async function processCounselBilling(
+  ctx: ServerContext,
+  visitId: string,
+  input: CounselBillingInput,
+): Promise<BillingResult> {
   await ensureClinicalSeed();
   const visit = await prisma.opdVisit.findUnique({ where: { id: visitId } });
   if (!visit) {
@@ -662,10 +795,33 @@ export async function processCounselBilling(visitId: string, input: CounselBilli
     }),
   ]);
 
+  const updated = await prisma.opdVisit.findUnique({ where: { id: visitId } });
+  if (updated) await syncVisitFromOpdVisit(ctx, updated);
+
+  await upsertVisitInvoice(ctx, {
+    visitId,
+    patientId: handoff.patientId,
+    label: handoff.quote.packageLabel ?? "Counsellor package",
+    subtotal: net,
+    discount: 0,
+    collected,
+    mode: input.mode,
+    paymentScope,
+  });
+
+  await writePlatformAudit({
+    ctx,
+    module: "frontdesk",
+    action: "counsel_billing_processed",
+    entityType: "visit",
+    entityId: visitId,
+    summary: `Post-counsel billing ₹${net}`,
+  });
+
   return { routeHref: route.routeHref, routingLabel: route.routingLabel, routingNote: route.routingNote };
 }
 
-export async function completeJuniorExam(visitId: string) {
+export async function completeJuniorExam(ctx: ServerContext, visitId: string) {
   await ensureClinicalSeed();
   await prisma.opdVisit.update({
     where: { id: visitId },
@@ -674,12 +830,18 @@ export async function completeJuniorExam(visitId: string) {
       exam: "done",
     },
   });
+  const updated = await prisma.opdVisit.findUnique({ where: { id: visitId } });
+  if (updated) await syncVisitFromOpdVisit(ctx, updated);
 }
 
-export async function bookAppointment(input: { data: AppointmentInput; appointmentId: string; visitId: string }) {
+export async function bookAppointment(
+  ctx: ServerContext,
+  input: { data: AppointmentInput; appointmentId: string; visitId: string },
+) {
   await ensureClinicalSeed();
+  const scope = branchScope(ctx);
   const { data, appointmentId, visitId } = input;
-  const patients = await prisma.patient.findMany({ orderBy: { createdAt: "asc" } });
+  const patients = await prisma.patient.findMany({ where: scope, orderBy: { createdAt: "asc" } });
   const mappedPatients: Patient[] = patients.map((p) => ({
     id: p.id,
     uhid: p.uhid,
@@ -722,6 +884,7 @@ export async function bookAppointment(input: { data: AppointmentInput; appointme
       },
       create: {
         id: visitId,
+        ...scope,
         patientId: patient.id,
         stage: "registered",
         departmentId: deptId,
@@ -763,6 +926,9 @@ export async function bookAppointment(input: { data: AppointmentInput; appointme
       },
     }),
   ]);
+
+  const opd = await prisma.opdVisit.findUnique({ where: { id: visitId } });
+  if (opd) await syncVisitFromOpdVisit(ctx, opd);
 
   return { appointmentId, visitId };
 }

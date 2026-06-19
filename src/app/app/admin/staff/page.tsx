@@ -5,11 +5,12 @@ import { useAdminStore } from "@/components/admin/admin-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, DataTable, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import type { StaffMember } from "@/design-system/admin-data";
+import { createStaffWithLoginAction } from "@/server/admin/settings-actions";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 export default function AdminStaffPage() {
-  const { staff, departments, updateStaff, addStaff, removeStaff, logAdminAction } = useAdminStore();
+  const { staff, departments, updateStaff, addStaff, removeStaff, logAdminAction, refresh } = useAdminStore();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<StaffMember | undefined>();
 
@@ -128,10 +129,17 @@ export default function AdminStaffPage() {
         onClose={() => setFormOpen(false)}
         departments={departments}
         initial={editing}
-        onSave={(data) => {
+        onSave={async (data, opts) => {
           if (editing) {
             updateStaff(editing.id, data);
             logAdminAction(`Updated staff: ${data.name}`);
+          } else if (opts?.createLogin) {
+            await createStaffWithLoginAction({
+              staff: data,
+              password: opts.password,
+            });
+            await refresh();
+            logAdminAction(`Added staff with login: ${data.name}`);
           } else {
             addStaff(data);
             logAdminAction(`Added staff: ${data.name}`);

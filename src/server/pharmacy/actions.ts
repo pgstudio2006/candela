@@ -46,7 +46,7 @@ export async function savePharmacyStateAction(next: PharmacyStateShape): Promise
   await ensureRevenueSeeded();
   await writeState(next);
   await Promise.all(
-    next.staff.map((member) =>
+    next.staff.map(async (member) =>
       prisma.pharmacyOperatorCredential.upsert({
         where: { id: member.id },
         create: {
@@ -56,7 +56,7 @@ export async function savePharmacyStateAction(next: PharmacyStateShape): Promise
           role: member.role,
           active: member.active,
           licenseNo: member.licenseNo,
-          passwordHash: hashPassword(next.staffPasswords[member.id] ?? "welcome123"),
+          passwordHash: await hashPassword(next.staffPasswords[member.id] ?? "welcome123"),
         },
         update: {
           name: member.name,
@@ -64,7 +64,7 @@ export async function savePharmacyStateAction(next: PharmacyStateShape): Promise
           role: member.role,
           active: member.active,
           licenseNo: member.licenseNo,
-          passwordHash: hashPassword(next.staffPasswords[member.id] ?? "welcome123"),
+          passwordHash: await hashPassword(next.staffPasswords[member.id] ?? "welcome123"),
         },
       }),
     ),
@@ -82,7 +82,7 @@ export async function validatePharmacyLoginAction(email: string, password: strin
   });
   if (!operator) return { ok: false, error: "No pharmacy account for this email." };
   if (!operator.active) return { ok: false, error: "Account inactive." };
-  if (!verifyPassword(pwd, operator.passwordHash)) {
+  if (!(await verifyPassword(pwd, operator.passwordHash))) {
     return { ok: false, error: "Incorrect password." };
   }
   return { ok: true, operatorId: operator.id, name: operator.name, email: operator.email };
@@ -99,17 +99,18 @@ export async function upsertPharmacyOperatorAction(input: {
 }) {
   await requireModule("pharmacy");
   await ensureRevenueSeeded();
+  const passwordHash = await hashPassword(input.password);
   await prisma.pharmacyOperatorCredential.upsert({
     where: { id: input.id },
     create: {
       ...input,
       email: input.email.trim().toLowerCase(),
-      passwordHash: hashPassword(input.password),
+      passwordHash,
     },
     update: {
       ...input,
       email: input.email.trim().toLowerCase(),
-      passwordHash: hashPassword(input.password),
+      passwordHash,
     },
   });
 }

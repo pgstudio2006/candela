@@ -4,35 +4,52 @@ import { GlassAuthShell } from "@/components/auth/glass-auth-shell";
 import { GlassIconField, glassButtonClass } from "@/components/auth/glass-form";
 import { useSession } from "@/components/candela/session-provider";
 import { Button } from "@/components/ui/button";
+import { validateTenantAction } from "@/server/platform-auth";
 import { cn } from "@/lib/utils";
 import { Building2, KeyRound } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 
 export default function TenantPage() {
   const router = useRouter();
   const { setAuthDraft } = useSession();
+  const [orgId, setOrgId] = useState("navayu");
+  const [orgPassword, setOrgPassword] = useState("demo");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const continueToBranch = (e: FormEvent) => {
+  const continueToBranch = async (e: FormEvent) => {
     e.preventDefault();
-    setAuthDraft({
-      tenantId: "navayu",
-      tenantName: "Navayu Spine & Joint Care",
-    });
-    router.push("/branch");
+    setError("");
+    setLoading(true);
+    try {
+      const result = await validateTenantAction(orgId, orgPassword);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setAuthDraft({
+        tenantId: result.slug,
+        tenantName: result.tenantName,
+      });
+      router.push("/branch");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <GlassAuthShell
       step={2}
       title="Select organization"
-      subtitle="Navayu Spine & Joint Care · Gurgaon & Pataudi"
+      subtitle="Enter your organization credentials"
     >
       <form className="space-y-4" onSubmit={continueToBranch}>
         <GlassIconField
           icon={Building2}
           placeholder="Organization ID"
-          defaultValue="navayu"
+          value={orgId}
+          onChange={(e) => setOrgId(e.target.value)}
           autoComplete="organization"
         />
 
@@ -40,12 +57,15 @@ export default function TenantPage() {
           icon={KeyRound}
           type="password"
           placeholder="Organization password"
-          defaultValue="demo"
+          value={orgPassword}
+          onChange={(e) => setOrgPassword(e.target.value)}
           autoComplete="current-password"
         />
 
-        <Button type="submit" className={cn(glassButtonClass, "mt-2")}>
-          Verify organization
+        {error && <p className="text-[12px] font-medium text-red-600">{error}</p>}
+
+        <Button type="submit" disabled={loading} className={cn(glassButtonClass, "mt-2")}>
+          {loading ? "Verifying…" : "Verify organization"}
         </Button>
       </form>
     </GlassAuthShell>

@@ -126,7 +126,7 @@ export async function saveCrmStateAction(next: CrmStateShape): Promise<void> {
   );
 
   await Promise.all(
-    next.agents.map((agent) =>
+    next.agents.map(async (agent) =>
       prisma.crmOperatorCredential.upsert({
         where: { id: agent.id },
         create: {
@@ -139,7 +139,7 @@ export async function saveCrmStateAction(next: CrmStateShape): Promise<void> {
           maxOpenLeads: agent.maxOpenLeads,
           backupAgentId: agent.backupAgentId,
           leadWeightPct: agent.leadWeightPercent ?? 0,
-          passwordHash: hashPassword(next.agentPasswords[agent.id] ?? "welcome123"),
+          passwordHash: await hashPassword(next.agentPasswords[agent.id] ?? "welcome123"),
         },
         update: {
           name: agent.name,
@@ -150,7 +150,7 @@ export async function saveCrmStateAction(next: CrmStateShape): Promise<void> {
           maxOpenLeads: agent.maxOpenLeads,
           backupAgentId: agent.backupAgentId,
           leadWeightPct: agent.leadWeightPercent ?? 0,
-          passwordHash: hashPassword(next.agentPasswords[agent.id] ?? "welcome123"),
+          passwordHash: await hashPassword(next.agentPasswords[agent.id] ?? "welcome123"),
         },
       }),
     ),
@@ -173,7 +173,7 @@ export async function validateCrmLoginAction(email: string, password: string): P
     };
   }
   if (!operator.active) return { ok: false, error: "This account is inactive. Contact your CRM manager." };
-  if (!verifyPassword(pwd, operator.passwordHash)) return { ok: false, error: "Incorrect password." };
+  if (!(await verifyPassword(pwd, operator.passwordHash))) return { ok: false, error: "Incorrect password." };
   return { ok: true, operatorId: operator.id, name: operator.name, email: operator.email };
 }
 
@@ -233,7 +233,10 @@ export async function getCrmLeadClinicalHistoryAction(lead: CrmLead): Promise<Cr
   }
 
   const visits = patient
-    ? await prisma.visit.findMany({ where: { patientId: patient.id }, orderBy: { updatedAt: "desc" } })
+    ? await prisma.visit.findMany({
+        where: { patientId: patient.id, branchId: patient.branchId ?? undefined },
+        orderBy: { updatedAt: "desc" },
+      })
     : lead.convertedVisitId
       ? await prisma.visit.findMany({ where: { id: lead.convertedVisitId } })
       : [];

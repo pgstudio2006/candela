@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 const credentialsSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+  branchId: z.string().optional(),
 });
 
 function roleKeyFromUser(user: {
@@ -54,6 +55,23 @@ export const authConfig = {
         const valid = await compare(password, user.passwordHash);
         if (!valid) return null;
 
+        let effectiveBranchId = user.branchId;
+        if (parsed.data.branchId?.trim()) {
+          const branchOk = await db.branch.findFirst({
+            where: {
+              id: parsed.data.branchId.trim(),
+              tenantId: user.tenantId,
+              active: true,
+            },
+          });
+          if (!branchOk) return null;
+          effectiveBranchId = branchOk.id;
+          await db.user.update({
+            where: { id: user.id },
+            data: { branchId: branchOk.id },
+          });
+        }
+
         const sessionToken = crypto.randomUUID();
         const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7);
 
@@ -61,7 +79,7 @@ export const authConfig = {
           data: {
             userId: user.id,
             tenantId: user.tenantId,
-            branchId: user.branchId,
+            branchId: effectiveBranchId,
             sessionToken,
             expiresAt,
             status: "ACTIVE",
@@ -73,6 +91,11 @@ export const authConfig = {
           data: { lastLoginAt: new Date() },
         });
 
+        const branchRecord =
+          effectiveBranchId && effectiveBranchId !== user.branchId
+            ? await db.branch.findUnique({ where: { id: effectiveBranchId } })
+            : user.branch;
+
         return {
           id: user.id,
           name: user.name,
@@ -80,8 +103,8 @@ export const authConfig = {
           tenantId: user.tenantId,
           tenantSlug: user.tenant.slug,
           tenantName: user.tenant.name,
-          branchId: user.branchId ?? "",
-          branchName: user.branch?.name ?? "",
+          branchId: effectiveBranchId ?? "",
+          branchName: branchRecord?.name ?? "",
           role: roleKeyFromUser(user),
           sessionToken,
         };

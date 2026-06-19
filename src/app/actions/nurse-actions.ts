@@ -18,8 +18,8 @@ import {
 } from "@/server/nurse";
 
 export async function getNurseSnapshotAction() {
-  await requireModule("nurse");
-  return getNurseSnapshot();
+  const ctx = await requireModule("nurse");
+  return getNurseSnapshot(ctx);
 }
 
 export async function claimEpisodeAction(visitId: string) {

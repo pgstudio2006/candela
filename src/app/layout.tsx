@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ToastProvider } from "@/components/ui/toast-provider";
+import { ErrorBoundary } from "@/components/candela/error-boundary";
+import { MobileNav } from "@/components/candela/mobile-nav";
 import { SessionProvider } from "@/components/candela/session-provider";
 import "./globals.css";
 
@@ -36,7 +39,14 @@ export default function RootLayout({
         className={`${geistSans.className} ${geistMono.variable} min-h-full antialiased`}
       >
         <TooltipProvider>
-          <SessionProvider>{children}</SessionProvider>
+          <SessionProvider>
+            <ToastProvider>
+              <ErrorBoundary>
+                {children}
+                <MobileNav />
+              </ErrorBoundary>
+            </ToastProvider>
+          </SessionProvider>
         </TooltipProvider>
       </body>
     </html>

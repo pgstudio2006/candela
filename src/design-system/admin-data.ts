@@ -2,7 +2,24 @@
 
 import type { FieldType } from "@/design-system/frontdesk-schemas";
 
-export type AdminRole = "super_admin" | "branch_admin" | "finance" | "mrd" | "viewer";
+export type AdminRole =
+  | "super_admin"
+  | "branch_admin"
+  | "branch_manager"
+  | "finance"
+  | "finance_manager"
+  | "mrd"
+  | "viewer"
+  | "doctor"
+  | "nurse"
+  | "frontdesk"
+  | "receptionist"
+  | "pharmacist"
+  | "counsellor"
+  | "crm_executive"
+  | "hr_executive"
+  | "lab_technician"
+  | "billing_executive";
 
 export type StaffMember = {
   id: string;

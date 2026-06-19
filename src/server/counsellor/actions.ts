@@ -32,7 +32,7 @@ export async function validateCounsellorLoginAction(
   if (!cred || !cred.active) {
     return { ok: false, error: "No counsellor account for this email." };
   }
-  if (!verifyPassword(password, cred.passwordHash)) {
+  if (!(await verifyPassword(password, cred.passwordHash))) {
     return { ok: false, error: "Incorrect password." };
   }
   return { ok: true, operatorId: cred.id, name: cred.name, email: cred.email };

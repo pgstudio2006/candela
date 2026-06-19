@@ -148,8 +148,8 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
         counters: snapshot.counters,
         billingHandoffs: snapshot.billingHandoffs,
       });
-    } catch {
-      // keep optimistic client state if server refresh fails.
+    } catch (err) {
+      console.error("Frontdesk refresh failed:", err);
     } finally {
       setReady(true);
     }

@@ -14,8 +14,8 @@ import {
 import { requireModule } from "@/server/auth";
 
 export async function getClinicalSnapshotAction() {
-  await requireModule("frontdesk");
-  return getClinicalSnapshot();
+  const ctx = await requireModule("frontdesk");
+  return getClinicalSnapshot(ctx);
 }
 
 export async function registerPatientAction(input: {
@@ -23,9 +23,10 @@ export async function registerPatientAction(input: {
   patientId: string;
   visitId?: string;
   startVisit?: boolean;
+  forceDuplicate?: boolean;
 }) {
-  await requireModule("frontdesk");
-  return registerPatient(input);
+  const ctx = await requireModule("frontdesk");
+  return registerPatient(ctx, input);
 }
 
 export async function checkInVisitAction(input: {
@@ -33,23 +34,29 @@ export async function checkInVisitAction(input: {
   existingVisitId?: string;
   newVisitId?: string;
 }) {
-  await requireModule("frontdesk");
-  return checkInVisit(input);
+  const ctx = await requireModule("frontdesk");
+  return checkInVisit(ctx, input);
 }
 
-export async function processBillingAction(visitId: string, data: Record<string, string | number | boolean>): Promise<BillingResult> {
-  await requireModule("frontdesk");
-  return processBilling(visitId, data);
+export async function processBillingAction(
+  visitId: string,
+  data: Record<string, string | number | boolean>,
+): Promise<BillingResult> {
+  const ctx = await requireModule("frontdesk");
+  return processBilling(ctx, visitId, data);
 }
 
-export async function processCounselBillingAction(visitId: string, input: CounselBillingInput): Promise<BillingResult> {
-  await requireModule("frontdesk");
-  return processCounselBilling(visitId, input);
+export async function processCounselBillingAction(
+  visitId: string,
+  input: CounselBillingInput,
+): Promise<BillingResult> {
+  const ctx = await requireModule("frontdesk");
+  return processCounselBilling(ctx, visitId, input);
 }
 
 export async function completeJuniorExamAction(visitId: string) {
-  await requireModule("frontdesk");
-  return completeJuniorExam(visitId);
+  const ctx = await requireModule("frontdesk");
+  return completeJuniorExam(ctx, visitId);
 }
 
 export async function bookAppointmentAction(input: {
@@ -57,8 +64,8 @@ export async function bookAppointmentAction(input: {
   appointmentId: string;
   visitId: string;
 }) {
-  await requireModule("frontdesk");
-  return bookAppointment(input);
+  const ctx = await requireModule("frontdesk");
+  return bookAppointment(ctx, input);
 }
 
 export async function saveSubmissionAction(
