@@ -5,6 +5,8 @@ import { GlassIconField, glassButtonClass } from "@/components/auth/glass-form";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Eye, EyeOff, Lock, LogIn, Mail } from "lucide-react";
+import { getWorkspace } from "@/design-system/workspace-config";
+import type { CandelaRole } from "@/design-system/modules";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -33,14 +35,25 @@ export default function LoginPage() {
             email,
             password,
             redirect: false,
-            callbackUrl: "/app",
           });
-          setLoading(false);
           if (result?.error) {
+            setLoading(false);
             setError("Invalid email or password.");
             return;
           }
-          router.replace("/app");
+
+          router.refresh();
+          const res = await fetch("/api/session/compat", { cache: "no-store" });
+          const { session } = (await res.json()) as {
+            session: { role: CandelaRole } | null;
+          };
+          setLoading(false);
+
+          if (session?.role) {
+            router.replace(getWorkspace(session.role).homePath);
+          } else {
+            router.replace("/app/frontdesk");
+          }
         }}
       >
         <GlassIconField

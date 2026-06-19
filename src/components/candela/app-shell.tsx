@@ -1,6 +1,7 @@
 "use client";
 
 import { useSession } from "@/components/candela/session-provider";
+import { getWorkspace } from "@/design-system/workspace-config";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 
@@ -22,10 +23,16 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!authReady) return;
-    if (!session) router.replace("/login");
-  }, [session, authReady, router]);
+    if (!session) {
+      router.replace("/login");
+      return;
+    }
+    if (!hasOwnShell) {
+      router.replace(getWorkspace(session.role).homePath);
+    }
+  }, [session, authReady, hasOwnShell, router]);
 
-  if (!authReady || !session) {
+  if (!authReady || !session || !hasOwnShell) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
         Loading…
@@ -33,16 +40,5 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  if (hasOwnShell) return <>{children}</>;
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-[#fafafa] p-8 text-center">
-      <div>
-        <p className="text-lg font-semibold text-zinc-900">Workspace coming soon</p>
-        <p className="mt-2 text-sm text-zinc-500">
-          {session.role} module is next in the build queue.
-        </p>
-      </div>
-    </div>
-  );
+  return <>{children}</>;
 }
