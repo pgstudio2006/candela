@@ -45,6 +45,28 @@ export default function WorkspacePage() {
   }, [authDraft, authReady, session, router]);
 
   useEffect(() => {
+    let ignore = false;
+    const prefillEmail = async () => {
+      try {
+        const res = await fetch("/api/session/compat", { cache: "no-store" });
+        if (!res.ok) return;
+        const { session: platformSession } = (await res.json()) as {
+          session: { userEmail?: string } | null;
+        };
+        if (!ignore && platformSession?.userEmail) {
+          setEmail(platformSession.userEmail);
+        }
+      } catch {
+        /* optional prefill */
+      }
+    };
+    void prefillEmail();
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (role === "crm") {
       setEmail(CRM_MANAGER_EMAIL);
       setPassword("");

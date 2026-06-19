@@ -5,11 +5,10 @@ import { GlassIconField, glassButtonClass } from "@/components/auth/glass-form";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Eye, EyeOff, Lock, LogIn, Mail } from "lucide-react";
-import { getWorkspace } from "@/design-system/workspace-config";
 import type { CandelaRole } from "@/design-system/modules";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,12 +17,45 @@ export default function LoginPage() {
   const [password, setPassword] = useState("demo2026");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  useEffect(() => {
+    let ignore = false;
+    const hydrate = async () => {
+      try {
+        const res = await fetch("/api/session/compat", { cache: "no-store" });
+        if (!res.ok) return;
+        const { session } = (await res.json()) as { session: { role: CandelaRole } | null };
+        if (!ignore && session) {
+          router.replace("/tenant");
+        }
+      } finally {
+        if (!ignore) setCheckingSession(false);
+      }
+    };
+    void hydrate();
+    return () => {
+      ignore = true;
+    };
+  }, [router]);
+
+  if (checkingSession) {
+    return (
+      <GlassAuthShell
+        step={1}
+        title="Sign in with email"
+        subtitle="Candela by Adrine — healthcare operating system for clinics and hospitals."
+      >
+        <p className="text-center text-sm text-zinc-500">Loading…</p>
+      </GlassAuthShell>
+    );
+  }
 
   return (
     <GlassAuthShell
       step={1}
       title="Sign in with email"
-      subtitle="Candela by Adrine — healthcare operating system for clinics and hospitals."
+      subtitle="Step 1 of 4 — platform access, then organization, branch, and workspace."
     >
       <form
         className="space-y-4"
@@ -43,17 +75,8 @@ export default function LoginPage() {
           }
 
           router.refresh();
-          const res = await fetch("/api/session/compat", { cache: "no-store" });
-          const { session } = (await res.json()) as {
-            session: { role: CandelaRole } | null;
-          };
           setLoading(false);
-
-          if (session?.role) {
-            router.replace(getWorkspace(session.role).homePath);
-          } else {
-            router.replace("/app/frontdesk");
-          }
+          router.replace("/tenant");
         }}
       >
         <GlassIconField
@@ -99,7 +122,7 @@ export default function LoginPage() {
 
         <Button type="submit" className={cn(glassButtonClass, "mt-2")}>
           <LogIn className="mr-2 size-4" />
-          {loading ? "Signing in..." : "Get Started"}
+          {loading ? "Signing in..." : "Continue"}
         </Button>
         {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
       </form>
