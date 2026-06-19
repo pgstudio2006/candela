@@ -78,7 +78,7 @@ function mapVisit(row: {
   doctorId: string;
   doctorName: string;
   billing: string;
-  exam: string;
+  exam: string | null;
   appointment: boolean;
   appointmentTime: string | null;
   waitMin: number;
@@ -101,7 +101,7 @@ function mapVisit(row: {
     doctorId: row.doctorId,
     doctorName: row.doctorName,
     billing: row.billing as Visit["billing"],
-    exam: row.exam as Visit["exam"],
+    exam: (row.exam ?? "not_started") as Visit["exam"],
     appointment: row.appointment,
     appointmentTime: row.appointmentTime ?? undefined,
     waitMin: row.waitMin,

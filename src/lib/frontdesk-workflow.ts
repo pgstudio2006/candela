@@ -123,16 +123,20 @@ export type ActionItem = {
   href: string;
 };
 
+export function formatExamStatus(exam: ExamStatus | null | undefined): string {
+  return (exam ?? "not_started").replace(/_/g, " ");
+}
+
 export function buildActionItems(visits: Visit[], patients: Patient[]): ActionItem[] {
   const items: ActionItem[] = [];
   for (const v of visits) {
     const p = patients.find((x) => x.id === v.patientId);
     if (!p) continue;
-    if (v.stage === "junior_exam" && v.exam !== "done") {
+    if (v.stage === "junior_exam" && (v.exam ?? "not_started") !== "done") {
       items.push({
         id: `je-${v.id}`,
         priority: v.billing === "deferred" ? "urgent" : "high",
-        text: `${p.name} — junior exam ${v.exam.replace("_", " ")}`,
+        text: `${p.name} — junior exam ${formatExamStatus(v.exam)}`,
         action: "Open junior exam",
         href: `/app/frontdesk/junior-exam/${v.id}`,
       });

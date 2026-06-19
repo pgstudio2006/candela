@@ -3,6 +3,7 @@
 import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { StatusBadge } from "@/components/frontdesk/ui";
+import { formatExamStatus } from "@/lib/frontdesk-workflow";
 import Link from "next/link";
 
 export default function JuniorExamListPage() {
@@ -36,8 +37,8 @@ export default function JuniorExamListPage() {
                   <p className="font-mono text-[11px] text-[var(--attio-text-tertiary)]">{p.uhid} · Token #{v.token}</p>
                 </div>
                 <StatusBadge
-                  label={v.exam.replace("_", " ")}
-                  variant={v.exam === "done" ? "success" : v.exam === "in_progress" ? "info" : "neutral"}
+                  label={formatExamStatus(v.exam)}
+                  variant={(v.exam ?? "not_started") === "done" ? "success" : v.exam === "in_progress" ? "info" : "neutral"}
                 />
               </div>
               <p className="mt-2 text-[12px] text-[var(--attio-text-tertiary)]">{v.doctorName} · {p.department}</p>
