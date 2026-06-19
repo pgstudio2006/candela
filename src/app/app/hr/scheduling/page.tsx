@@ -11,7 +11,7 @@ import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 
 export default function HrSchedulingPage() {
-  const { shifts, employees, addShift, removeShift, isManager } = useHrStore();
+  const { shifts, employees, leaveRequests, addShift, removeShift, isManager, copyPreviousWeek } = useHrStore();
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [showForm, setShowForm] = useState(false);
   const week = useMemo(() => weekDates(date), [date]);
@@ -46,7 +46,10 @@ export default function HrSchedulingPage() {
         <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-9 w-40 text-[13px]" />
         <AttioButton variant="secondary" className="!h-8" onClick={() => { const d = new Date(date); d.setDate(d.getDate() + 7); setDate(d.toISOString().slice(0, 10)); }}><ChevronRight className="size-3.5" /></AttioButton>
         {isManager() && (
-          <AttioButton variant="primary" onClick={() => setShowForm(true)}><Plus className="size-3.5" /> Add shift</AttioButton>
+          <>
+            <AttioButton variant="secondary" onClick={() => void copyPreviousWeek(date)}>Copy previous week</AttioButton>
+            <AttioButton variant="primary" onClick={() => setShowForm(true)}><Plus className="size-3.5" /> Add shift</AttioButton>
+          </>
         )}
       </div>
       <Panel title={`${dayShifts.length} shifts on ${date}`}>
@@ -74,6 +77,7 @@ export default function HrSchedulingPage() {
       {showForm && (
         <ShiftFormModal
           employees={employees}
+          leaveRequests={leaveRequests}
           date={date}
           onClose={() => setShowForm(false)}
           onSave={(data) => addShift(data)}

@@ -6,7 +6,14 @@ import { useDoctorFormSchema } from "@/components/doctor/use-doctor-form-schema"
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
 import { useState } from "react";
+
+const WARD_BEDS: Record<string, string[]> = {
+  "MSK Ward A": ["A-12", "A-13", "A-14", "A-15"],
+  "MSK Ward B": ["B-01", "B-02", "B-03"],
+  "Daycare Bay": ["D-01", "D-02"],
+};
 
 export default function DoctorIpdPage() {
   const { ipdPatients, getPatient, activeDoctorId, saveIpdRound } = useDoctorStore();
@@ -26,8 +33,39 @@ export default function DoctorIpdPage() {
         { label: "IPD rounds" },
       ]}
       title="IPD ward rounds"
-      meta="SOAP notes · attending consultant"
+      meta="Bed allocation · nursing consent · pharmacy indents · doctor rounds"
+      actions={
+        <div className="flex gap-2">
+          <Link href="/app/nurse/queue" className="inline-flex h-9 items-center rounded-md border px-3 text-[13px] hover:bg-[var(--attio-hover)]">Nursing queue</Link>
+          <Link href="/app/pharmacy/indents" className="inline-flex h-9 items-center rounded-md border px-3 text-[13px] hover:bg-[var(--attio-hover)]">Pharmacy indents</Link>
+        </div>
+      }
     >
+      <div className="mb-4 grid gap-3 sm:grid-cols-3">
+        {Object.entries(WARD_BEDS).map(([ward, beds]) => {
+          const occupied = myPatients.filter((p) => p.ward === ward).map((p) => p.bed);
+          return (
+            <Panel key={ward} title={ward}>
+              <div className="flex flex-wrap gap-1.5">
+                {beds.map((bed) => {
+                  const taken = occupied.includes(bed);
+                  return (
+                    <span
+                      key={bed}
+                      className={cn(
+                        "rounded-md border px-2 py-1 text-[11px]",
+                        taken ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-[var(--attio-border)] text-[var(--attio-text-tertiary)]",
+                      )}
+                    >
+                      {bed}{taken ? " · occupied" : " · free"}
+                    </span>
+                  );
+                })}
+              </div>
+            </Panel>
+          );
+        })}
+      </div>
       <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
         <Panel title="Admitted patients">
           <ul className="divide-y divide-[var(--attio-border-subtle)]">

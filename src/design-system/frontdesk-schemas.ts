@@ -125,6 +125,22 @@ export const REGISTRATION_SCHEMA: FormSchema = {
         },
         { id: "referrerName", type: "text", label: "Referrer name", placeholder: "Optional" },
         { id: "corporateId", type: "text", label: "Corporate / insurance ID", placeholder: "TCS-XXXX" },
+        {
+          id: "city",
+          type: "select",
+          label: "City / locality",
+          options: [
+            { value: "Satellite", label: "Satellite" },
+            { value: "Navrangpura", label: "Navrangpura" },
+            { value: "Vastrapur", label: "Vastrapur" },
+            { value: "Bopal", label: "Bopal" },
+            { value: "Chandkheda", label: "Chandkheda" },
+            { value: "Maninagar", label: "Maninagar" },
+            { value: "Gurgaon", label: "Gurgaon" },
+            { value: "Other", label: "Other" },
+          ],
+        },
+        { id: "pincode", type: "text", label: "Pincode", placeholder: "380015", hint: "Used for geo intelligence mapping" },
       ],
     },
     {

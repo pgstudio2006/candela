@@ -79,8 +79,15 @@ export type DoctorSnapshot = {
   documentTemplates: DocumentTemplate[];
 };
 
+async function loadCarePackages() {
+  const depts = await prisma.adminDepartment.findMany({ where: { active: true } });
+  const ids = new Set(depts.flatMap((d) => (Array.isArray(d.defaultPackageIds) ? d.defaultPackageIds : [])));
+  const fromSeed = CARE_PACKAGES.filter((p) => ids.has(p.id) || ids.size === 0);
+  return fromSeed.length ? fromSeed : CARE_PACKAGES;
+}
+
 export async function getDoctorSnapshot(activeDoctorId = DEMO_DOCTOR_ID, ctx?: import("@/server/context").ServerContext): Promise<DoctorSnapshot> {
-  const [clinical, consultRows, queueRows, ipdRows, templateRows, docRows] = await Promise.all([
+  const [clinical, consultRows, queueRows, ipdRows, templateRows, docRows, packages] = await Promise.all([
     ctx ? getClinicalSnapshot(ctx) : getClinicalSnapshot(await (async () => {
       const { getServerContext } = await import("@/server/context");
       return getServerContext();
@@ -90,6 +97,7 @@ export async function getDoctorSnapshot(activeDoctorId = DEMO_DOCTOR_ID, ctx?: i
     prisma.ipdAdmission.findMany({ orderBy: { createdAt: "asc" } }),
     prisma.doctorTemplate.findMany({ orderBy: { createdAt: "asc" } }),
     prisma.documentTemplate.findMany({ orderBy: { createdAt: "asc" } }),
+    loadCarePackages(),
   ]);
 
   return {
@@ -131,7 +139,7 @@ export async function getDoctorSnapshot(activeDoctorId = DEMO_DOCTOR_ID, ctx?: i
       treatment: asRecord(row.treatment),
       prescription: (Array.isArray(row.prescription) ? row.prescription : []) as PrescriptionLine[],
     })),
-    packages: CARE_PACKAGES,
+    packages,
     documentTemplates: docRows.map((row) => ({
       id: row.id,
       kind: row.kind as DocumentTemplate["kind"],

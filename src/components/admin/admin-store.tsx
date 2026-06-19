@@ -16,9 +16,9 @@ import {
   computeCommandKpis,
   computeHawkEye,
   computeLeakageFlags,
-  computePrevalence,
   simulateRevenueShare,
 } from "@/lib/admin-platform";
+import type { DataMiningSnapshot } from "@/lib/admin-analytics";
 import {
   addDepartment as addDepartmentAction,
   addDiseaseNode as addDiseaseNodeAction,
@@ -41,6 +41,7 @@ import {
   updateRevenuePolicy as updateRevenuePolicyAction,
   updateStaff as updateStaffAction,
 } from "@/server/admin/actions";
+import { parseActionError } from "@/lib/action-errors";
 import {
   createContext,
   useCallback,
@@ -75,6 +76,7 @@ type AdminState = {
   misReports: MisReport[];
   settings: AdminPlatformSettings;
   resolvedLeakageIds: string[];
+  dataMining: DataMiningSnapshot;
   auditEvents: {
     id: string;
     at: string;
@@ -91,6 +93,7 @@ type AdminState = {
 
 type AdminStoreValue = AdminState & {
   ready: boolean;
+  error: string | null;
   patients: Patient[];
   visits: Visit[];
   refresh: () => Promise<void>;
@@ -99,7 +102,7 @@ type AdminStoreValue = AdminState & {
   getHawkEye: () => ReturnType<typeof computeHawkEye>;
   getLeakageFlags: () => ReturnType<typeof computeLeakageFlags>;
   getActiveLeakageFlags: () => ReturnType<typeof computeLeakageFlags>;
-  getPrevalence: () => ReturnType<typeof computePrevalence>;
+  getPrevalence: () => DataMiningSnapshot["livePrevalence"];
   simulateShare: (policyId: string) => ReturnType<typeof simulateRevenueShare>;
   updateSettings: (patch: Partial<AdminPlatformSettings>) => Promise<void>;
   resolveLeakageFlag: (id: string) => Promise<void>;
@@ -145,6 +148,14 @@ function emptyAdminState(): AdminState {
       whatsappConsentFlag: false,
     },
     resolvedLeakageIds: [],
+    dataMining: {
+      kpis: [],
+      prevalenceBars: [],
+      ageGender: [],
+      treatmentOutcomes: [],
+      livePrevalence: [],
+      dataSources: [],
+    },
     auditEvents: [],
   };
 }
@@ -156,28 +167,37 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
     visits: [],
   });
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const snapshot = await getAdminSnapshot();
-    setAdmin({
-      staff: snapshot.staff,
-      departments: snapshot.departments,
-      diseaseMap: snapshot.diseaseMap,
-      diseaseClusters: snapshot.diseaseClusters,
-      geo: snapshot.geo,
-      expenses: snapshot.expenses,
-      revenuePolicies: snapshot.revenuePolicies,
-      mrdRequests: snapshot.mrdRequests,
-      misReports: snapshot.misReports,
-      settings: snapshot.settings,
-      resolvedLeakageIds: snapshot.resolvedLeakageIds,
-      auditEvents: snapshot.auditEvents,
-    });
-    setCore({
-      patients: snapshot.patients,
-      visits: snapshot.visits,
-    });
-    setReady(true);
+    setReady(false);
+    try {
+      const snapshot = await getAdminSnapshot();
+      setAdmin({
+        staff: snapshot.staff,
+        departments: snapshot.departments,
+        diseaseMap: snapshot.diseaseMap,
+        diseaseClusters: snapshot.diseaseClusters,
+        geo: snapshot.geo,
+        expenses: snapshot.expenses,
+        revenuePolicies: snapshot.revenuePolicies,
+        mrdRequests: snapshot.mrdRequests,
+        misReports: snapshot.misReports,
+        settings: snapshot.settings,
+        resolvedLeakageIds: snapshot.resolvedLeakageIds,
+        dataMining: snapshot.dataMining,
+        auditEvents: snapshot.auditEvents,
+      });
+      setCore({
+        patients: snapshot.patients,
+        visits: snapshot.visits,
+      });
+      setError(null);
+    } catch (err) {
+      setError(parseActionError(err).message);
+    } finally {
+      setReady(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -198,6 +218,7 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
       misReports: snapshot.misReports,
       settings: snapshot.settings,
       resolvedLeakageIds: snapshot.resolvedLeakageIds,
+      dataMining: snapshot.dataMining,
       auditEvents: snapshot.auditEvents,
     });
     setCore({
@@ -213,6 +234,7 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
     return {
       ...admin,
       ready,
+      error,
       patients,
       visits,
       refresh,
@@ -222,7 +244,7 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
       getLeakageFlags: () => computeLeakageFlags(visits, patients),
       getActiveLeakageFlags: () =>
         computeLeakageFlags(visits, patients).filter((f) => !admin.resolvedLeakageIds.includes(f.id)),
-      getPrevalence: () => computePrevalence(visits),
+      getPrevalence: () => admin.dataMining.livePrevalence,
       simulateShare: (policyId) => {
         const policy = admin.revenuePolicies.find((p) => p.id === policyId)!;
         const doctorId = policy.doctorId ?? "dr_1";
@@ -250,7 +272,7 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
       resetAdminData: async () => refresh(),
       logAdminAction: async (summary) => sync(logAdminActionMutation(summary)),
     };
-  }, [admin, core, ready, refresh, sync]);
+  }, [admin, core, ready, error, refresh, sync]);
 
   return <AdminContext.Provider value={value}>{children}</AdminContext.Provider>;
 }

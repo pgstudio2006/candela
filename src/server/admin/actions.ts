@@ -16,9 +16,16 @@ import type {
 } from "@/design-system/admin-data";
 import type { FormSchema } from "@/design-system/frontdesk-schemas";
 import type { Patient, Visit } from "@/design-system/frontdesk-data";
+import { syncDoctorToDepartments } from "@/server/admin/staff-onboarding";
 import { writeAuditLog } from "@/server/audit-log";
 import { requireModule } from "@/server/auth";
 import { ADMIN_SETTINGS_ID, ensureBootstrapData } from "@/server/bootstrap";
+import {
+  computeDataMiningSnapshot,
+  computeLiveDiseaseClusters,
+  computeLiveGeoClusters,
+  type DataMiningSnapshot,
+} from "@/lib/admin-analytics";
 
 type AuditEvent = {
   id: string;
@@ -48,6 +55,7 @@ export type AdminSnapshot = {
   auditEvents: AuditEvent[];
   patients: Patient[];
   visits: Visit[];
+  dataMining: DataMiningSnapshot;
   documentTemplates: { id: string; label: string; kind: string; layout: string }[];
 };
 
@@ -84,6 +92,8 @@ async function getSnapshot(): Promise<AdminSnapshot> {
     patients,
     visits,
     documentTemplates,
+    formSubmissions,
+    consultations,
   ] = await Promise.all([
     prisma.adminStaff.findMany({ orderBy: { name: "asc" } }),
     prisma.adminDepartment.findMany({ orderBy: { label: "asc" } }),
@@ -112,7 +122,66 @@ async function getSnapshot(): Promise<AdminSnapshot> {
     prisma.patient.findMany({ orderBy: { name: "asc" } }),
     prisma.opdVisit.findMany({ orderBy: { checkInAt: "desc" } }),
     prisma.documentTemplate.findMany({ where: { kind: { startsWith: "admin:" } } }),
+    prisma.formSubmission.findMany({ orderBy: { submittedAt: "desc" } }),
+    prisma.consultation.findMany({ orderBy: { createdAt: "desc" } }),
   ]);
+
+  const mappedPatients: Patient[] = patients.map((x) => ({
+    ...x,
+    tags: parseArray<string>(x.tags),
+    balance: Number(x.balance),
+  }));
+  const mappedVisits: Visit[] = visits.map((x) => ({
+    ...x,
+    billAmount: x.billAmount === null ? undefined : Number(x.billAmount),
+    amountPaid: x.amountPaid === null ? undefined : Number(x.amountPaid),
+    balanceDue: x.balanceDue === null ? undefined : Number(x.balanceDue),
+  }));
+  const mappedDiseaseMap = diseaseMap.map((x) => ({
+    ...x,
+    packageIds: parseArray<string>(x.packageIds),
+    consentTemplateIds: parseArray<string>(x.consentTemplateIds),
+  }));
+  const baseGeo: GeoCluster[] = geo.map((x) => ({
+    ...x,
+    patientCount: Number(x.patientCount),
+    opdCount: Number(x.opdCount),
+    ipdCount: Number(x.ipdCount),
+    revenue: Number(x.revenue),
+    severity: (x.severity as GeoCluster["severity"]) ?? undefined,
+  }));
+  const submissionRows = formSubmissions.map((row) => ({
+    patientId: row.patientId,
+    visitId: row.visitId,
+    data: (row.data ?? {}) as Record<string, string | number | boolean>,
+  }));
+  const consultationRows = consultations.map((row) => ({
+    patientId: row.patientId,
+    status: row.status,
+    completedAt: row.completedAt,
+    diagnosis: (row.diagnosis ?? {}) as Record<string, string | number | boolean>,
+  }));
+
+  const liveGeo = computeLiveGeoClusters(
+    baseGeo,
+    mappedPatients,
+    mappedVisits,
+    submissionRows,
+    consultationRows,
+    mappedDiseaseMap,
+  );
+  const liveDiseaseClusters = computeLiveDiseaseClusters(
+    liveGeo,
+    consultationRows,
+    mappedDiseaseMap,
+  );
+  const dataMining = computeDataMiningSnapshot(
+    mappedPatients,
+    mappedVisits,
+    consultationRows,
+    submissionRows.filter((s) => s.data),
+    mappedDiseaseMap,
+  );
 
   return {
     staff: staff.map((x) => ({
@@ -130,8 +199,8 @@ async function getSnapshot(): Promise<AdminSnapshot> {
       packageIds: parseArray<string>(x.packageIds),
       consentTemplateIds: parseArray<string>(x.consentTemplateIds),
     })),
-    diseaseClusters,
-    geo,
+    diseaseClusters: liveDiseaseClusters.length ? liveDiseaseClusters : diseaseClusters,
+    geo: liveGeo,
     expenses: expenses.map((x) => ({ ...x, amount: Number(x.amount) })),
     revenuePolicies: revenuePolicies.map((x) => ({
       ...x,
@@ -154,17 +223,9 @@ async function getSnapshot(): Promise<AdminSnapshot> {
     },
     resolvedLeakageIds: parseArray<string>(settings.resolvedLeakageIds),
     auditEvents: toAudit(auditEvents),
-    patients: patients.map((x) => ({
-      ...x,
-      tags: parseArray<string>(x.tags),
-      balance: Number(x.balance),
-    })),
-    visits: visits.map((x) => ({
-      ...x,
-      billAmount: x.billAmount === null ? undefined : Number(x.billAmount),
-      amountPaid: x.amountPaid === null ? undefined : Number(x.amountPaid),
-      balanceDue: x.balanceDue === null ? undefined : Number(x.balanceDue),
-    })),
+    patients: mappedPatients,
+    visits: mappedVisits,
+    dataMining,
     documentTemplates: documentTemplates.map((x) => ({
       id: x.id,
       label: x.label,
@@ -191,10 +252,16 @@ export async function getAdminSnapshot() {
 export async function updateStaff(id: string, patch: Partial<StaffMember>, actor = "admin") {
   return auditedMutation(
     async () => {
+      const existing = await prisma.adminStaff.findUnique({ where: { id } });
       await prisma.adminStaff.update({
         where: { id },
         data: patch,
       });
+      const role = patch.role ?? existing?.role;
+      const departmentIds = patch.departmentIds ?? (existing?.departmentIds as string[] | undefined);
+      if (role === "doctor" && departmentIds?.length) {
+        await syncDoctorToDepartments(id, departmentIds);
+      }
     },
     {
       actor,
@@ -219,6 +286,9 @@ export async function addStaff(input: Omit<StaffMember, "id">, actor = "admin") 
           ...input,
         },
       });
+      if (input.role === "doctor" && input.departmentIds?.length) {
+        await syncDoctorToDepartments(newId, input.departmentIds);
+      }
     },
     {
       actor,

@@ -12,6 +12,22 @@ function newStaffId() {
   return `st_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
+export async function syncDoctorToDepartments(staffId: string, departmentIds: string[]) {
+  if (!departmentIds.length) return;
+  const drId = doctorIdFromStaffId(staffId);
+  for (const deptId of departmentIds) {
+    const dept = await prisma.adminDepartment.findUnique({ where: { id: deptId } });
+    if (!dept) continue;
+    const doctorIds = Array.isArray(dept.doctorIds) ? [...dept.doctorIds] : [];
+    if (!doctorIds.includes(drId)) {
+      await prisma.adminDepartment.update({
+        where: { id: deptId },
+        data: { doctorIds: [...doctorIds, drId] },
+      });
+    }
+  }
+}
+
 export async function addStaffWithLogin(
   ctx: ServerContext,
   input: {
@@ -27,6 +43,10 @@ export async function addStaffWithLogin(
   await prisma.adminStaff.create({
     data: { id: staffId, ...input.staff },
   });
+
+  if (input.staff.role === "doctor" && input.staff.departmentIds.length) {
+    await syncDoctorToDepartments(staffId, input.staff.departmentIds);
+  }
 
   if (roleKey && input.staff.email) {
     const tenantUser = await db.user.findFirst({
@@ -60,22 +80,6 @@ export async function addStaffWithLogin(
             : undefined,
         },
       });
-    }
-
-    if (input.staff.role === "doctor" && input.staff.departmentIds.length) {
-      for (const deptId of input.staff.departmentIds) {
-        const dept = await prisma.adminDepartment.findUnique({ where: { id: deptId } });
-        if (dept) {
-          const doctorIds = Array.isArray(dept.doctorIds) ? [...dept.doctorIds] : [];
-          const drId = doctorIdFromStaffId(staffId);
-          if (!doctorIds.includes(drId)) {
-            await prisma.adminDepartment.update({
-              where: { id: deptId },
-              data: { doctorIds: [...doctorIds, drId] },
-            });
-          }
-        }
-      }
     }
   }
 

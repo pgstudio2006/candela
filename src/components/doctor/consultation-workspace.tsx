@@ -7,6 +7,7 @@ import { PrintablePrescription } from "@/components/doctor/print/printable-presc
 import { PrintPreviewModal } from "@/components/doctor/print/print-preview-modal";
 import { PrescriptionEditor } from "@/components/doctor/prescription-editor";
 import { useDoctorFormSchema } from "@/components/doctor/use-doctor-form-schema";
+import { useFormSchema } from "@/components/frontdesk/use-form-schema";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import type { TreatmentMode } from "@/design-system/doctor-data";
@@ -70,7 +71,8 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
   const visit = getVisit(visitId);
   const patient = visit ? getPatient(visit.patientId) : undefined;
 
-  const examSchema = useDoctorFormSchema("doctor-examination");
+  const juniorExamSchema = useFormSchema("junior-exam");
+  const examSchema = juniorExamSchema;
   const dxSchema = useDoctorFormSchema("doctor-diagnosis");
   const txSchema = useDoctorFormSchema("doctor-treatment");
   const handoffSchema = useDoctorFormSchema("doctor-handoff");
@@ -210,10 +212,10 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
 
       {tab === "examination" && (
         <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-          <Panel title="Examination">
+          <Panel title="Examination (same as junior doctor intake)">
             <SchemaForm
               schema={examSchema}
-              formKey={`exam-${visitId}`}
+              formKey={`exam-${visitId}-${consult?.startedAt ?? ""}`}
               initialValues={consult?.examination}
               submitLabel="Save examination"
               onSubmit={(data) => saveConsultSection(visitId, "examination", data)}
@@ -292,15 +294,20 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
           <Panel title="Care packages">
             <ul className="space-y-2">
               {packages.map((pkg) => (
-                <div
+                <button
                   key={pkg.id}
-                  className="rounded-lg border border-[var(--attio-border-subtle)] px-3 py-2.5"
+                  type="button"
+                  onClick={() => updateConsultation(visitId, { packageId: pkg.id })}
+                  className={cn(
+                    "w-full rounded-lg border px-3 py-2.5 text-left transition-colors hover:bg-[var(--attio-hover)]",
+                    consult?.packageId === pkg.id && "border-[var(--attio-accent)] bg-blue-50/50",
+                  )}
                 >
                   <p className="text-[13px] font-medium">{pkg.label}</p>
                   <p className="text-[12px] text-[var(--attio-text-tertiary)]">
                     ₹{pkg.amount.toLocaleString("en-IN")} · {pkg.sessions} sessions
                   </p>
-                </div>
+                </button>
               ))}
             </ul>
           </Panel>

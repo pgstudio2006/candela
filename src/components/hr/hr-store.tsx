@@ -23,6 +23,7 @@ import {
   markPayrollPaid as markPayrollPaidAction,
   processPayroll as processPayrollAction,
   removeShift as removeShiftAction,
+  copyShiftsFromPreviousWeek as copyShiftsFromPreviousWeekAction,
   resetHrDemo,
   updateEmployee as updateEmployeeAction,
   updateHrSettings as updateHrSettingsAction,
@@ -73,6 +74,7 @@ type HrStoreValue = HrState & {
   addShift: (shift: Omit<HrShiftSlot, "id">) => Promise<void>;
   updateShift: (id: string, patch: Partial<HrShiftSlot>) => Promise<void>;
   removeShift: (id: string) => Promise<void>;
+  copyPreviousWeek: (targetDate: string) => Promise<void>;
   markAttendance: (record: Omit<HrAttendanceRecord, "id">) => Promise<void>;
   checkoutAttendance: (employeeId: string, date: string) => Promise<void>;
   processPayroll: (period: string) => Promise<void>;
@@ -171,6 +173,8 @@ export function HrStoreProvider({ children }: { children: ReactNode }) {
       updateShift: async (id, patch) =>
         withRefresh(updateShiftAction(id, patch, operatorId)),
       removeShift: async (id) => withRefresh(removeShiftAction(id, operatorId)),
+      copyPreviousWeek: async (targetDate) =>
+        withRefresh(copyShiftsFromPreviousWeekAction(targetDate, operatorId)),
       markAttendance: async (record) =>
         withRefresh(markAttendanceAction(record, operatorId)),
       checkoutAttendance: async (employeeId, date) =>

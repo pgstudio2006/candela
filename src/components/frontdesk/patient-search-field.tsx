@@ -1,0 +1,86 @@
+"use client";
+
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import { Search, User } from "lucide-react";
+import { useMemo, useState } from "react";
+import type { Patient } from "@/design-system/frontdesk-data";
+
+type PatientSearchFieldProps = {
+  value: string;
+  onChange: (uhidOrQuery: string, patient?: Patient) => void;
+  patients: Patient[];
+  placeholder?: string;
+  className?: string;
+};
+
+export function PatientSearchField({
+  value,
+  onChange,
+  patients,
+  placeholder = "Search by UHID, phone, or name…",
+  className,
+}: PatientSearchFieldProps) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState(value);
+
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q || q.length < 2) return [];
+    const phoneNorm = q.replace(/\D/g, "").slice(-10);
+    return patients
+      .filter((p) => {
+        if (p.uhid.toLowerCase().includes(q)) return true;
+        if (p.name.toLowerCase().includes(q)) return true;
+        if (phoneNorm && p.phone.replace(/\D/g, "").endsWith(phoneNorm)) return true;
+        return false;
+      })
+      .slice(0, 8);
+  }, [query, patients]);
+
+  return (
+    <div className={cn("relative", className)}>
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--attio-text-tertiary)]" />
+        <Input
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            onChange(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          placeholder={placeholder}
+          className="h-9 pl-9 text-[13px]"
+        />
+      </div>
+      {open && results.length > 0 && (
+        <ul className="absolute z-50 mt-1 max-h-56 w-full overflow-auto rounded-lg border border-[var(--attio-border)] bg-white py-1 shadow-lg">
+          {results.map((p) => (
+            <li key={p.id}>
+              <button
+                type="button"
+                className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-[var(--attio-hover)]"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setQuery(p.uhid);
+                  onChange(p.uhid, p);
+                  setOpen(false);
+                }}
+              >
+                <div className="flex size-8 items-center justify-center rounded-full bg-[var(--attio-surface)]">
+                  <User className="size-4 text-[var(--attio-text-tertiary)]" />
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-medium">{p.name}</p>
+                  <p className="text-[11px] text-[var(--attio-text-tertiary)]">{p.uhid} · {p.phone}</p>
+                </div>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}

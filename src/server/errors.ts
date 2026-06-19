@@ -4,6 +4,7 @@ export type ServerErrorCode =
   | "FORBIDDEN"
   | "NOT_FOUND"
   | "CONFLICT"
+  | "DUPLICATE_PATIENT"
   | "INVALID_SESSION"
   | "INTERNAL_ERROR";
 

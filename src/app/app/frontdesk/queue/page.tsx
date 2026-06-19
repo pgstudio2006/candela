@@ -3,7 +3,6 @@
 import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
-import { DOCTORS_BY_DEPT } from "@/design-system/mock-data";
 import { cn } from "@/lib/utils";
 import { Clock } from "lucide-react";
 import Link from "next/link";
@@ -11,9 +10,9 @@ import { useRouter } from "next/navigation";
 
 export default function QueuePage() {
   const router = useRouter();
-  const { getQueueVisits, getPatient, visits } = useFrontdeskStore();
+  const { getQueueVisits, getPatient, visits, roster } = useFrontdeskStore();
 
-  const doctors = [...DOCTORS_BY_DEPT.dept_spine, ...DOCTORS_BY_DEPT.dept_wellness];
+  const doctors = roster.allDoctors;
 
   const callNext = () => {
     const next = visits

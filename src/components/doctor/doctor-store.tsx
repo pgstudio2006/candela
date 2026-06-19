@@ -27,6 +27,7 @@ import {
   updateDoctorTemplateAction,
 } from "@/app/actions/doctor-actions";
 import { computeDoctorChartAnalytics } from "@/lib/doctor-analytics-data";
+import { parseActionError } from "@/lib/action-errors";
 import {
   createContext,
   useCallback,
@@ -50,6 +51,8 @@ type DoctorState = {
 
 type DoctorStoreValue = {
   ready: boolean;
+  error: string | null;
+  refresh: () => Promise<void>;
   patients: Patient[];
   visits: Visit[];
   activeDoctorId: string;
@@ -137,8 +140,10 @@ function emptyConsultation(visit: Visit, patientId: string, doctorId: string): C
 export function DoctorStoreProvider({ children }: { children: ReactNode }) {
   const [doctor, setDoctor] = useState<DoctorState>(initialDoctorState);
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    setReady(false);
     try {
       const snapshot = await getDoctorSnapshotAction(DEMO_DOCTOR_ID);
       setDoctor({
@@ -151,8 +156,9 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
         templates: snapshot.templates,
         documentTemplates: snapshot.documentTemplates,
       });
-    } catch {
-      // keep current state on refresh failures.
+      setError(null);
+    } catch (err) {
+      setError(parseActionError(err).message);
     } finally {
       setReady(true);
     }
@@ -373,6 +379,8 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
 
     return {
       ready,
+      error,
+      refresh,
       patients,
       visits,
       activeDoctorId: doctorId,
@@ -473,7 +481,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
         );
       },
     };
-  }, [doctor, ready, refresh, syncDoctor]);
+  }, [doctor, ready, error, refresh, syncDoctor]);
 
   return <DoctorContext.Provider value={value}>{children}</DoctorContext.Provider>;
 }

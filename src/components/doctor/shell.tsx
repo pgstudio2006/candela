@@ -1,6 +1,7 @@
 "use client";
 
 import { useSession } from "@/components/candela/session-provider";
+import { StoreGate } from "@/components/candela/store-gate";
 import { DoctorCommandPalette } from "@/components/doctor/command-palette";
 import { useDoctorStore } from "@/components/doctor/doctor-store";
 import { DoctorSidebar } from "@/components/doctor/sidebar";
@@ -13,7 +14,7 @@ export function DoctorShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { session, authReady, signOut, setCommandOpen, commandOpen } = useSession();
-  const { getOpdQueue, startConsultation } = useDoctorStore();
+  const { getOpdQueue, startConsultation, ready, error, refresh } = useDoctorStore();
   const [copilotOpen, setCopilotOpen] = useState(false);
   const settingsRef = useRef<HTMLButtonElement>(null);
   const current = getDoctorNavItem(pathname);
@@ -71,7 +72,11 @@ export function DoctorShell({ children }: { children: ReactNode }) {
       />
 
       <div className="flex min-h-0 min-w-0 flex-1">
-        <main className="scrollbar-none min-w-0 flex-1 overflow-y-auto">{children}</main>
+        <main className="scrollbar-none min-w-0 flex-1 overflow-y-auto">
+          <StoreGate ready={ready} error={error} onRetry={() => void refresh()}>
+            {children}
+          </StoreGate>
+        </main>
         <CopilotPanel
           open={copilotOpen}
           onClose={() => setCopilotOpen(false)}

@@ -14,6 +14,10 @@ import { upsertVisitInvoice } from "@/server/invoicing";
 import { writePlatformAudit } from "@/server/platform-audit";
 import { branchScope } from "@/server/tenancy";
 import { syncVisitFromOpdVisit } from "@/server/visit-sync";
+import { loadClinicalRoster } from "@/server/clinical/roster";
+import { resolveDoctorName, staffIdFromDoctorId } from "@/lib/clinical-roster";
+import type { ClinicalRoster } from "@/lib/clinical-roster";
+import { notifyAppointmentReminder } from "@/server/notifications";
 
 type PrimitiveRecord = Record<string, string | number | boolean>;
 
@@ -46,6 +50,7 @@ export type ClinicalSnapshot = {
   submissions: FormSubmission[];
   counters: FrontdeskCounters;
   billingHandoffs: BillingHandoffPayload[];
+  roster: ClinicalRoster;
 };
 
 function asStringArray(value: Prisma.JsonValue | null): string[] {
@@ -250,12 +255,38 @@ async function backfillBranchScope(ctx: ServerContext) {
 
 async function assertNoDuplicatePatient(
   ctx: ServerContext,
-  phone: string,
+  _phone: string,
   uhid: string,
   excludeId?: string,
   force = false,
 ) {
   if (force) return;
+  const scope = branchScope(ctx);
+  const existing = await prisma.patient.findFirst({
+    where: {
+      tenantId: scope.tenantId,
+      branchId: scope.branchId,
+      uhid,
+      ...(excludeId ? { NOT: { id: excludeId } } : {}),
+    },
+  });
+  if (existing) {
+    throw new ServerActionError(
+      "DUPLICATE_PATIENT",
+      `UHID already registered: ${existing.name ?? "Unknown"} (${existing.uhid}).`,
+      { existingId: existing.id, existingUhid: existing.uhid, existingName: existing.name },
+    );
+  }
+}
+
+const DUPLICATE_OVERRIDE_ROLES = new Set(["admin", "super_admin", "branch_admin", "branch_manager"]);
+
+export async function checkDuplicatePatient(
+  ctx: ServerContext,
+  phone: string,
+  uhid?: string,
+  excludeId?: string,
+) {
   const scope = branchScope(ctx);
   const phoneDigits = phone.replace(/\D/g, "").slice(-10);
   const existing = await prisma.patient.findFirst({
@@ -264,17 +295,25 @@ async function assertNoDuplicatePatient(
       branchId: scope.branchId,
       ...(excludeId ? { NOT: { id: excludeId } } : {}),
       OR: [
-        { uhid },
+        ...(uhid ? [{ uhid }] : []),
         ...(phoneDigits.length >= 10 ? [{ phone: { endsWith: phoneDigits } }] : []),
       ],
     },
   });
-  if (existing) {
-    throw new ServerActionError(
-      "DUPLICATE_PATIENT",
-      `Patient already registered: ${existing.name ?? "Unknown"} (${existing.uhid}). Use supervisor override to proceed.`,
-    );
-  }
+  if (!existing) return { duplicate: false as const };
+  return {
+    duplicate: true as const,
+    patient: {
+      id: existing.id,
+      uhid: existing.uhid,
+      name: existing.name ?? "Unknown",
+      phone: existing.phone,
+    },
+  };
+}
+
+export function canOverrideDuplicate(role: string) {
+  return DUPLICATE_OVERRIDE_ROLES.has(role);
 }
 
 function buildCounters(patients: Patient[], visits: Visit[], appointments: Appointment[]): FrontdeskCounters {
@@ -295,12 +334,13 @@ export async function getClinicalSnapshot(ctx: ServerContext): Promise<ClinicalS
   await backfillBranchScope(ctx);
   const scope = branchScope(ctx);
 
-  const [patientsRows, visitsRows, appointmentRows, submissionRows, handoffRows] = await Promise.all([
+  const [patientsRows, visitsRows, appointmentRows, submissionRows, handoffRows, roster] = await Promise.all([
     prisma.patient.findMany({ where: scope, orderBy: { createdAt: "asc" } }),
     prisma.opdVisit.findMany({ where: scope, orderBy: { createdAt: "asc" } }),
     prisma.appointment.findMany({ where: { branchId: scope.branchId }, orderBy: { createdAt: "asc" } }),
     prisma.formSubmission.findMany({ orderBy: { createdAt: "asc" } }),
     prisma.billingHandoff.findMany({ where: { branchId: scope.branchId }, orderBy: { createdAt: "asc" } }),
+    loadClinicalRoster(ctx),
   ]);
 
   const patients: Patient[] = patientsRows.map((row) => ({
@@ -367,6 +407,7 @@ export async function getClinicalSnapshot(ctx: ServerContext): Promise<ClinicalS
     submissions,
     counters: buildCounters(patients, visits, appointments),
     billingHandoffs,
+    roster,
   };
 }
 
@@ -403,6 +444,12 @@ export async function registerPatient(
   await ensureClinicalSeed();
   const { data, patientId, visitId, startVisit = true, forceDuplicate = false } = input;
   const scope = branchScope(ctx);
+  if (forceDuplicate && !canOverrideDuplicate(ctx.role)) {
+    throw new ServerActionError(
+      "FORBIDDEN",
+      "Supervisor approval required to register a duplicate patient.",
+    );
+  }
   const current = await getClinicalSnapshot(ctx);
   const uhid = data.uhid ? String(data.uhid) : nextUhid(current.counters.patient + 1);
   const deptId = String(data.department ?? "dept_spine");
@@ -425,7 +472,11 @@ export async function registerPatient(
       gender: String(data.gender ?? "O"),
       department: deptLabel(deptId),
       departmentId: deptId,
-      tags: [String(data.visitType ?? "opd")],
+      tags: [
+        String(data.visitType ?? "opd"),
+        ...(data.pincode ? [`pincode:${String(data.pincode)}`] : []),
+        ...(data.city ? [`city:${String(data.city)}`] : []),
+      ],
       referrer: String(data.referrerName ?? "") || null,
       tenantId: scope.tenantId,
       branchId: scope.branchId,
@@ -442,7 +493,11 @@ export async function registerPatient(
       gender: String(data.gender ?? "O"),
       department: deptLabel(deptId),
       departmentId: deptId,
-      tags: [String(data.visitType ?? "opd")],
+      tags: [
+        String(data.visitType ?? "opd"),
+        ...(data.pincode ? [`pincode:${String(data.pincode)}`] : []),
+        ...(data.city ? [`city:${String(data.city)}`] : []),
+      ],
       referrer: String(data.referrerName ?? "") || null,
     },
   });
@@ -477,10 +532,13 @@ export async function registerPatient(
   await writePlatformAudit({
     ctx,
     module: "frontdesk",
-    action: "patient_registered",
+    action: forceDuplicate ? "patient_registered_override" : "patient_registered",
     entityType: "patient",
     entityId: patientId,
-    summary: `Registered ${name} (${uhid})`,
+    summary: forceDuplicate
+      ? `Duplicate override: registered ${name} (${uhid})`
+      : `Registered ${name} (${uhid})`,
+    payload: forceDuplicate ? { forceDuplicate: true, phone, uhid } : undefined,
   });
 
   return { patientId, visitId: visitId ?? "", uhid };
@@ -517,6 +575,8 @@ export async function checkInVisit(
 
   const doctorId = String(data.doctor ?? "dr_1");
   const deptId = String(data.department ?? patient.departmentId);
+  const roster = await loadClinicalRoster(ctx);
+  const resolvedDoctorName = resolveDoctorName(doctorId, roster);
   const allVisits = await prisma.opdVisit.findMany({ where: scope, orderBy: { createdAt: "asc" } });
   const existing = existingVisitId
     ? allVisits.find((v) => v.id === existingVisitId)
@@ -533,7 +593,7 @@ export async function checkInVisit(
         stage: "billing",
         departmentId: deptId,
         doctorId,
-        doctorName: doctorName(doctorId),
+        doctorName: resolvedDoctorName,
         checkInAt: nowTime(),
         billing: existing.billing === "paid" ? "paid" : "pending",
         tenantId: scope.tenantId,
@@ -555,7 +615,7 @@ export async function checkInVisit(
       stage: "billing",
       departmentId: deptId,
       doctorId,
-      doctorName: doctorName(doctorId),
+      doctorName: resolvedDoctorName,
       billing: "pending",
       exam: "not_started",
       appointment: false,
@@ -862,10 +922,21 @@ export async function bookAppointment(
     matchPatientByQuery(mappedPatients, String(data.patient ?? "")) ??
     mappedPatients.find((p) => p.name.toLowerCase().includes(String(data.patient ?? "").toLowerCase()));
 
-  if (!patient) return { appointmentId: "", visitId: "" };
+  if (!patient) return { appointmentId: "", visitId: "", error: "Patient not found" };
 
-  const doctorId = String(data.doctor ?? "dr_1");
+  const roster = await loadClinicalRoster(ctx);
+  const doctorId = String(data.doctor ?? roster.allDoctors[0]?.id ?? "dr_1");
   const deptId = String(data.department ?? "dept_spine");
+  const resolvedDoctorName = resolveDoctorName(doctorId, roster);
+
+  const apptDate = String(data.date ?? new Date().toISOString().slice(0, 10));
+  if (await isDoctorOnLeave(doctorId, apptDate)) {
+    return {
+      appointmentId: "",
+      visitId: "",
+      error: `${resolvedDoctorName} is on approved leave on ${apptDate}. Choose another doctor or date.`,
+    };
+  }
 
   await prisma.$transaction([
     prisma.opdVisit.upsert({
@@ -875,7 +946,7 @@ export async function bookAppointment(
         stage: "registered",
         departmentId: deptId,
         doctorId,
-        doctorName: doctorName(doctorId),
+        doctorName: resolvedDoctorName,
         billing: "pending",
         exam: "not_started",
         appointment: true,
@@ -889,7 +960,7 @@ export async function bookAppointment(
         stage: "registered",
         departmentId: deptId,
         doctorId,
-        doctorName: doctorName(doctorId),
+        doctorName: resolvedDoctorName,
         billing: "pending",
         exam: "not_started",
         appointment: true,
@@ -904,7 +975,7 @@ export async function bookAppointment(
         visitId,
         departmentId: deptId,
         doctorId,
-        doctorName: doctorName(doctorId),
+        doctorName: resolvedDoctorName,
         date: String(data.date ?? ""),
         time: String(data.time ?? ""),
         durationMin: Number(data.duration ?? 20),
@@ -917,7 +988,7 @@ export async function bookAppointment(
         visitId,
         departmentId: deptId,
         doctorId,
-        doctorName: doctorName(doctorId),
+        doctorName: resolvedDoctorName,
         date: String(data.date ?? ""),
         time: String(data.time ?? ""),
         durationMin: Number(data.duration ?? 20),
@@ -930,5 +1001,32 @@ export async function bookAppointment(
   const opd = await prisma.opdVisit.findUnique({ where: { id: visitId } });
   if (opd) await syncVisitFromOpdVisit(ctx, opd);
 
+  await notifyAppointmentReminder(ctx, {
+    patientName: patient.name,
+    phone: patient.phone,
+    time: `${String(data.date ?? "")} ${String(data.time ?? "")}`.trim(),
+    visitId,
+  });
+
   return { appointmentId, visitId };
+}
+
+async function isDoctorOnLeave(doctorId: string, date: string): Promise<boolean> {
+  const staffId = staffIdFromDoctorId(doctorId);
+  if (!staffId) return false;
+  const staff = await prisma.adminStaff.findUnique({ where: { id: staffId } });
+  if (!staff?.email) return false;
+  const hrEmp = await prisma.hrEmployee.findFirst({
+    where: { email: staff.email.trim().toLowerCase(), active: true },
+  });
+  if (!hrEmp) return false;
+  const leave = await prisma.hrLeaveRequest.findFirst({
+    where: {
+      employeeId: hrEmp.id,
+      status: "approved",
+      fromDate: { lte: date },
+      toDate: { gte: date },
+    },
+  });
+  return !!leave;
 }

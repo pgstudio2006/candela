@@ -14,6 +14,9 @@ export default function HrLeavePage() {
   const [formOpen, setFormOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const op = employees.find((e) => e.id === operatorId);
+  const visibleRequests = isManager()
+    ? leaveRequests
+    : leaveRequests.filter((l) => l.employeeId === operatorId);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -24,8 +27,12 @@ export default function HrLeavePage() {
     <PageChrome
       breadcrumbs={[{ label: "HR", href: "/app/hr" }, { label: "Leave" }]}
       title="Leave management"
-      meta="Requests · approvals · auto CRM lead transfer when absent"
-      actions={<AttioButton variant="primary" onClick={() => setFormOpen(true)}><Plus className="size-3.5" /> Request leave</AttioButton>}
+      meta={isManager() ? "Approve requests · auto CRM lead transfer when absent" : "Request leave · track your balance"}
+      actions={
+        <AttioButton variant="primary" onClick={() => setFormOpen(true)}>
+          <Plus className="size-3.5" /> Request leave
+        </AttioButton>
+      }
     >
       {toast && (
         <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-[13px] text-emerald-800">{toast}</div>
@@ -57,7 +64,7 @@ export default function HrLeavePage() {
           { key: "status", label: "Status" },
           { key: "actions", label: "" },
         ]}
-        rows={leaveRequests.map((l) => {
+        rows={visibleRequests.map((l) => {
           const emp = employees.find((e) => e.id === l.employeeId);
           return {
             employee: emp?.name ?? l.employeeId,
@@ -104,7 +111,6 @@ export default function HrLeavePage() {
         <LeaveRequestModal
           employees={employees}
           operatorId={operatorId}
-          isManager={isManager()}
           onClose={() => setFormOpen(false)}
           onSave={(data) => addLeaveRequest(data)}
         />

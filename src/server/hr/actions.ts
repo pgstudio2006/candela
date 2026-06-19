@@ -17,7 +17,8 @@ import {
   type HrShiftSlot,
 } from "@/design-system/hr-data";
 import { HR_MANAGER_EMAIL, SEED_HR_PASSWORDS } from "@/lib/hr-auth";
-import { computeHrKpis } from "@/lib/hr-platform";
+import { DEFAULT_LEAVE_ENTITLEMENT, type HrLeaveRequest } from "@/design-system/hr-data";
+import { leaveDays } from "@/lib/hr-platform";
 import { requireModule } from "@/server/auth";
 import { writeAuditLog } from "@/server/audit-log";
 import { clearCrmAbsenceAction, transferCrmAbsenceAction } from "@/server/crm/actions";
@@ -168,6 +169,54 @@ export async function updateEmployee(
     entityId: id,
     summary: `Employee updated: ${id}`,
     payload: patch,
+  });
+  return getSnapshot(operatorId);
+}
+
+export async function copyShiftsFromPreviousWeek(targetDate: string, operatorId: string) {
+  await ensureBootstrapData();
+  const target = new Date(`${targetDate}T12:00:00`);
+  const sourceStart = new Date(target);
+  sourceStart.setDate(sourceStart.getDate() - 7);
+  const sourceEnd = new Date(sourceStart);
+  sourceEnd.setDate(sourceEnd.getDate() + 6);
+
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const sourceShifts = await prisma.hrShift.findMany({
+    where: {
+      date: { gte: fmt(sourceStart), lte: fmt(sourceEnd) },
+    },
+  });
+
+  for (const shift of sourceShifts) {
+    const shiftDate = new Date(`${shift.date}T12:00:00`);
+    shiftDate.setDate(shiftDate.getDate() + 7);
+    const newDate = fmt(shiftDate);
+    const exists = await prisma.hrShift.findFirst({
+      where: { employeeId: shift.employeeId, date: newDate, startTime: shift.startTime },
+    });
+    if (exists) continue;
+    await prisma.hrShift.create({
+      data: {
+        id: createId("sh"),
+        employeeId: shift.employeeId,
+        date: newDate,
+        startTime: shift.startTime,
+        endTime: shift.endTime,
+        location: shift.location,
+        role: shift.role,
+      },
+    });
+  }
+
+  await writeAuditLog({
+    actor: operatorId || "HR",
+    actorRole: "hr",
+    module: "hr",
+    action: "shifts_copied",
+    entityType: "shift",
+    entityId: targetDate,
+    summary: `Copied ${sourceShifts.length} shifts from previous week`,
   });
   return getSnapshot(operatorId);
 }
@@ -406,17 +455,72 @@ export async function markPayrollPaid(period: string, operatorId: string) {
 
 export async function generatePayrollRun(period: string, operatorId: string) {
   await ensureBootstrapData();
-  const [employees, existing] = await Promise.all([
+  const [employees, existing, leaveRows] = await Promise.all([
     prisma.hrEmployee.findMany({ where: { active: true, role: { not: "manager" } } }),
     prisma.hrPayrollLine.findMany({ where: { period } }),
+    prisma.hrLeaveRequest.findMany({ where: { status: "approved" } }),
   ]);
+  const leaveRequests: HrLeaveRequest[] = leaveRows.map((l) => ({
+    id: l.id,
+    employeeId: l.employeeId,
+    type: l.type as HrLeaveRequest["type"],
+    fromDate: l.fromDate,
+    toDate: l.toDate,
+    reason: l.reason,
+    status: l.status as HrLeaveRequest["status"],
+    requestedAt: l.requestedAt,
+    syncCrmAbsence: l.syncCrmAbsence,
+  }));
   const existingIds = new Set(existing.map((x) => x.employeeId));
+  const [y, m] = period.split("-").map(Number);
+  const monthStart = `${period}-01`;
+  const monthEnd = `${period}-${String(new Date(y, m, 0).getDate()).padStart(2, "0")}`;
+
+  const leaveDeduction = (employeeId: string, salaryMonthly: number) => {
+    const daily = Math.round(salaryMonthly / 30);
+    let deduct = 0;
+    for (const l of leaveRequests.filter((x) => x.employeeId === employeeId)) {
+      const from = l.fromDate > monthStart ? l.fromDate : monthStart;
+      const to = l.toDate < monthEnd ? l.toDate : monthEnd;
+      if (from > to) continue;
+      const days = leaveDays(from, to);
+      if (l.type === "unpaid") {
+        deduct += daily * days;
+        continue;
+      }
+      const ent =
+        l.type === "casual"
+          ? DEFAULT_LEAVE_ENTITLEMENT.casual
+          : l.type === "sick"
+            ? DEFAULT_LEAVE_ENTITLEMENT.sick
+            : l.type === "earned"
+              ? DEFAULT_LEAVE_ENTITLEMENT.earned
+              : 0;
+      const usedBefore = leaveRequests
+        .filter(
+          (x) =>
+            x.employeeId === employeeId &&
+            x.type === l.type &&
+            x.status === "approved" &&
+            x.toDate < monthStart,
+        )
+        .reduce((sum, x) => sum + leaveDays(x.fromDate, x.toDate), 0);
+      const remaining = ent - usedBefore;
+      if (days > remaining) {
+        deduct += daily * (days - Math.max(0, remaining));
+      }
+    }
+    return deduct;
+  };
+
   const lines = employees
     .filter((x) => !existingIds.has(x.id))
     .map((x) => {
       const basic = Math.round(Number(x.salaryMonthly) * 0.82);
       const allowances = Math.round(Number(x.salaryMonthly) * 0.15);
-      const deductions = Math.round(Number(x.salaryMonthly) * 0.06);
+      const leaveDeduct = leaveDeduction(x.id, Number(x.salaryMonthly));
+      const statutory = Math.round(Number(x.salaryMonthly) * 0.06);
+      const deductions = statutory + leaveDeduct;
       return {
         id: createId(`pay_${x.id}`),
         employeeId: x.id,

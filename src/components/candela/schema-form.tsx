@@ -11,18 +11,30 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { FormSchema, SchemaField } from "@/design-system/frontdesk-schemas";
+import { PatientSearchField } from "@/components/frontdesk/patient-search-field";
+import type { Patient } from "@/design-system/frontdesk-data";
+import { resolveDoctorName } from "@/lib/clinical-roster";
+import { deptLabel } from "@/lib/frontdesk-workflow";
 import { validateFormValues } from "@/lib/schema-registry";
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useState } from "react";
+
+function humanizeSelectValue(value: string, fieldId: string): string {
+  if (fieldId === "department" || value.startsWith("dept_")) return deptLabel(value);
+  if (fieldId === "doctor" || value.startsWith("dr_")) return resolveDoctorName(value);
+  return value.replace(/_/g, " ");
+}
 
 function SchemaFieldInput({
   field,
   value,
   onChange,
+  searchPatients,
 }: {
   field: SchemaField;
   value: string | number | boolean;
   onChange: (v: string | number | boolean) => void;
+  searchPatients?: Patient[];
 }) {
   const base = cn(
     "rounded-md border border-[var(--attio-border)] bg-white text-[13px] text-[var(--attio-text)]",
@@ -114,17 +126,30 @@ function SchemaFieldInput({
     );
   }
 
-  if (field.type === "select") {
-    const optionValues = field.options?.map((o) => o.value) ?? [];
-    const raw = String(value ?? "");
-    const safeValue = optionValues.includes(raw) ? raw : "";
+  if ((field.id === "uhid" || field.id === "patient") && searchPatients) {
     return (
-      <Select value={safeValue} onValueChange={(v) => v != null && onChange(v)}>
+      <PatientSearchField
+        value={String(value ?? "")}
+        patients={searchPatients}
+        placeholder={field.placeholder ?? "Search by UHID, phone, or name…"}
+        onChange={(q) => onChange(q)}
+      />
+    );
+  }
+
+  if (field.type === "select") {
+    const raw = String(value ?? "");
+    let options = [...(field.options ?? [])];
+    if (raw && !options.some((o) => o.value === raw)) {
+      options = [{ value: raw, label: humanizeSelectValue(raw, field.id) }, ...options];
+    }
+    return (
+      <Select value={raw || undefined} onValueChange={(v) => v != null && onChange(v)}>
         <SelectTrigger className={cn(base, "h-9 w-full")}>
           <SelectValue placeholder={field.placeholder ?? "Select…"} />
         </SelectTrigger>
         <SelectContent>
-          {field.options?.map((o) => (
+          {options.map((o) => (
             <SelectItem key={o.value} value={o.value}>
               {o.label}
             </SelectItem>
@@ -215,6 +240,8 @@ export function SchemaForm({
   className,
   initialValues,
   formKey,
+  onValuesChange,
+  searchPatients,
 }: {
   schema: FormSchema;
   onSubmit?: (data: Record<string, string | number | boolean>) => void;
@@ -222,6 +249,8 @@ export function SchemaForm({
   className?: string;
   initialValues?: Record<string, string | number | boolean>;
   formKey?: string;
+  onValuesChange?: (values: Record<string, string | number | boolean>) => void;
+  searchPatients?: Patient[];
 }) {
   const [values, setValues] = useState(() => defaultValues(schema, initialValues));
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -233,7 +262,11 @@ export function SchemaForm({
   }, [formKey, schema.id, initialKey, initialValues, schema]);
 
   const set = (id: string, v: string | number | boolean) => {
-    setValues((prev) => ({ ...prev, [id]: v }));
+    setValues((prev) => {
+      const next = { ...prev, [id]: v };
+      onValuesChange?.(next);
+      return next;
+    });
     setErrors((prev) => {
       if (!prev[id]) return prev;
       const next = { ...prev };
@@ -286,10 +319,10 @@ export function SchemaForm({
                   {field.required && <span className="text-red-500"> *</span>}
                 </Label>
                 {field.type !== "toggle" && (
-                  <SchemaFieldInput field={field} value={values[field.id]} onChange={(v) => set(field.id, v)} />
+                  <SchemaFieldInput field={field} value={values[field.id]} onChange={(v) => set(field.id, v)} searchPatients={searchPatients} />
                 )}
                 {field.type === "toggle" && (
-                  <SchemaFieldInput field={field} value={values[field.id]} onChange={(v) => set(field.id, v)} />
+                  <SchemaFieldInput field={field} value={values[field.id]} onChange={(v) => set(field.id, v)} searchPatients={searchPatients} />
                 )}
                 {field.hint && (
                   <p className="text-[11px] text-zinc-400">{field.hint}</p>

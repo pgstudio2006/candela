@@ -1,0 +1,147 @@
+import type { NotificationChannel, QueuedNotification } from "@/server/notifications";
+
+export type DeliveryResult = {
+  ok: boolean;
+  provider?: string;
+  detail?: string;
+};
+
+function demoMode() {
+  return process.env.NOTIFICATIONS_DEMO !== "false";
+}
+
+/** Email via Resend HTTP API */
+export async function deliverEmail(
+  recipient: string,
+  subject: string,
+  body: string,
+): Promise<DeliveryResult> {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.NOTIFICATION_FROM_EMAIL ?? "Candela <notifications@navayu.in>";
+
+  if (!apiKey) {
+    if (demoMode()) {
+      console.info("[notifications:demo:email]", recipient, subject, body.slice(0, 120));
+      return { ok: true, provider: "demo", detail: "RESEND_API_KEY not set — logged only" };
+    }
+    return { ok: false, provider: "resend", detail: "RESEND_API_KEY not configured" };
+  }
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: [recipient],
+      subject,
+      text: body,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    return { ok: false, provider: "resend", detail: err.slice(0, 200) };
+  }
+
+  return { ok: true, provider: "resend" };
+}
+
+/** SMS via Twilio REST API */
+export async function deliverSms(
+  recipient: string,
+  body: string,
+): Promise<DeliveryResult> {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const from = process.env.TWILIO_FROM_NUMBER;
+
+  if (!sid || !token || !from) {
+    if (demoMode()) {
+      console.info("[notifications:demo:sms]", recipient, body.slice(0, 120));
+      return { ok: true, provider: "demo", detail: "Twilio not configured — logged only" };
+    }
+    return { ok: false, provider: "twilio", detail: "Twilio env vars missing" };
+  }
+
+  const phone = recipient.replace(/\D/g, "");
+  const to = phone.startsWith("91") ? `+${phone}` : phone.length === 10 ? `+91${phone}` : recipient;
+
+  const auth = Buffer.from(`${sid}:${token}`).toString("base64");
+  const res = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${auth}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ To: to, From: from, Body: body }).toString(),
+    },
+  );
+
+  if (!res.ok) {
+    const err = await res.text();
+    return { ok: false, provider: "twilio", detail: err.slice(0, 200) };
+  }
+
+  return { ok: true, provider: "twilio" };
+}
+
+/** WhatsApp via Twilio WhatsApp sender */
+export async function deliverWhatsApp(
+  recipient: string,
+  body: string,
+): Promise<DeliveryResult> {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const from = process.env.TWILIO_WHATSAPP_FROM ?? "whatsapp:+14155238886";
+
+  if (!sid || !token) {
+    if (demoMode()) {
+      console.info("[notifications:demo:whatsapp]", recipient, body.slice(0, 120));
+      return { ok: true, provider: "demo", detail: "Twilio not configured — logged only" };
+    }
+    return { ok: false, provider: "twilio-whatsapp", detail: "Twilio env vars missing" };
+  }
+
+  const phone = recipient.replace(/\D/g, "");
+  const to = phone.length === 10 ? `whatsapp:+91${phone}` : recipient.startsWith("whatsapp:") ? recipient : `whatsapp:+${phone}`;
+
+  const auth = Buffer.from(`${sid}:${token}`).toString("base64");
+  const res = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${auth}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ To: to, From: from, Body: body }).toString(),
+    },
+  );
+
+  if (!res.ok) {
+    const err = await res.text();
+    return { ok: false, provider: "twilio-whatsapp", detail: err.slice(0, 200) };
+  }
+
+  return { ok: true, provider: "twilio-whatsapp" };
+}
+
+export async function deliverNotification(n: QueuedNotification): Promise<DeliveryResult> {
+  switch (n.channel as NotificationChannel) {
+    case "email":
+      return deliverEmail(n.recipient, n.subject, n.body);
+    case "sms":
+      return deliverSms(n.recipient, n.body);
+    case "whatsapp":
+      return deliverWhatsApp(n.recipient, n.body);
+    case "in_app":
+      return { ok: true, provider: "in_app", detail: "Stored in audit queue" };
+    default:
+      return { ok: false, detail: `Unknown channel: ${n.channel}` };
+  }
+}

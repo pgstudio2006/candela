@@ -113,18 +113,31 @@ export function EmployeeFormModal({
 
 export function ShiftFormModal({
   employees,
+  leaveRequests = [],
   date,
   initial,
   onClose,
   onSave,
 }: {
   employees: HrEmployee[];
+  leaveRequests?: import("@/design-system/hr-data").HrLeaveRequest[];
   date: string;
   initial?: { employeeId: string; startTime: string; endTime: string; location: string; role: string };
   onClose: () => void;
   onSave: (data: { employeeId: string; date: string; startTime: string; endTime: string; location: string; role: string }) => void;
 }) {
-  const staff = employees.filter((e) => e.active && e.role !== "manager");
+  const staff = employees.filter(
+    (e) =>
+      e.active &&
+      e.role !== "manager" &&
+      !leaveRequests.some(
+        (l) =>
+          l.employeeId === e.id &&
+          l.status === "approved" &&
+          date >= l.fromDate &&
+          date <= l.toDate,
+      ),
+  );
   const [employeeId, setEmployeeId] = useState(initial?.employeeId ?? staff[0]?.id ?? "");
   const [startTime, setStartTime] = useState(initial?.startTime ?? "09:00");
   const [endTime, setEndTime] = useState(initial?.endTime ?? "18:00");
@@ -175,18 +188,15 @@ export function ShiftFormModal({
 export function LeaveRequestModal({
   employees,
   operatorId,
-  isManager,
   onClose,
   onSave,
 }: {
   employees: HrEmployee[];
   operatorId: string;
-  isManager: boolean;
   onClose: () => void;
   onSave: (data: { employeeId: string; type: LeaveType; fromDate: string; toDate: string; reason: string; syncCrmAbsence: boolean }) => void;
 }) {
-  const staff = employees.filter((e) => e.active && e.role !== "manager");
-  const [employeeId, setEmployeeId] = useState(isManager ? staff[0]?.id ?? "" : operatorId);
+  const employeeId = operatorId;
   const [type, setType] = useState<LeaveType>("casual");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -204,13 +214,9 @@ export function LeaveRequestModal({
           onClose();
         }}
       >
-        {isManager && (
-          <select className="h-9 w-full rounded-md border px-2 text-[13px]" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
-            {staff.map((e) => (
-              <option key={e.id} value={e.id}>{e.name}</option>
-            ))}
-          </select>
-        )}
+        <p className="rounded-md bg-[var(--attio-surface)] px-3 py-2 text-[13px]">
+          Requesting as <strong>{emp?.name ?? "you"}</strong>
+        </p>
         <select className="h-9 w-full rounded-md border px-2 text-[13px]" value={type} onChange={(e) => setType(e.target.value as LeaveType)}>
           {Object.entries(LEAVE_TYPE_LABELS).map(([k, v]) => (
             <option key={k} value={k}>{v}</option>

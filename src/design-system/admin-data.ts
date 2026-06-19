@@ -270,6 +270,15 @@ export const SEED_DISEASE_MAP: DiseaseMapNode[] = [
   { id: "dm_1", icd: "M51.1", label: "Lumbar disc with radiculopathy", departmentId: "dept_spine", templateId: "tpl_lumbar", packageIds: ["pkg_basic", "pkg_regen"], consentTemplateIds: ["consent_general_treatment", "consent_physio"], billingTemplateId: "bt1" },
   { id: "dm_2", icd: "M47.8", label: "Cervical spondylosis", departmentId: "dept_spine", templateId: "tpl_cervical", packageIds: ["pkg_basic"], consentTemplateIds: ["consent_general_treatment", "consent_physio"], billingTemplateId: "bt1" },
   { id: "dm_3", icd: "E88.81", label: "Metabolic syndrome", departmentId: "dept_wellness", templateId: "tpl_wellness", packageIds: ["pkg_wellness"], consentTemplateIds: ["consent_general_treatment"], billingTemplateId: "bt2" },
+  { id: "dm_4", icd: "M25.5", label: "Joint pain", departmentId: "dept_spine", templateId: "tpl_lumbar", packageIds: ["pkg_basic"], consentTemplateIds: ["consent_general_treatment"], billingTemplateId: "bt1" },
+  { id: "dm_5", icd: "M54.5", label: "Low back pain", departmentId: "dept_spine", templateId: "tpl_lumbar", packageIds: ["pkg_basic", "pkg_regen"], consentTemplateIds: ["consent_general_treatment", "consent_physio"], billingTemplateId: "bt1" },
+  { id: "dm_6", icd: "M54.2", label: "Cervicalgia", departmentId: "dept_spine", templateId: "tpl_cervical", packageIds: ["pkg_basic"], consentTemplateIds: ["consent_general_treatment"], billingTemplateId: "bt1" },
+  { id: "dm_7", icd: "M17.9", label: "Knee osteoarthritis", departmentId: "dept_spine", templateId: "tpl_lumbar", packageIds: ["pkg_basic", "pkg_regen"], consentTemplateIds: ["consent_general_treatment"], billingTemplateId: "bt1" },
+  { id: "dm_8", icd: "M19.90", label: "Unspecified osteoarthritis", departmentId: "dept_spine", templateId: "tpl_lumbar", packageIds: ["pkg_basic"], consentTemplateIds: ["consent_general_treatment"], billingTemplateId: "bt1" },
+  { id: "dm_9", icd: "G56.0", label: "Carpal tunnel syndrome", departmentId: "dept_spine", templateId: "tpl_cervical", packageIds: ["pkg_basic"], consentTemplateIds: ["consent_general_treatment"], billingTemplateId: "bt1" },
+  { id: "dm_10", icd: "E11.9", label: "Type 2 diabetes mellitus", departmentId: "dept_wellness", templateId: "tpl_wellness", packageIds: ["pkg_wellness"], consentTemplateIds: ["consent_general_treatment"], billingTemplateId: "bt2" },
+  { id: "dm_11", icd: "I10", label: "Essential hypertension", departmentId: "dept_wellness", templateId: "tpl_wellness", packageIds: ["pkg_wellness"], consentTemplateIds: ["consent_general_treatment"], billingTemplateId: "bt2" },
+  { id: "dm_12", icd: "E66.9", label: "Obesity unspecified", departmentId: "dept_wellness", templateId: "tpl_wellness", packageIds: ["pkg_wellness"], consentTemplateIds: ["consent_general_treatment"], billingTemplateId: "bt2" },
 ];
 
 export const SEED_GEO: GeoCluster[] = [

@@ -3,27 +3,20 @@
 import { SchemaForm } from "@/components/candela/schema-form";
 import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
-import { useFormSchema } from "@/components/frontdesk/use-form-schema";
+import { useFrontdeskFormSchema } from "@/components/frontdesk/use-frontdesk-form-schema";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { User } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useMemo } from "react";
+import { Suspense, useMemo, useState } from "react";
 
 function CheckInContent() {
   const router = useRouter();
   const params = useSearchParams();
   const visitParam = params.get("visit") ?? undefined;
   const patientParam = params.get("patient") ?? undefined;
-  const schema = useFormSchema("checkin");
-  const {
-    checkInVisit,
-    getPatient,
-    getVisit,
-    getWaitingCheckIns,
-    patients,
-    ready,
-    saveSubmission,
-  } = useFrontdeskStore();
+  const { checkInVisit, getPatient, getVisit, getWaitingCheckIns, patients, ready, roster, saveSubmission } =
+    useFrontdeskStore();
+  const [formDept, setFormDept] = useState<string>();
 
   const prefill = useMemo(() => {
     const visit = visitParam ? getVisit(visitParam) : undefined;
@@ -33,12 +26,17 @@ function CheckInContent() {
         ? getPatient(visit.patientId)
         : undefined;
     if (!patient && !visit) return undefined;
+    const dept = visit?.departmentId || patient?.departmentId || "dept_spine";
+    const deptDoctors = roster.doctorsByDept[dept] ?? roster.allDoctors;
     return {
       uhid: patient?.uhid ?? "",
-      department: visit?.departmentId || patient?.departmentId || "dept_spine",
-      doctor: visit?.doctorId || "dr_1",
+      department: dept,
+      doctor: visit?.doctorId || deptDoctors[0]?.id || "dr_1",
     };
-  }, [visitParam, patientParam, getPatient, getVisit, ready]);
+  }, [visitParam, patientParam, getPatient, getVisit, ready, roster]);
+
+  const departmentId = formDept ?? String(prefill?.department ?? "dept_spine");
+  const schema = useFrontdeskFormSchema("checkin", roster, departmentId);
 
   const waiting = getWaitingCheckIns();
 
@@ -56,8 +54,14 @@ function CheckInContent() {
         <Panel title="Check-in form">
           <SchemaForm
             schema={schema}
-            formKey={`${schema.id}-${visitParam ?? "new"}-${prefill?.uhid ?? "blank"}-${ready ? "ready" : "loading"}`}
+            formKey={`${schema.id}-${visitParam ?? "new"}-${prefill?.uhid ?? "blank"}-${departmentId}-${ready ? "ready" : "loading"}`}
             initialValues={prefill}
+            onValuesChange={(values) => {
+              if (values.department && values.department !== formDept) {
+                setFormDept(String(values.department));
+              }
+            }}
+            searchPatients={patients}
             submitLabel="Complete check-in → Billing"
             onSubmit={(data) => {
               const { visitId } = checkInVisit(data, visitParam);

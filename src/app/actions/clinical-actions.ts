@@ -3,6 +3,8 @@
 import type { BillingResult, CounselBillingInput } from "@/server/clinical";
 import {
   bookAppointment,
+  canOverrideDuplicate,
+  checkDuplicatePatient,
   checkInVisit,
   completeJuniorExam,
   getClinicalSnapshot,
@@ -27,6 +29,16 @@ export async function registerPatientAction(input: {
 }) {
   const ctx = await requireModule("frontdesk");
   return registerPatient(ctx, input);
+}
+
+export async function checkDuplicatePatientAction(phone: string, uhid?: string) {
+  const ctx = await requireModule("frontdesk");
+  return checkDuplicatePatient(ctx, phone, uhid);
+}
+
+export async function canOverrideDuplicateAction() {
+  const ctx = await requireModule("frontdesk");
+  return canOverrideDuplicate(ctx.role);
 }
 
 export async function checkInVisitAction(input: {

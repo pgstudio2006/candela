@@ -306,8 +306,8 @@ export const SEED_HR_ATTENDANCE = buildSeedAttendance();
 export const SEED_HR_PAYROLL = buildSeedPayroll();
 
 export const LEAVE_TYPE_LABELS: Record<LeaveType, string> = {
-  casual: "Casual",
-  sick: "Sick",
-  earned: "Earned",
-  unpaid: "Unpaid",
+  casual: "Casual Leave (CL)",
+  sick: "Medical Leave",
+  earned: "Paid Leave",
+  unpaid: "Unpaid Leave",
 };

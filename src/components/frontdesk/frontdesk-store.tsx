@@ -5,11 +5,8 @@ import {
   type Visit,
 } from "@/design-system/frontdesk-data";
 import {
-  ageFromDob,
   buildActionItems,
   computeKpis,
-  deptLabel,
-  doctorName,
   findDuplicatePatients,
   matchPatientByQuery,
   nextUhid,
@@ -27,6 +24,12 @@ import {
   type PaymentScope,
 } from "@/lib/billing-routing";
 import type { BillingHandoffPayload } from "@/design-system/counsellor-data";
+import {
+  EMPTY_ROSTER,
+  resolveDoctorName as rosterDoctorName,
+  type ClinicalRoster,
+} from "@/lib/clinical-roster";
+import { parseActionError } from "@/lib/action-errors";
 import {
   bookAppointmentAction,
   checkInVisitAction,
@@ -54,6 +57,7 @@ type FrontdeskState = {
   submissions: FormSubmission[];
   counters: FrontdeskCounters;
   billingHandoffs: BillingHandoffPayload[];
+  roster: ClinicalRoster;
 };
 
 type RegisterInput = Record<string, string | number | boolean>;
@@ -79,15 +83,25 @@ export type BillingResult = {
   routingNote: string;
 };
 
+export type RegisterPatientResult =
+  | { ok: true; patientId: string; visitId: string; uhid: string }
+  | { ok: false; error: string; code?: string };
+
 type FrontdeskStoreValue = FrontdeskState & {
   ready: boolean;
+  error: string | null;
+  refresh: () => Promise<void>;
+  resolveDoctorName: (doctorId: string) => string;
   getBillingHandoff: (visitId: string) => BillingHandoffPayload | undefined;
-  registerPatient: (data: RegisterInput, opts?: { startVisit?: boolean }) => { patientId: string; visitId: string; uhid: string };
+  registerPatientAsync: (
+    data: RegisterInput,
+    opts?: { startVisit?: boolean; forceDuplicate?: boolean },
+  ) => Promise<RegisterPatientResult>;
   checkInVisit: (data: CheckInInput, visitId?: string) => { visitId: string; patientId: string };
   processBilling: (visitId: string, data: BillingInput) => BillingResult;
   processCounselBilling: (visitId: string, input: CounselBillingInput) => BillingResult;
   completeJuniorExam: (visitId: string, data: JuniorExamInput) => void;
-  bookAppointment: (data: AppointmentInput) => { appointmentId: string; visitId: string };
+  bookAppointment: (data: AppointmentInput) => Promise<{ appointmentId: string; visitId: string; error?: string }>;
   saveSubmission: (formId: string, data: Record<string, string | number | boolean>, ctx?: { patientId?: string; visitId?: string }) => void;
   getSubmission: (formId: string, visitId: string) => FormSubmission | undefined;
   searchPatients: (q: string) => Patient[];
@@ -114,6 +128,7 @@ function initialState(): FrontdeskState {
     submissions: [],
     counters: { patient: 0, visit: 0, token: 0, appointment: 0 },
     billingHandoffs: [],
+    roster: EMPTY_ROSTER,
   };
 }
 
@@ -130,14 +145,17 @@ function cloneState(state: FrontdeskState): FrontdeskState {
     submissions: [...state.submissions],
     billingHandoffs: [...state.billingHandoffs],
     counters: { ...state.counters },
+    roster: state.roster,
   };
 }
 
 export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<FrontdeskState>(initialState);
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    setReady(false);
     try {
       const snapshot = await getClinicalSnapshotAction();
       setState({
@@ -147,9 +165,12 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
         submissions: snapshot.submissions,
         counters: snapshot.counters,
         billingHandoffs: snapshot.billingHandoffs,
+        roster: snapshot.roster,
       });
+      setError(null);
     } catch (err) {
       console.error("Frontdesk refresh failed:", err);
+      setError(parseActionError(err).message);
     } finally {
       setReady(true);
     }
@@ -163,72 +184,36 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
     setState((prev) => fn(cloneState(prev)));
   }, []);
 
-  const registerPatient = useCallback(
-    (data: RegisterInput, opts?: { startVisit?: boolean }) => {
+  const registerPatientAsync = useCallback(
+    async (
+      data: RegisterInput,
+      opts?: { startVisit?: boolean; forceDuplicate?: boolean },
+    ): Promise<RegisterPatientResult> => {
       const patientId = randomId("p");
       const visitId = opts?.startVisit === false ? "" : randomId("v");
       const uhid = nextUhid(state.counters.patient + 1);
 
-      update((prev) => {
-        const deptId = String(data.department ?? "dept_spine");
-        const first = String(data.firstName ?? "").trim();
-        const last = String(data.lastName ?? "").trim();
-        const name = `${first} ${last}`.trim() || "New Patient";
-        const patient: Patient = {
-          id: patientId,
-          uhid,
-          name,
-          phone: String(data.phone ?? ""),
-          email: String(data.email ?? "") || undefined,
-          age: data.dob ? ageFromDob(String(data.dob)) : 0,
-          gender: (String(data.gender ?? "O") as Patient["gender"]),
-          department: deptLabel(deptId),
-          departmentId: deptId,
-          tags: [String(data.visitType ?? "opd")],
-          balance: 0,
-          referrer: String(data.referrerName ?? "") || undefined,
-        };
-        const patients = [...prev.patients, patient];
-        let visits = prev.visits;
-        if (visitId) {
-          visits = [
-            ...prev.visits,
-            {
-              id: visitId,
-              patientId,
-              stage: "registered",
-              departmentId: deptId,
-              doctorId: "",
-              doctorName: "",
-              billing: "pending",
-              exam: "not_started",
-              appointment: false,
-              waitMin: 0,
-            },
-          ];
-        }
+      try {
+        const serverResult = await registerPatientAction({
+          data,
+          patientId,
+          visitId: visitId || undefined,
+          startVisit: opts?.startVisit,
+          forceDuplicate: opts?.forceDuplicate,
+        });
+        await refresh();
         return {
-          ...prev,
-          patients,
-          visits,
-          counters: {
-            ...prev.counters,
-            patient: prev.counters.patient + 1,
-            visit: visitId ? prev.counters.visit + 1 : prev.counters.visit,
-          },
+          ok: true,
+          patientId: serverResult.patientId,
+          visitId: serverResult.visitId,
+          uhid: serverResult.uhid,
         };
-      });
-
-      void registerPatientAction({
-        data,
-        patientId,
-        visitId: visitId || undefined,
-        startVisit: opts?.startVisit,
-      }).then(() => refresh());
-
-      return { patientId, visitId, uhid };
+      } catch (err) {
+        const parsed = parseActionError(err);
+        return { ok: false, error: parsed.message, code: parsed.code };
+      }
     },
-    [refresh, state.counters.patient, update],
+    [refresh, state.counters.patient],
   );
 
   const checkInVisit = useCallback(
@@ -263,7 +248,7 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
                   stage: "billing",
                   departmentId: deptId,
                   doctorId,
-                  doctorName: doctorName(doctorId),
+                  doctorName: rosterDoctorName(doctorId, prev.roster),
                   checkInAt: nowTime(),
                   billing: v.billing === "paid" ? v.billing : "pending",
                 }
@@ -277,7 +262,7 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
             stage: "billing",
             departmentId: deptId,
             doctorId,
-            doctorName: doctorName(doctorId),
+            doctorName: rosterDoctorName(doctorId, prev.roster),
             billing: "pending",
             exam: "not_started",
             appointment: false,
@@ -436,67 +421,17 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
   );
 
   const bookAppointment = useCallback(
-    (data: AppointmentInput) => {
+    async (data: AppointmentInput) => {
       const appointmentId = randomId("ap");
       const visitId = randomId("v");
-      let result = { appointmentId, visitId };
-      update((prev) => {
-        const patient =
-          matchPatientByQuery(prev.patients, String(data.patient ?? "")) ??
-          prev.patients.find((p) => p.name.toLowerCase().includes(String(data.patient ?? "").toLowerCase()));
-
-        if (!patient) return prev;
-
-        const doctorId = String(data.doctor ?? "dr_1");
-        const deptId = String(data.department ?? "dept_spine");
-
-        const appointment: Appointment = {
-          id: appointmentId,
-          patientId: patient.id,
-          departmentId: deptId,
-          doctorId,
-          doctorName: doctorName(doctorId),
-          date: String(data.date ?? ""),
-          time: String(data.time ?? ""),
-          durationMin: Number(data.duration ?? 20),
-          notes: String(data.notes ?? "") || undefined,
-          status: "booked",
-        };
-
-        return {
-          ...prev,
-          appointments: [...prev.appointments, appointment],
-          visits: [
-            ...prev.visits,
-            {
-              id: visitId,
-              patientId: patient.id,
-              stage: "registered",
-              departmentId: deptId,
-              doctorId,
-              doctorName: doctorName(doctorId),
-              billing: "pending",
-              exam: "not_started",
-              appointment: true,
-              appointmentTime: String(data.time ?? ""),
-              waitMin: 0,
-            },
-          ],
-          counters: {
-            ...prev.counters,
-            appointment: prev.counters.appointment + 1,
-            visit: prev.counters.visit + 1,
-          },
-        };
-      });
-      void bookAppointmentAction({
-        data,
-        appointmentId,
-        visitId,
-      }).then(() => refresh());
-      return result;
+      const res = await bookAppointmentAction({ data, appointmentId, visitId });
+      if (res.error || !res.visitId) {
+        return { appointmentId: "", visitId: "", error: res.error ?? "Could not book appointment" };
+      }
+      await refresh();
+      return { appointmentId: res.appointmentId, visitId: res.visitId };
     },
-    [refresh, update],
+    [refresh],
   );
 
   const saveSubmission = useCallback(
@@ -533,8 +468,11 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
     return {
       ...state,
       ready,
+      error,
+      refresh,
+      resolveDoctorName: (doctorId: string) => rosterDoctorName(doctorId, state.roster),
       getBillingHandoff: (visitId) => state.billingHandoffs.find((h) => h.visitId === visitId),
-      registerPatient,
+      registerPatientAsync,
       checkInVisit,
       processBilling,
       processCounselBilling,
@@ -583,7 +521,7 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
         void refresh();
       },
     };
-  }, [state, ready, registerPatient, checkInVisit, processBilling, processCounselBilling, completeJuniorExam, bookAppointment, saveSubmission, refresh]);
+  }, [state, ready, error, refresh, registerPatientAsync, checkInVisit, processBilling, processCounselBilling, completeJuniorExam, bookAppointment, saveSubmission]);
 
   return <FrontdeskContext.Provider value={value}>{children}</FrontdeskContext.Provider>;
 }

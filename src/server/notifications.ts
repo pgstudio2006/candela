@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { ServerContext } from "@/server/context";
 import { writePlatformAudit } from "@/server/platform-audit";
+import { deliverNotification } from "@/server/notification-delivery";
 
 export type NotificationChannel = "email" | "sms" | "whatsapp" | "in_app";
 
@@ -42,7 +43,21 @@ export async function queueNotification(
   return record;
 }
 
+async function getSentNotificationIds(ctx: ServerContext): Promise<Set<string>> {
+  const sent = await prisma.auditLog.findMany({
+    where: {
+      tenantId: ctx.tenantId,
+      module: "notifications",
+      action: "notification_sent",
+    },
+    select: { entityId: true },
+    take: 500,
+  });
+  return new Set(sent.map((r) => r.entityId));
+}
+
 export async function getQueuedNotifications(ctx: ServerContext, limit = 50) {
+  const sentIds = await getSentNotificationIds(ctx);
   const rows = await prisma.auditLog.findMany({
     where: {
       tenantId: ctx.tenantId,
@@ -50,40 +65,82 @@ export async function getQueuedNotifications(ctx: ServerContext, limit = 50) {
       action: "notification_queued",
     },
     orderBy: { createdAt: "desc" },
-    take: limit,
+    take: limit * 2,
   });
 
   return rows
     .map((r) => (r.payload as QueuedNotification | null))
-    .filter(Boolean) as QueuedNotification[];
+    .filter((n): n is QueuedNotification => Boolean(n))
+    .filter((n) => n.status === "queued" && !sentIds.has(n.id))
+    .slice(0, limit);
 }
 
-/** Process queued notifications (cron / manual) — marks sent in audit */
+/** Process queued notifications — delivers via configured providers */
 export async function processNotificationQueue(ctx: ServerContext) {
   const pending = await getQueuedNotifications(ctx, 100);
   const sent: string[] = [];
+  const failed: string[] = [];
 
-  for (const n of pending.filter((x) => x.status === "queued")) {
-    // Demo: log as sent; wire email/SMS provider in production
+  for (const n of pending) {
+    const result = await deliverNotification(n);
+    const status = result.ok ? "sent" : "failed";
+
     await writePlatformAudit({
       ctx,
       module: "notifications",
-      action: "notification_sent",
+      action: result.ok ? "notification_sent" : "notification_failed",
       entityType: "notification",
       entityId: n.id,
-      summary: `Delivered ${n.channel} to ${n.recipient}`,
-      payload: { ...n, status: "sent", sentAt: new Date().toISOString() },
+      summary: result.ok
+        ? `Delivered ${n.channel} to ${n.recipient}`
+        : `Failed ${n.channel} to ${n.recipient}: ${result.detail ?? "unknown"}`,
+      payload: {
+        ...n,
+        status,
+        sentAt: new Date().toISOString(),
+        provider: result.provider,
+        detail: result.detail,
+      },
     });
-    sent.push(n.id);
+
+    if (result.ok) sent.push(n.id);
+    else failed.push(n.id);
   }
 
-  return { processed: sent.length, ids: sent };
+  return { processed: sent.length, failed: failed.length, ids: sent, failedIds: failed };
+}
+
+/** Cron-safe: process all tenants when no session context */
+export async function processAllTenantNotifications() {
+  const tenants = await prisma.tenant.findMany({ where: { active: true } });
+  let total = 0;
+
+  for (const tenant of tenants) {
+    const branch = await prisma.branch.findFirst({
+      where: { tenantId: tenant.id, active: true },
+    });
+    if (!branch) continue;
+
+    const ctx: ServerContext = {
+      userId: "system_cron",
+      tenantId: tenant.id,
+      branchId: branch.id,
+      role: "admin",
+      sessionToken: "",
+    };
+
+    const result = await processNotificationQueue(ctx);
+    total += result.processed;
+  }
+
+  return { tenants: tenants.length, processed: total };
 }
 
 export async function notifyAppointmentReminder(
   ctx: ServerContext,
   input: { patientName: string; phone: string; time: string; visitId: string },
 ) {
+  if (!input.phone?.trim()) return null;
   return queueNotification(ctx, {
     channel: "whatsapp",
     recipient: input.phone,

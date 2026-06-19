@@ -122,6 +122,9 @@ export function AdminFormBuilder() {
       setSchemaOverrideCache(overrides);
       setSchema(loadSchema(activeId));
       setSaved(true);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("candela-schema-updated"));
+      }
     })();
   };
 
@@ -132,6 +135,9 @@ export function AdminFormBuilder() {
       setSchemaOverrideCache(overrides);
       setSchema(loadSchema(activeId));
       setSaved(false);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("candela-schema-updated"));
+      }
     })();
   };
 
