@@ -6,6 +6,8 @@ import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { useFormSchema } from "@/components/frontdesk/use-form-schema";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { ArrowLeft, Send } from "lucide-react";
+import { useToast } from "@/components/ui/toast-provider";
+import { validateFormValues } from "@/lib/schema-registry";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
@@ -14,6 +16,7 @@ export default function JuniorExamDetailPage() {
   const router = useRouter();
   const visitId = params.visitId as string;
   const schema = useFormSchema("junior-exam");
+  const { toast } = useToast();
   const {
     getVisit,
     getPatient,
@@ -25,6 +28,23 @@ export default function JuniorExamDetailPage() {
   const visit = getVisit(visitId);
   const patient = visit ? getPatient(visit.patientId) : undefined;
   const saved = getSubmission("junior-exam", visitId);
+
+  const finishHandoff = async (data: Record<string, string | number | boolean>) => {
+    const errors = validateFormValues(schema, data);
+    const firstError = Object.values(errors)[0];
+    if (firstError) {
+      toast(firstError, "error");
+      return;
+    }
+    saveSubmission("junior-exam", data, { visitId, patientId: patient!.id });
+    const result = await completeJuniorExam(visitId, data);
+    if (!result.ok) {
+      toast(result.error ?? "Could not complete junior exam", "error");
+      return;
+    }
+    toast("Handoff sent to doctor queue", "success");
+    router.push("/app/frontdesk/queue");
+  };
 
   if (!visit || !patient) {
     return (
@@ -50,10 +70,8 @@ export default function JuniorExamDetailPage() {
           variant="primary"
           className="gap-1.5"
           onClick={() => {
-            if (saved) {
-              completeJuniorExam(visitId, saved.data);
-              router.push("/app/frontdesk/queue");
-            }
+            if (saved) void finishHandoff(saved.data);
+            else toast("Save the examination form before completing handoff", "error");
           }}
         >
           <Send className="size-3.5" />
@@ -112,9 +130,7 @@ export default function JuniorExamDetailPage() {
             className="mt-4 w-full"
             onClick={() => {
               const data = saved?.data ?? {};
-              saveSubmission("junior-exam", data, { visitId, patientId: patient.id });
-              completeJuniorExam(visitId, data);
-              router.push("/app/frontdesk/queue");
+              void finishHandoff(data);
             }}
           >
             Complete handoff

@@ -13,15 +13,17 @@ import { Textarea } from "@/components/ui/textarea";
 import type { FormSchema, SchemaField } from "@/design-system/frontdesk-schemas";
 import { PatientSearchField } from "@/components/frontdesk/patient-search-field";
 import type { Patient } from "@/design-system/frontdesk-data";
-import { resolveDoctorName } from "@/lib/clinical-roster";
+import { deptLabelFromRoster, resolveDoctorName, type ClinicalRoster } from "@/lib/clinical-roster";
 import { deptLabel } from "@/lib/frontdesk-workflow";
 import { validateFormValues } from "@/lib/schema-registry";
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useState } from "react";
 
-function humanizeSelectValue(value: string, fieldId: string): string {
-  if (fieldId === "department" || value.startsWith("dept_")) return deptLabel(value);
-  if (fieldId === "doctor" || value.startsWith("dr_")) return resolveDoctorName(value);
+function humanizeSelectValue(value: string, fieldId: string, roster?: ClinicalRoster | null): string {
+  if (fieldId === "department" || value.startsWith("dept_")) {
+    return roster ? deptLabelFromRoster(value, roster) : deptLabel(value);
+  }
+  if (fieldId === "doctor" || value.startsWith("dr_")) return resolveDoctorName(value, roster);
   return value.replace(/_/g, " ");
 }
 
@@ -30,11 +32,13 @@ function SchemaFieldInput({
   value,
   onChange,
   searchPatients,
+  roster,
 }: {
   field: SchemaField;
   value: string | number | boolean;
   onChange: (v: string | number | boolean) => void;
   searchPatients?: Patient[];
+  roster?: ClinicalRoster | null;
 }) {
   const base = cn(
     "rounded-md border border-[var(--attio-border)] bg-white text-[13px] text-[var(--attio-text)]",
@@ -141,7 +145,7 @@ function SchemaFieldInput({
     const raw = String(value ?? "");
     let options = [...(field.options ?? [])];
     if (raw && !options.some((o) => o.value === raw)) {
-      options = [{ value: raw, label: humanizeSelectValue(raw, field.id) }, ...options];
+      options = [{ value: raw, label: humanizeSelectValue(raw, field.id, roster) }, ...options];
     }
     return (
       <Select value={raw || undefined} onValueChange={(v) => v != null && onChange(v)}>
@@ -242,6 +246,7 @@ export function SchemaForm({
   formKey,
   onValuesChange,
   searchPatients,
+  roster,
 }: {
   schema: FormSchema;
   onSubmit?: (data: Record<string, string | number | boolean>) => void;
@@ -251,6 +256,7 @@ export function SchemaForm({
   formKey?: string;
   onValuesChange?: (values: Record<string, string | number | boolean>) => void;
   searchPatients?: Patient[];
+  roster?: ClinicalRoster | null;
 }) {
   const [values, setValues] = useState(() => defaultValues(schema, initialValues));
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -319,10 +325,10 @@ export function SchemaForm({
                   {field.required && <span className="text-red-500"> *</span>}
                 </Label>
                 {field.type !== "toggle" && (
-                  <SchemaFieldInput field={field} value={values[field.id]} onChange={(v) => set(field.id, v)} searchPatients={searchPatients} />
+                  <SchemaFieldInput field={field} value={values[field.id]} onChange={(v) => set(field.id, v)} searchPatients={searchPatients} roster={roster} />
                 )}
                 {field.type === "toggle" && (
-                  <SchemaFieldInput field={field} value={values[field.id]} onChange={(v) => set(field.id, v)} searchPatients={searchPatients} />
+                  <SchemaFieldInput field={field} value={values[field.id]} onChange={(v) => set(field.id, v)} searchPatients={searchPatients} roster={roster} />
                 )}
                 {field.hint && (
                   <p className="text-[11px] text-zinc-400">{field.hint}</p>

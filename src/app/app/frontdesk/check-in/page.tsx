@@ -5,6 +5,8 @@ import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { useFrontdeskFormSchema } from "@/components/frontdesk/use-frontdesk-form-schema";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
+import { useToast } from "@/components/ui/toast-provider";
+import { patientDisplayName } from "@/lib/frontdesk-workflow";
 import { User } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
@@ -16,6 +18,7 @@ function CheckInContent() {
   const patientParam = params.get("patient") ?? undefined;
   const { checkInVisit, getPatient, getVisit, getWaitingCheckIns, patients, ready, roster, saveSubmission } =
     useFrontdeskStore();
+  const { toast } = useToast();
   const [formDept, setFormDept] = useState<string>();
 
   const prefill = useMemo(() => {
@@ -31,7 +34,7 @@ function CheckInContent() {
     return {
       uhid: patient?.uhid ?? "",
       department: dept,
-      doctor: visit?.doctorId || deptDoctors[0]?.id || "dr_1",
+      doctor: visit?.doctorId || deptDoctors[0]?.id || "",
     };
   }, [visitParam, patientParam, getPatient, getVisit, ready, roster]);
 
@@ -62,11 +65,17 @@ function CheckInContent() {
               }
             }}
             searchPatients={patients}
+            roster={roster}
             submitLabel="Complete check-in → Billing"
-            onSubmit={(data) => {
-              const { visitId } = checkInVisit(data, visitParam);
-              saveSubmission("checkin", data, { visitId });
-              router.push(`/app/frontdesk/billing?visit=${visitId}`);
+            onSubmit={async (data) => {
+              const result = await checkInVisit(data, visitParam);
+              if (!result.ok || !result.visitId) {
+                toast(result.error ?? "Check-in failed", "error");
+                return;
+              }
+              saveSubmission("checkin", data, { visitId: result.visitId, patientId: result.patientId });
+              toast("Check-in complete", "success");
+              router.push(`/app/frontdesk/billing?visit=${result.visitId}`);
             }}
           />
         </Panel>
@@ -88,7 +97,7 @@ function CheckInContent() {
                       <User className="size-4 text-[var(--attio-text-tertiary)]" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-medium">{patient.name}</p>
+                      <p className="text-[13px] font-medium">{patientDisplayName(patient)}</p>
                       <p className="text-[11px] text-[var(--attio-text-tertiary)]">{visit.doctorName || "Assign doctor"}</p>
                     </div>
                     {visit.appointment ? (
@@ -110,7 +119,7 @@ function CheckInContent() {
                 onClick={() => router.push(`/app/frontdesk/check-in?patient=${p.id}`)}
                 className="mb-2 flex w-full items-center gap-2 rounded-lg bg-[var(--attio-surface)] px-3 py-2 text-left text-[13px] hover:bg-[var(--attio-hover)]"
               >
-                {p.name}
+                {patientDisplayName(p)}
               </button>
             ))}
           </Panel>

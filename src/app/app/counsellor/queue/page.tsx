@@ -4,6 +4,7 @@ import { useCounsellorStore } from "@/components/counsellor/counsellor-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { queueWaitMinutes } from "@/design-system/counsellor-data";
+import { patientDisplayName } from "@/lib/frontdesk-workflow";
 import { cn } from "@/lib/utils";
 import { Clock } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -32,13 +33,14 @@ export default function CounsellorQueuePage() {
         <ul className="divide-y divide-[var(--attio-border-subtle)]">
           {queue.length === 0 && <li className="py-8 text-center text-[13px] text-[var(--attio-text-tertiary)]">No patients in counsel queue</li>}
           {queue.map((q) => {
-            const p = getPatient(q.patientId)!;
+            const p = getPatient(q.patientId);
+            if (!p) return null;
             const v = getVisit(q.visitId);
             const dx = String(q.payload.diagnosis.primaryDiagnosis ?? q.payload.diagnosis.clinicalImpression ?? "Consult handoff");
             return (
               <li key={q.id} className={cn("flex items-center justify-between gap-4 py-4", q.priority === "high" && "bg-amber-50/40 -mx-4 px-4")}>
                 <div className="min-w-0">
-                  <p className="text-[14px] font-medium">{p.name}</p>
+                  <p className="text-[14px] font-medium">{patientDisplayName(p)}</p>
                   <p className="font-mono text-[11px] text-[var(--attio-text-tertiary)]">{p.uhid}</p>
                   <p className="mt-1 truncate text-[12px] text-[var(--attio-text-secondary)]">{dx}</p>
                   <div className="mt-2 flex flex-wrap gap-1">

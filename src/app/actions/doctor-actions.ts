@@ -3,6 +3,7 @@
 import type { DoctorTemplate, PrescriptionLine, TreatmentMode } from "@/design-system/doctor-data";
 import type { DocumentTemplate } from "@/design-system/document-templates";
 import { requireModule } from "@/server/auth";
+import { resolveDoctorIdForContext } from "@/server/clinical/roster";
 import {
   addDocumentTemplate,
   completeConsultation,
@@ -20,12 +21,14 @@ import {
 
 export async function getDoctorSnapshotAction(activeDoctorId?: string) {
   const ctx = await requireModule("doctor");
-  return getDoctorSnapshot(activeDoctorId, ctx);
+  const doctorId = activeDoctorId ?? (await resolveDoctorIdForContext(ctx));
+  return getDoctorSnapshot(doctorId, ctx);
 }
 
-export async function startConsultationAction(visitId: string, doctorId: string) {
-  await requireModule("doctor");
-  return startConsultation(visitId, doctorId);
+export async function startConsultationAction(visitId: string, _doctorId: string) {
+  const ctx = await requireModule("doctor");
+  const doctorId = await resolveDoctorIdForContext(ctx);
+  return startConsultation(visitId, doctorId, ctx);
 }
 
 export async function updateConsultationAction(visitId: string, patch: Record<string, unknown>) {

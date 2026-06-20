@@ -3,6 +3,7 @@
 import { useDoctorStore } from "@/components/doctor/doctor-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
+import { patientDisplayName } from "@/lib/frontdesk-workflow";
 import { cn } from "@/lib/utils";
 import { Clock, Stethoscope } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -43,7 +44,8 @@ export default function DoctorQueuePage() {
             </li>
           )}
           {queue.map((v) => {
-            const p = getPatient(v.patientId)!;
+            const p = getPatient(v.patientId);
+            if (!p) return null;
             return (
               <li
                 key={v.id}
@@ -51,7 +53,7 @@ export default function DoctorQueuePage() {
               >
                 <div>
                   <p className="text-[14px] font-medium">
-                    #{v.token} · {p.name}
+                    #{v.token} · {patientDisplayName(p)}
                   </p>
                   <p className="font-mono text-[11px] text-[var(--attio-text-tertiary)]">{p.uhid}</p>
                   <div className="mt-2 flex flex-wrap gap-1">

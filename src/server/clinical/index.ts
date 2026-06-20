@@ -5,7 +5,7 @@ import { DOCTOR_TEMPLATES, IPD_PATIENTS } from "@/design-system/doctor-data";
 import { DEFAULT_DOCUMENT_TEMPLATES } from "@/design-system/document-templates";
 import { PATIENTS as SEED_PATIENTS, VISITS as SEED_VISITS, type Patient, type Visit } from "@/design-system/frontdesk-data";
 import type { Appointment, FormSubmission, FrontdeskCounters } from "@/lib/frontdesk-workflow";
-import { ageFromDob, deptLabel, doctorName, matchPatientByQuery, nextUhid, nowTime, templateAmount } from "@/lib/frontdesk-workflow";
+import { ageFromDob, deptLabel, doctorName, mapPrismaPatientRow, matchPatientByQuery, nextUhid, nowTime, patientDisplayName, templateAmount } from "@/lib/frontdesk-workflow";
 import { billingFromPayment, resolveOpdFirstRoute, resolvePostCounselRoute, treatmentPathFromConvert, type PaymentScope } from "@/lib/billing-routing";
 import { prisma } from "@/lib/prisma";
 import type { ServerContext } from "@/server/context";
@@ -15,7 +15,7 @@ import { writePlatformAudit } from "@/server/platform-audit";
 import { branchScope } from "@/server/tenancy";
 import { syncVisitFromOpdVisit } from "@/server/visit-sync";
 import { loadClinicalRoster } from "@/server/clinical/roster";
-import { resolveDoctorName, staffIdFromDoctorId } from "@/lib/clinical-roster";
+import { DOCTOR_HR_EMAIL_MAP, resolveDoctorName, staffIdFromDoctorId } from "@/lib/clinical-roster";
 import type { ClinicalRoster } from "@/lib/clinical-roster";
 import { notifyAppointmentReminder } from "@/server/notifications";
 
@@ -251,6 +251,19 @@ async function backfillBranchScope(ctx: ServerContext) {
     where: { tenantId: null, branchId: null },
     data: scope,
   });
+
+  const nullNamePatients = await prisma.patient.findMany({
+    where: {
+      tenantId: scope.tenantId,
+      branchId: scope.branchId,
+      OR: [{ name: null }, { name: "" }],
+    },
+    select: { id: true, fullName: true, uhid: true },
+  });
+  for (const row of nullNamePatients) {
+    const name = patientDisplayName(row);
+    await prisma.patient.update({ where: { id: row.id }, data: { name } });
+  }
 }
 
 async function assertNoDuplicatePatient(
@@ -306,7 +319,7 @@ export async function checkDuplicatePatient(
     patient: {
       id: existing.id,
       uhid: existing.uhid,
-      name: existing.name ?? "Unknown",
+      name: existing.name ?? existing.fullName ?? "Unknown",
       phone: existing.phone,
     },
   };
@@ -343,21 +356,7 @@ export async function getClinicalSnapshot(ctx: ServerContext): Promise<ClinicalS
     loadClinicalRoster(ctx),
   ]);
 
-  const patients: Patient[] = patientsRows.map((row) => ({
-    id: row.id,
-    uhid: row.uhid,
-    name: row.name,
-    phone: row.phone,
-    email: row.email ?? undefined,
-    age: row.age,
-    gender: row.gender as Patient["gender"],
-    department: row.department,
-    departmentId: row.departmentId,
-    tags: asStringArray(row.tags),
-    balance: row.balance,
-    lastVisit: row.lastVisit ?? undefined,
-    referrer: row.referrer ?? undefined,
-  }));
+  const patients: Patient[] = patientsRows.map(mapPrismaPatientRow);
 
   const visits: Visit[] = visitsRows.map(mapVisit);
 
@@ -553,30 +552,27 @@ export async function checkInVisit(
   const { data, existingVisitId, newVisitId } = input;
   const patients = (
     await prisma.patient.findMany({ where: scope, orderBy: { createdAt: "asc" } })
-  ).map((row) => ({
-    id: row.id,
-    uhid: row.uhid,
-    name: row.name,
-    phone: row.phone,
-    email: row.email ?? undefined,
-    age: row.age,
-    gender: row.gender as Patient["gender"],
-    department: row.department,
-    departmentId: row.departmentId,
-    tags: asStringArray(row.tags),
-    balance: row.balance,
-    lastVisit: row.lastVisit ?? undefined,
-    referrer: row.referrer ?? undefined,
-  }));
+  ).map(mapPrismaPatientRow);
 
   const query = String(data.uhid ?? "");
   const patient = matchPatientByQuery(patients, query);
   if (!patient) return { visitId: existingVisitId ?? "", patientId: "" };
 
-  const doctorId = String(data.doctor ?? "dr_1");
-  const deptId = String(data.department ?? patient.departmentId);
   const roster = await loadClinicalRoster(ctx);
+  const deptId = String(data.department ?? patient.departmentId);
+  const deptDoctors = roster.doctorsByDept[deptId] ?? roster.allDoctors;
+  const doctorId = String(data.doctor ?? deptDoctors[0]?.id ?? "");
+  if (!doctorId) {
+    throw new ServerActionError("VALIDATION", "Select a doctor for this visit.");
+  }
   const resolvedDoctorName = resolveDoctorName(doctorId, roster);
+  const today = new Date().toISOString().slice(0, 10);
+  if (await isDoctorOnLeave(doctorId, today)) {
+    throw new ServerActionError(
+      "DOCTOR_ON_LEAVE",
+      `${resolvedDoctorName} is on approved leave today. Choose another doctor.`,
+    );
+  }
   const allVisits = await prisma.opdVisit.findMany({ where: scope, orderBy: { createdAt: "asc" } });
   const existing = existingVisitId
     ? allVisits.find((v) => v.id === existingVisitId)
@@ -881,8 +877,19 @@ export async function processCounselBilling(
   return { routeHref: route.routeHref, routingLabel: route.routingLabel, routingNote: route.routingNote };
 }
 
-export async function completeJuniorExam(ctx: ServerContext, visitId: string) {
+export async function completeJuniorExam(
+  ctx: ServerContext,
+  visitId: string,
+  data?: Record<string, string | number | boolean>,
+) {
   await ensureClinicalSeed();
+  const visit = await prisma.opdVisit.findUnique({ where: { id: visitId } });
+  if (!visit) {
+    throw new ServerActionError("NOT_FOUND", "Visit not found.");
+  }
+  if (data && Object.keys(data).length > 0) {
+    await saveSubmission("junior-exam", data, { visitId, patientId: visit.patientId });
+  }
   await prisma.opdVisit.update({
     where: { id: visitId },
     data: {
@@ -902,25 +909,13 @@ export async function bookAppointment(
   const scope = branchScope(ctx);
   const { data, appointmentId, visitId } = input;
   const patients = await prisma.patient.findMany({ where: scope, orderBy: { createdAt: "asc" } });
-  const mappedPatients: Patient[] = patients.map((p) => ({
-    id: p.id,
-    uhid: p.uhid,
-    name: p.name,
-    phone: p.phone,
-    email: p.email ?? undefined,
-    age: p.age,
-    gender: p.gender as Patient["gender"],
-    department: p.department,
-    departmentId: p.departmentId,
-    tags: asStringArray(p.tags),
-    balance: p.balance,
-    lastVisit: p.lastVisit ?? undefined,
-    referrer: p.referrer ?? undefined,
-  }));
+  const mappedPatients: Patient[] = patients.map(mapPrismaPatientRow);
 
   const patient =
     matchPatientByQuery(mappedPatients, String(data.patient ?? "")) ??
-    mappedPatients.find((p) => p.name.toLowerCase().includes(String(data.patient ?? "").toLowerCase()));
+    mappedPatients.find((p) =>
+      patientDisplayName(p).toLowerCase().includes(String(data.patient ?? "").toLowerCase()),
+    );
 
   if (!patient) return { appointmentId: "", visitId: "", error: "Patient not found" };
 
@@ -1012,6 +1007,24 @@ export async function bookAppointment(
 }
 
 async function isDoctorOnLeave(doctorId: string, date: string): Promise<boolean> {
+  const hrEmail = DOCTOR_HR_EMAIL_MAP[doctorId];
+  if (hrEmail) {
+    const hrEmp = await prisma.hrEmployee.findFirst({
+      where: { email: hrEmail.trim().toLowerCase(), active: true },
+    });
+    if (hrEmp) {
+      const leave = await prisma.hrLeaveRequest.findFirst({
+        where: {
+          employeeId: hrEmp.id,
+          status: "approved",
+          fromDate: { lte: date },
+          toDate: { gte: date },
+        },
+      });
+      if (leave) return true;
+    }
+  }
+
   const staffId = staffIdFromDoctorId(doctorId);
   if (!staffId) return false;
   const staff = await prisma.adminStaff.findUnique({ where: { id: staffId } });

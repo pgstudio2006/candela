@@ -66,9 +66,12 @@ export async function processCounselBillingAction(
   return processCounselBilling(ctx, visitId, input);
 }
 
-export async function completeJuniorExamAction(visitId: string) {
+export async function completeJuniorExamAction(
+  visitId: string,
+  data?: Record<string, string | number | boolean>,
+) {
   const ctx = await requireModule("frontdesk");
-  return completeJuniorExam(ctx, visitId);
+  return completeJuniorExam(ctx, visitId, data);
 }
 
 export async function bookAppointmentAction(input: {

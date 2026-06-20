@@ -30,6 +30,7 @@ import {
   uploadConsentAction,
   verifyConsentAction,
 } from "@/app/actions/nurse-actions";
+import { patientDisplayName } from "@/lib/frontdesk-workflow";
 import {
   createContext,
   useCallback,
@@ -374,7 +375,10 @@ export function NurseStoreProvider({ children }: { children: ReactNode }) {
         const query = q.trim().toLowerCase();
         if (!query) return nurse.patients;
         return nurse.patients.filter(
-          (p) => p.name.toLowerCase().includes(query) || p.uhid.toLowerCase().includes(query) || p.phone.includes(query),
+          (p) =>
+            patientDisplayName(p).toLowerCase().includes(query) ||
+            p.uhid.toLowerCase().includes(query) ||
+            p.phone.includes(query),
         );
       },
     };

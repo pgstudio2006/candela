@@ -16,6 +16,19 @@ const LEGACY_DOCTOR_NAMES: Record<string, string> = {
   dr_3: "Dr. Anil Verma",
 };
 
+/** Demo / legacy login email → OPD doctor queue id */
+export const DOCTOR_LOGIN_EMAIL_MAP: Record<string, string> = {
+  "doctor@navayu.in": "dr_1",
+  "dr.mehta@navayu.in": "dr_1",
+};
+
+/** Legacy doctor id → HR employee email for leave checks */
+export const DOCTOR_HR_EMAIL_MAP: Record<string, string> = {
+  dr_1: "dr.mehta@navayu.in",
+  dr_2: "priya@navayu.in",
+  dr_3: "anita@navayu.in",
+};
+
 export function doctorIdFromStaffId(staffId: string) {
   return `dr_${staffId.replace(/^st_/, "")}`;
 }
@@ -26,7 +39,13 @@ export function staffIdFromDoctorId(doctorId: string) {
 
 export function resolveDoctorName(doctorId: string, roster?: ClinicalRoster | null) {
   if (roster?.doctorNames[doctorId]) return roster.doctorNames[doctorId];
-  return LEGACY_DOCTOR_NAMES[doctorId] ?? doctorId;
+  return LEGACY_DOCTOR_NAMES[doctorId] ?? doctorId.replace(/^dr_/, "Dr. ");
+}
+
+export function deptLabelFromRoster(deptId: string, roster?: ClinicalRoster | null): string {
+  const fromRoster = roster?.departments.find((d) => d.id === deptId)?.label;
+  if (fromRoster) return fromRoster;
+  return deptId.replace(/^dept_/, "").replace(/_/g, " ");
 }
 
 export function buildClinicalRoster(

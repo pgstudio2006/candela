@@ -7,6 +7,8 @@ import { PostCounselBillingForm } from "@/components/frontdesk/post-counsel-bill
 import { useFormSchema } from "@/components/frontdesk/use-form-schema";
 import { Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { BILLING_TEMPLATES } from "@/design-system/frontdesk-data";
+import { parseActionError } from "@/lib/action-errors";
+import { useToast } from "@/components/ui/toast-provider";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
@@ -18,6 +20,7 @@ function BillingContent() {
   const schema = useFormSchema("billing");
   const { processBilling, processCounselBilling, getPendingBilling, getVisit, getPatient, saveSubmission, billingHandoffs, getBillingHandoff } =
     useFrontdeskStore();
+  const { toast } = useToast();
   const [selectedVisit, setSelectedVisit] = useState(visitParam ?? "");
   const [templatePrefill, setTemplatePrefill] = useState<Record<string, string | number | boolean>>({});
   const [routingFlash, setRoutingFlash] = useState<string | null>(null);
@@ -43,9 +46,14 @@ function BillingContent() {
     [templatePrefill, counselForVisit],
   );
 
-  const finishBilling = (result: { routeHref: string; routingNote: string }) => {
-    setRoutingFlash(result.routingNote);
-    router.push(result.routeHref);
+  const finishBilling = async (resultPromise: Promise<{ routeHref: string; routingNote: string }>) => {
+    try {
+      const result = await resultPromise;
+      setRoutingFlash(result.routingNote);
+      router.push(result.routeHref);
+    } catch (err) {
+      toast(parseActionError(err).message, "error");
+    }
   };
 
   return (
@@ -99,12 +107,11 @@ function BillingContent() {
             <PostCounselBillingForm
               handoff={counselForVisit}
               onSubmit={(input) => {
-                const result = processCounselBilling(activeVisit.id, input);
                 saveSubmission("billing", input as unknown as Record<string, string | number | boolean>, {
                   visitId: activeVisit.id,
                   patientId: activeVisit.patientId,
                 });
-                finishBilling(result);
+                void finishBilling(processCounselBilling(activeVisit.id, input));
               }}
             />
           ) : activeVisit ? (
@@ -114,9 +121,8 @@ function BillingContent() {
               initialValues={initialValues}
               submitLabel="Collect payment & release to queue"
               onSubmit={(data) => {
-                const result = processBilling(activeVisit.id, data);
                 saveSubmission("billing", data, { visitId: activeVisit.id, patientId: activeVisit.patientId });
-                finishBilling(result);
+                void finishBilling(processBilling(activeVisit.id, data));
               }}
             />
           ) : (

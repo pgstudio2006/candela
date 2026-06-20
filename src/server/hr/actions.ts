@@ -18,7 +18,7 @@ import {
 } from "@/design-system/hr-data";
 import { HR_MANAGER_EMAIL, SEED_HR_PASSWORDS } from "@/lib/hr-auth";
 import { DEFAULT_LEAVE_ENTITLEMENT, type HrLeaveRequest } from "@/design-system/hr-data";
-import { leaveDays } from "@/lib/hr-platform";
+import { leaveDays, computeLeaveBalance } from "@/lib/hr-platform";
 import { requireModule } from "@/server/auth";
 import { writeAuditLog } from "@/server/audit-log";
 import { clearCrmAbsenceAction, transferCrmAbsenceAction } from "@/server/crm/actions";
@@ -283,6 +283,33 @@ export async function addLeaveRequest(
   operatorId: string,
 ) {
   await ensureBootstrapData();
+  if (input.fromDate > input.toDate) {
+    throw new Error("Leave end date must be on or after start date.");
+  }
+  const days = leaveDays(input.fromDate, input.toDate);
+  if (days <= 0) {
+    throw new Error("Select a valid leave date range.");
+  }
+  const snapshot = await getSnapshot(operatorId);
+  if (input.type !== "unpaid") {
+    const balances = computeLeaveBalance(input.employeeId, snapshot.leaveRequests);
+    const remaining = balances[input.type as "casual" | "sick" | "earned"] ?? 0;
+    if (days > remaining) {
+      throw new Error(`Insufficient leave balance (${remaining} day(s) remaining for ${input.type}).`);
+    }
+  }
+  const overlap = snapshot.leaveRequests.find(
+    (l) =>
+      l.employeeId === input.employeeId &&
+      l.status !== "rejected" &&
+      l.status !== "cancelled" &&
+      input.fromDate <= l.toDate &&
+      input.toDate >= l.fromDate,
+  );
+  if (overlap) {
+    throw new Error("Leave dates overlap an existing request.");
+  }
+
   const id = createId("lv");
   await prisma.hrLeaveRequest.create({
     data: {

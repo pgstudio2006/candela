@@ -12,6 +12,8 @@ import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import type { TreatmentMode } from "@/design-system/doctor-data";
 import { cn } from "@/lib/utils";
+import { validateFormValues } from "@/lib/schema-registry";
+import { useToast } from "@/components/ui/toast-provider";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -41,6 +43,7 @@ type ConsultationWorkspaceProps = {
 
 export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
   const router = useRouter();
+  const { toast } = useToast();
   const {
     getVisit,
     getPatient,
@@ -106,15 +109,33 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
     );
   }
 
-  const finishConsult = () => {
-    completeConsultation(visitId, {
+  const finishConsult = async () => {
+    const consultData = getConsultation(visitId);
+    const examErrors = validateFormValues(examSchema, consultData?.examination ?? {});
+    const dxErrors = validateFormValues(dxSchema, consultData?.diagnosis ?? {});
+    const handoffErrors = validateFormValues(handoffSchema, handoffValues);
+    const firstError =
+      Object.values(examErrors)[0] ??
+      Object.values(dxErrors)[0] ??
+      Object.values(handoffErrors)[0];
+    if (firstError) {
+      toast(firstError, "error");
+      return;
+    }
+
+    const result = await completeConsultation(visitId, {
       treatmentMode,
       recommendCounsellor,
       skipCounsellor,
       handoff: handoffValues,
       sendWhatsapp,
     });
+    if (!result.ok) {
+      toast(result.error ?? "Could not complete consultation", "error");
+      return;
+    }
     setCompleted(true);
+    toast("Consultation completed", "success");
     router.push("/app/doctor/queue");
   };
 

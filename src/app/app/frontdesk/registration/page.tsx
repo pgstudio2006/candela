@@ -75,6 +75,7 @@ export default function RegistrationPage() {
             formKey={schema.id}
             submitLabel={submitting ? "Saving…" : "Save & continue to check-in"}
             onValuesChange={setDraft}
+            roster={roster}
             onSubmit={(data) => void submitRegistration(data)}
           />
         </Panel>

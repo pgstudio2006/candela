@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { Search, User } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { Patient } from "@/design-system/frontdesk-data";
+import { patientDisplayName } from "@/lib/frontdesk-workflow";
 
 type PatientSearchFieldProps = {
   value: string;
@@ -30,8 +31,9 @@ export function PatientSearchField({
     const phoneNorm = q.replace(/\D/g, "").slice(-10);
     return patients
       .filter((p) => {
+        const name = patientDisplayName(p).toLowerCase();
         if (p.uhid.toLowerCase().includes(q)) return true;
-        if (p.name.toLowerCase().includes(q)) return true;
+        if (name.includes(q)) return true;
         if (phoneNorm && p.phone.replace(/\D/g, "").endsWith(phoneNorm)) return true;
         return false;
       })
@@ -73,7 +75,7 @@ export function PatientSearchField({
                   <User className="size-4 text-[var(--attio-text-tertiary)]" />
                 </div>
                 <div className="min-w-0">
-                  <p className="truncate text-[13px] font-medium">{p.name}</p>
+                  <p className="truncate text-[13px] font-medium">{patientDisplayName(p)}</p>
                   <p className="text-[11px] text-[var(--attio-text-tertiary)]">{p.uhid} · {p.phone}</p>
                 </div>
               </button>

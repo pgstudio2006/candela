@@ -22,7 +22,7 @@ export default function HrStaffPage() {
     return employees
       .filter((e) => e.role !== "manager")
       .filter((e) => deptFilter === "all" || e.departmentId === deptFilter)
-      .filter((e) => !q || e.name.toLowerCase().includes(q.toLowerCase()) || e.email.toLowerCase().includes(q.toLowerCase()));
+      .filter((e) => !q || e.name.toLowerCase().includes(q.toLowerCase()) || (e.email ?? "").toLowerCase().includes(q.toLowerCase()));
   }, [employees, q, deptFilter]);
 
   return (

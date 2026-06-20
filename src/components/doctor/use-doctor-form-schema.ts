@@ -35,9 +35,17 @@ export function useDoctorFormSchema(formId: DoctorFormSchemaId): FormSchema {
     void refresh();
     window.addEventListener("candela-schema-updated", refresh);
     window.addEventListener("storage", refresh);
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel("candela-schema");
+      channel.onmessage = () => void refresh();
+    } catch {
+      /* ignore */
+    }
     return () => {
       window.removeEventListener("candela-schema-updated", refresh);
       window.removeEventListener("storage", refresh);
+      channel?.close();
     };
   }, [formId]);
 

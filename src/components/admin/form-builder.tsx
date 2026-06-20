@@ -124,6 +124,11 @@ export function AdminFormBuilder() {
       setSaved(true);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("candela-schema-updated"));
+        try {
+          new BroadcastChannel("candela-schema").postMessage({ type: "updated", at: Date.now() });
+        } catch {
+          /* ignore */
+        }
       }
     })();
   };
@@ -137,6 +142,11 @@ export function AdminFormBuilder() {
       setSaved(false);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("candela-schema-updated"));
+        try {
+          new BroadcastChannel("candela-schema").postMessage({ type: "updated", at: Date.now() });
+        } catch {
+          /* ignore */
+        }
       }
     })();
   };

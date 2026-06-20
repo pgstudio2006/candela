@@ -195,10 +195,10 @@ export function computeLiveGeoClusters(
     const seed = PIN_LOOKUP.get(b.pincode);
     const base = basePins.find((p) => p.pincode === b.pincode);
     const livePatients = b.patientIds.size;
-    const patientCount = Math.max(livePatients, base?.patientCount ?? seed?.patientCount ?? 0);
-    const opdCount = Math.max(b.opd, base?.opdCount ?? 0);
-    const ipdCount = Math.max(b.ipd, base?.ipdCount ?? 0);
-    const revenue = Math.max(b.revenue, base?.revenue ?? seed?.revenue ?? 0);
+    const patientCount = livePatients > 0 ? livePatients : (base?.patientCount ?? seed?.patientCount ?? 0);
+    const opdCount = b.opd > 0 ? b.opd : (base?.opdCount ?? 0);
+    const ipdCount = b.ipd > 0 ? b.ipd : (base?.ipdCount ?? 0);
+    const revenue = b.revenue > 0 ? b.revenue : (base?.revenue ?? seed?.revenue ?? 0);
     const topDiagnosis =
       Object.entries(b.dxCounts).sort((a, c) => c[1] - a[1])[0]?.[0] ??
       base?.topDiagnosis ??

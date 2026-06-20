@@ -28,6 +28,7 @@ import {
   saveCounsellorStateAction,
   setVisitStageAction,
 } from "@/server/counsellor/actions";
+import { patientDisplayName } from "@/lib/frontdesk-workflow";
 import {
   createContext,
   useCallback,
@@ -454,7 +455,9 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
         const query = q.trim().toLowerCase();
         if (!query) return patients;
         return patients.filter(
-          (p) => p.name.toLowerCase().includes(query) || p.uhid.toLowerCase().includes(query),
+          (p) =>
+            patientDisplayName(p).toLowerCase().includes(query) ||
+            p.uhid.toLowerCase().includes(query),
         );
       },
       getPatientCommercialHistory: (patientId: string) =>

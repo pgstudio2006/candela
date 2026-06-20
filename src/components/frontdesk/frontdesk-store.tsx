@@ -11,18 +11,12 @@ import {
   matchPatientByQuery,
   nextUhid,
   nowTime,
-  templateAmount,
+  patientDisplayName,
   type Appointment,
   type FormSubmission,
   type FrontdeskCounters,
 } from "@/lib/frontdesk-workflow";
-import {
-  billingFromPayment,
-  resolveOpdFirstRoute,
-  resolvePostCounselRoute,
-  treatmentPathFromConvert,
-  type PaymentScope,
-} from "@/lib/billing-routing";
+import type { PaymentScope } from "@/lib/billing-routing";
 import type { BillingHandoffPayload } from "@/design-system/counsellor-data";
 import {
   EMPTY_ROSTER,
@@ -97,10 +91,13 @@ type FrontdeskStoreValue = FrontdeskState & {
     data: RegisterInput,
     opts?: { startVisit?: boolean; forceDuplicate?: boolean },
   ) => Promise<RegisterPatientResult>;
-  checkInVisit: (data: CheckInInput, visitId?: string) => { visitId: string; patientId: string };
-  processBilling: (visitId: string, data: BillingInput) => BillingResult;
-  processCounselBilling: (visitId: string, input: CounselBillingInput) => BillingResult;
-  completeJuniorExam: (visitId: string, data: JuniorExamInput) => void;
+  checkInVisit: (
+    data: CheckInInput,
+    visitId?: string,
+  ) => Promise<{ ok: boolean; visitId: string; patientId: string; error?: string }>;
+  processBilling: (visitId: string, data: BillingInput) => Promise<BillingResult>;
+  processCounselBilling: (visitId: string, input: CounselBillingInput) => Promise<BillingResult>;
+  completeJuniorExam: (visitId: string, data: JuniorExamInput) => Promise<{ ok: boolean; error?: string }>;
   bookAppointment: (data: AppointmentInput) => Promise<{ appointmentId: string; visitId: string; error?: string }>;
   saveSubmission: (formId: string, data: Record<string, string | number | boolean>, ctx?: { patientId?: string; visitId?: string }) => void;
   getSubmission: (formId: string, visitId: string) => FormSubmission | undefined;
@@ -217,207 +214,64 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
   );
 
   const checkInVisit = useCallback(
-    (data: CheckInInput, existingVisitId?: string) => {
-      let result = { visitId: existingVisitId ?? "", patientId: "" };
-      const newVisitId = existingVisitId ? undefined : randomId("v");
-
-      update((prev) => {
-        const query = String(data.uhid ?? "");
-        const patient = matchPatientByQuery(prev.patients, query);
-        if (!patient) return prev;
-
-        const doctorId = String(data.doctor ?? "dr_1");
-        const deptId = String(data.department ?? patient.departmentId);
-        let visitId = existingVisitId ?? "";
-        let visits = [...prev.visits];
-
-        const existing = existingVisitId
-          ? visits.find((v) => v.id === existingVisitId)
-          : visits.find(
-              (v) =>
-                v.patientId === patient.id &&
-                ["registered", "checked_in", "billing"].includes(v.stage),
-            );
-
-        if (existing) {
-          visitId = existing.id;
-          visits = visits.map((v) =>
-            v.id === existing.id
-              ? {
-                  ...v,
-                  stage: "billing",
-                  departmentId: deptId,
-                  doctorId,
-                  doctorName: rosterDoctorName(doctorId, prev.roster),
-                  checkInAt: nowTime(),
-                  billing: v.billing === "paid" ? v.billing : "pending",
-                }
-              : v,
-          );
-        } else {
-          visitId = newVisitId ?? randomId("v");
-          visits.push({
-            id: visitId,
-            patientId: patient.id,
-            stage: "billing",
-            departmentId: deptId,
-            doctorId,
-            doctorName: rosterDoctorName(doctorId, prev.roster),
-            billing: "pending",
-            exam: "not_started",
-            appointment: false,
-            waitMin: 0,
-            checkInAt: nowTime(),
-          });
+    async (data: CheckInInput, existingVisitId?: string) => {
+      const query = String(data.uhid ?? "").trim();
+      if (!query) {
+        return { ok: false, visitId: "", patientId: "", error: "Search and select a patient by UHID or phone." };
+      }
+      try {
+        const newVisitId = existingVisitId ? undefined : randomId("v");
+        const result = await checkInVisitAction({
+          data,
+          existingVisitId,
+          newVisitId,
+        });
+        if (!result.visitId) {
+          return {
+            ok: false,
+            visitId: "",
+            patientId: result.patientId ?? "",
+            error: "Patient not found. Select a valid UHID or phone from search.",
+          };
         }
-
-        result = { visitId, patientId: patient.id };
-        return {
-          ...prev,
-          visits,
-          counters: existing ? prev.counters : { ...prev.counters, visit: prev.counters.visit + 1 },
-        };
-      });
-      void checkInVisitAction({
-        data,
-        existingVisitId,
-        newVisitId,
-      }).then(() => refresh());
-      return result;
+        await refresh();
+        return { ok: true, visitId: result.visitId, patientId: result.patientId };
+      } catch (err) {
+        return { ok: false, visitId: "", patientId: "", error: parseActionError(err).message };
+      }
     },
-    [refresh, update],
+    [refresh],
   );
 
   const processBilling = useCallback(
-    (visitId: string, data: BillingInput): BillingResult => {
-      const mode = String(data.mode ?? "upi");
-      const paymentScope = (String(data.paymentScope ?? "full") as PaymentScope) || "full";
-      const amount = Number(data.amount ?? templateAmount(String(data.template ?? "bt1")));
-      const discount = Number(data.discount ?? 0);
-      const net = Math.max(0, amount - discount);
-      const collected =
-        paymentScope === "partial"
-          ? Math.min(net, Math.max(0, Number(data.collectedAmount ?? 0)))
-          : paymentScope === "defer"
-            ? 0
-            : net;
-      const route = resolveOpdFirstRoute({ paymentScope, mode, visitId, netAmount: net, collected });
-
-      const token = state.counters.token + 1;
-      update((prev) => {
-        const billing = billingFromPayment(paymentScope, mode);
-        const balanceDue = Math.max(0, net - collected);
-
-        return {
-          ...prev,
-          patients: prev.patients.map((p) =>
-            p.id === prev.visits.find((v) => v.id === visitId)?.patientId
-              ? { ...p, balance: p.balance + balanceDue }
-              : p,
-          ),
-          visits: prev.visits.map((v) =>
-            v.id === visitId
-              ? {
-                  ...v,
-                  stage: route.stage,
-                  billing,
-                  token: route.stage === "queued" ? token : v.token,
-                  billAmount: net,
-                  amountPaid: collected,
-                  balanceDue: balanceDue > 0 ? balanceDue : undefined,
-                  treatmentPath: "opd",
-                  routingNote: route.routingNote,
-                  deferredReason:
-                    billing === "deferred" ? String(data.deferReason ?? "") : undefined,
-                  waitMin: 0,
-                }
-              : v,
-          ),
-          counters: route.stage === "queued" ? { ...prev.counters, token } : prev.counters,
-        };
-      });
-
-      void processBillingAction(visitId, data).then(() => refresh());
-      return { routeHref: route.routeHref, routingLabel: route.routingLabel, routingNote: route.routingNote };
+    async (visitId: string, data: BillingInput): Promise<BillingResult> => {
+      const result = await processBillingAction(visitId, data);
+      await refresh();
+      return result;
     },
-    [refresh, state.counters.token, update],
+    [refresh],
   );
 
   const processCounselBilling = useCallback(
-    (visitId: string, input: CounselBillingInput): BillingResult => {
-      const { handoff, paymentScope, convertToIpd, mode } = input;
-      const net = handoff.quote.netAmount;
-      const collected =
-        paymentScope === "partial"
-          ? Math.min(net, Math.max(0, input.collectedAmount))
-          : paymentScope === "defer"
-            ? 0
-            : net;
-      const balanceDue = Math.max(0, net - collected);
-      const route = resolvePostCounselRoute({
-        paymentScope,
-        convertToIpd,
-        netAmount: net,
-        collected,
-        patientId: handoff.patientId,
-        visitId,
-      });
-      const treatmentPath = treatmentPathFromConvert(
-        convertToIpd,
-        handoff.treatmentMode === "daycare" ? "daycare" : "opd",
-      );
-
-      let ipdAdmissionId: string | undefined;
-      if (convertToIpd) {
-        ipdAdmissionId = `ipd_${visitId}`;
-      }
-
-      update((prev) => ({
-        ...prev,
-        patients: prev.patients.map((p) =>
-          p.id === handoff.patientId ? { ...p, balance: p.balance + balanceDue } : p,
-        ),
-        visits: prev.visits.map((v) =>
-          v.id === visitId
-            ? {
-                ...v,
-                stage: route.stage,
-                billing: route.billing,
-                billAmount: net,
-                amountPaid: collected,
-                balanceDue: balanceDue > 0 ? balanceDue : undefined,
-                treatmentPath,
-                ipdAdmissionId,
-                counselPackageLabel: handoff.quote.packageLabel,
-                routingNote: route.routingNote,
-                deferredReason:
-                  route.billing === "deferred" ? input.deferReason ?? "Post-counsel defer" : undefined,
-              }
-            : v,
-        ),
-        billingHandoffs: prev.billingHandoffs.filter((h) => h.visitId !== visitId),
-      }));
-
-      void processCounselBillingAction(visitId, input).then(() => refresh());
-
-      return { routeHref: route.routeHref, routingLabel: route.routingLabel, routingNote: route.routingNote };
+    async (visitId: string, input: CounselBillingInput): Promise<BillingResult> => {
+      const result = await processCounselBillingAction(visitId, input);
+      await refresh();
+      return result;
     },
-    [refresh, update],
+    [refresh],
   );
 
   const completeJuniorExam = useCallback(
-    (visitId: string, _data: JuniorExamInput) => {
-      update((prev) => ({
-        ...prev,
-        visits: prev.visits.map((v) =>
-          v.id === visitId
-            ? { ...v, stage: "with_doctor", exam: "done" as const }
-            : v,
-        ),
-      }));
-      void completeJuniorExamAction(visitId).then(() => refresh());
+    async (visitId: string, data: JuniorExamInput): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        await completeJuniorExamAction(visitId, data);
+        await refresh();
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: parseActionError(err).message };
+      }
     },
-    [refresh, update],
+    [refresh],
   );
 
   const bookAppointment = useCallback(
@@ -486,7 +340,7 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
         if (!query) return state.patients;
         return state.patients.filter(
           (p) =>
-            p.name.toLowerCase().includes(query) ||
+            patientDisplayName(p).toLowerCase().includes(query) ||
             p.uhid.toLowerCase().includes(query) ||
             p.phone.includes(query),
         );

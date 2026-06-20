@@ -37,6 +37,52 @@ export function normalizePhone(phone: string) {
   return phone.replace(/\D/g, "").slice(-10);
 }
 
+type PatientNameSource = {
+  name?: string | null;
+  fullName?: string | null;
+  uhid?: string | null;
+};
+
+export function patientDisplayName(row: PatientNameSource): string {
+  const combined = String(row.name ?? row.fullName ?? "").trim();
+  if (combined) return combined;
+  if (row.uhid) return `Patient ${row.uhid}`;
+  return "Unknown patient";
+}
+
+type PrismaPatientRow = PatientNameSource & {
+  id: string;
+  uhid: string;
+  phone: string;
+  email?: string | null;
+  age?: number | null;
+  gender?: string | null;
+  department?: string | null;
+  departmentId?: string | null;
+  tags?: unknown;
+  balance?: unknown;
+  lastVisit?: string | null;
+  referrer?: string | null;
+};
+
+export function mapPrismaPatientRow(row: PrismaPatientRow): Patient {
+  return {
+    id: row.id,
+    uhid: row.uhid,
+    name: patientDisplayName(row),
+    phone: row.phone,
+    email: row.email ?? undefined,
+    age: row.age ?? 0,
+    gender: (row.gender ?? "O") as Patient["gender"],
+    department: row.department ?? "",
+    departmentId: row.departmentId ?? "",
+    tags: Array.isArray(row.tags) ? row.tags.map(String) : [],
+    balance: Number(row.balance ?? 0),
+    lastVisit: row.lastVisit ?? undefined,
+    referrer: row.referrer ?? undefined,
+  };
+}
+
 export function matchPatientByQuery(patients: Patient[], query: string) {
   const q = query.trim().toLowerCase();
   if (!q) return undefined;
@@ -45,7 +91,7 @@ export function matchPatientByQuery(patients: Patient[], query: string) {
       p.uhid.toLowerCase() === q ||
       p.id === q ||
       normalizePhone(p.phone) === normalizePhone(q) ||
-      p.name.toLowerCase().includes(q),
+      patientDisplayName(p).toLowerCase().includes(q),
   );
 }
 
@@ -53,7 +99,7 @@ export function findDuplicatePatients(patients: Patient[], phone: string, firstN
   const phoneNorm = normalizePhone(phone);
   return patients.filter((p) => {
     if (phoneNorm && normalizePhone(p.phone) === phoneNorm) return true;
-    if (firstName && p.name.toLowerCase().startsWith(firstName.toLowerCase())) return true;
+    if (firstName && patientDisplayName(p).toLowerCase().startsWith(firstName.toLowerCase())) return true;
     return false;
   });
 }
@@ -136,11 +182,12 @@ export function buildActionItems(visits: Visit[], patients: Patient[]): ActionIt
   for (const v of visits) {
     const p = patients.find((x) => x.id === v.patientId);
     if (!p) continue;
+    const label = patientDisplayName(p);
     if (v.stage === "junior_exam" && (v.exam ?? "not_started") !== "done") {
       items.push({
         id: `je-${v.id}`,
         priority: v.billing === "deferred" ? "urgent" : "high",
-        text: `${p.name} — junior exam ${formatExamStatus(v.exam)}`,
+        text: `${label} — junior exam ${formatExamStatus(v.exam)}`,
         action: "Open junior exam",
         href: `/app/frontdesk/junior-exam/${v.id}`,
       });
@@ -148,7 +195,7 @@ export function buildActionItems(visits: Visit[], patients: Patient[]): ActionIt
       items.push({
         id: `nurse-${v.id}`,
         priority: "high",
-        text: `${p.name} — nursing intake · ${v.counselPackageLabel ?? "care package"}`,
+        text: `${label} — nursing intake · ${v.counselPackageLabel ?? "care package"}`,
         action: "Open episode",
         href: `/app/nurse/episode/${v.id}`,
       });
@@ -156,7 +203,7 @@ export function buildActionItems(visits: Visit[], patients: Patient[]): ActionIt
       items.push({
         id: `ipd-${v.id}`,
         priority: v.billing === "partial" ? "high" : "normal",
-        text: `${p.name} — IPD admitted · ${v.billing}${v.balanceDue ? ` · ₹${v.balanceDue} due` : ""}`,
+        text: `${label} — IPD admitted · ${v.billing}${v.balanceDue ? ` · ₹${v.balanceDue} due` : ""}`,
         action: "Open patient",
         href: `/app/frontdesk/patients/${p.id}`,
       });
@@ -164,7 +211,7 @@ export function buildActionItems(visits: Visit[], patients: Patient[]): ActionIt
       items.push({
         id: `bill-${v.id}`,
         priority: "high",
-        text: `${p.name} — billing ${v.billing}`,
+        text: `${label} — billing ${v.billing}`,
         action: "Create bill",
         href: `/app/frontdesk/billing?visit=${v.id}`,
       });
@@ -172,7 +219,7 @@ export function buildActionItems(visits: Visit[], patients: Patient[]): ActionIt
       items.push({
         id: `ci-${v.id}`,
         priority: "normal",
-        text: `${p.name} — registered, awaiting check-in`,
+        text: `${label} — registered, awaiting check-in`,
         action: "Check in",
         href: `/app/frontdesk/check-in?visit=${v.id}`,
       });

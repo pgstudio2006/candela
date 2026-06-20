@@ -3,7 +3,7 @@
 import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { StatusBadge } from "@/components/frontdesk/ui";
-import { formatExamStatus } from "@/lib/frontdesk-workflow";
+import { formatExamStatus, patientDisplayName } from "@/lib/frontdesk-workflow";
 import Link from "next/link";
 
 export default function JuniorExamListPage() {
@@ -24,7 +24,8 @@ export default function JuniorExamListPage() {
           <p className="text-[13px] text-[var(--attio-text-tertiary)]">No patients in junior exam queue</p>
         )}
         {exams.map((v) => {
-          const p = getPatient(v.patientId)!;
+          const p = getPatient(v.patientId);
+          if (!p) return null;
           return (
             <Link
               key={v.id}
@@ -33,7 +34,7 @@ export default function JuniorExamListPage() {
             >
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-[15px] font-semibold">{p.name}</p>
+                  <p className="text-[15px] font-semibold">{patientDisplayName(p)}</p>
                   <p className="font-mono text-[11px] text-[var(--attio-text-tertiary)]">{p.uhid} · Token #{v.token}</p>
                 </div>
                 <StatusBadge

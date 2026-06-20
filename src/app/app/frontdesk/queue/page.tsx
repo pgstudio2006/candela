@@ -3,6 +3,7 @@
 import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
+import { patientDisplayName } from "@/lib/frontdesk-workflow";
 import { cn } from "@/lib/utils";
 import { Clock } from "lucide-react";
 import Link from "next/link";
@@ -45,7 +46,8 @@ export default function QueuePage() {
                   <li className="py-6 text-center text-[13px] text-[var(--attio-text-tertiary)]">Queue clear</li>
                 )}
                 {queue.map((v) => {
-                  const p = getPatient(v.patientId)!;
+                  const p = getPatient(v.patientId);
+                  if (!p) return null;
                   return (
                     <li
                       key={v.id}
@@ -54,7 +56,7 @@ export default function QueuePage() {
                       <div className="flex items-start justify-between">
                         <div>
                           <p className="text-[13px] font-medium">
-                            #{v.token} · {p.name}
+                            #{v.token} · {patientDisplayName(p)}
                           </p>
                           <p className="font-mono text-[11px] text-[var(--attio-text-tertiary)]">{p.uhid}</p>
                         </div>

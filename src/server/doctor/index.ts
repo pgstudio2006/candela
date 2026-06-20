@@ -4,6 +4,8 @@ import type { Patient, Visit } from "@/design-system/frontdesk-data";
 import type { DocumentTemplate } from "@/design-system/document-templates";
 import { prisma } from "@/lib/prisma";
 import { getClinicalSnapshot } from "@/server/clinical";
+import { resolveDoctorIdForContext } from "@/server/clinical/roster";
+import { ServerActionError } from "@/server/errors";
 
 function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
@@ -152,9 +154,21 @@ export async function getDoctorSnapshot(activeDoctorId = DEMO_DOCTOR_ID, ctx?: i
   };
 }
 
-export async function startConsultation(visitId: string, doctorId: string) {
+export async function startConsultation(visitId: string, doctorId: string, ctx?: import("@/server/context").ServerContext) {
   const visit = await prisma.opdVisit.findUnique({ where: { id: visitId } });
   if (!visit) return null;
+
+  if (ctx) {
+    const resolved = await resolveDoctorIdForContext(ctx);
+    doctorId = resolved;
+  }
+  if (visit.doctorId && visit.doctorId !== doctorId) {
+    throw new ServerActionError(
+      "FORBIDDEN",
+      "This visit is assigned to another doctor.",
+    );
+  }
+
   const existing = await prisma.consultation.findUnique({ where: { visitId } });
   if (existing) return mapConsultation(existing);
 

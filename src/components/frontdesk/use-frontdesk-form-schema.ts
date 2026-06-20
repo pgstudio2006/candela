@@ -48,9 +48,17 @@ export function useFrontdeskFormSchema(
     const refresh = () => setBase(getFormSchema(formId));
     window.addEventListener("candela-schema-updated", refresh);
     window.addEventListener("storage", refresh);
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel("candela-schema");
+      channel.onmessage = refresh;
+    } catch {
+      /* ignore */
+    }
     return () => {
       window.removeEventListener("candela-schema-updated", refresh);
       window.removeEventListener("storage", refresh);
+      channel?.close();
     };
   }, [formId]);
 
