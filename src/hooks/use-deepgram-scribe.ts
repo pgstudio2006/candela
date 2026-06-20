@@ -8,6 +8,22 @@ type UseDeepgramScribeOptions = {
   onError: (message: string) => void;
 };
 
+function deepgramErrorMessage(code: number, reason: string, payload?: string): string {
+  if (payload) {
+    try {
+      const parsed = JSON.parse(payload) as { err_msg?: string; message?: string; description?: string };
+      const msg = parsed.err_msg ?? parsed.message ?? parsed.description;
+      if (msg) return msg;
+    } catch {
+      if (payload.length < 200) return payload;
+    }
+  }
+  if (code === 1006) return "Deepgram connection rejected — check DEEPGRAM_API_KEY on the server.";
+  if (code === 1008) return reason || "Deepgram rejected the stream configuration.";
+  if (code === 1011) return "Deepgram server error — retry in a moment.";
+  return reason || `Deepgram connection closed (code ${code}).`;
+}
+
 export function useDeepgramScribe({ language, onTranscriptUpdate, onError }: UseDeepgramScribeOptions) {
   const [recording, setRecording] = useState(false);
   const [interim, setInterim] = useState("");
@@ -15,15 +31,18 @@ export function useDeepgramScribe({ language, onTranscriptUpdate, onError }: Use
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const finalPartsRef = useRef<string[]>([]);
+  const intentionalCloseRef = useRef(false);
 
-  const cleanup = useCallback(() => {
+  const cleanup = useCallback((opts?: { intentional?: boolean }) => {
+    intentionalCloseRef.current = opts?.intentional ?? false;
     recorderRef.current?.stop();
     recorderRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type: "CloseStream" }));
-      socketRef.current.close();
+    const socket = socketRef.current;
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: "CloseStream" }));
+      socket.close(1000, "session ended");
     }
     socketRef.current = null;
     setRecording(false);
@@ -32,6 +51,7 @@ export function useDeepgramScribe({ language, onTranscriptUpdate, onError }: Use
 
   const start = useCallback(async () => {
     try {
+      intentionalCloseRef.current = false;
       finalPartsRef.current = [];
       setInterim("");
 
@@ -41,49 +61,89 @@ export function useDeepgramScribe({ language, onTranscriptUpdate, onError }: Use
         throw new Error(cfg.error ?? "Could not load scribe configuration.");
       }
 
+      // Containerized webm/opus from MediaRecorder — omit encoding/sample_rate (Deepgram auto-detects).
       const params = new URLSearchParams({
         model: cfg.model ?? "nova-2",
         language: cfg.deepgramLanguage ?? "en-IN",
         punctuate: "true",
         interim_results: "true",
         smart_format: "true",
-        encoding: "webm",
       });
 
       const socket = new WebSocket(`wss://api.deepgram.com/v1/listen?${params.toString()}`, ["token", cfg.apiKey]);
       socketRef.current = socket;
 
+      let errorPayload = "";
+
       await new Promise<void>((resolve, reject) => {
-        socket.onopen = () => resolve();
-        socket.onerror = () => reject(new Error("Deepgram connection failed."));
-        setTimeout(() => reject(new Error("Deepgram connection timed out.")), 12000);
+        const timer = window.setTimeout(() => reject(new Error("Deepgram connection timed out.")), 12000);
+        let opened = false;
+
+        socket.onmessage = (event) => {
+          const raw = String(event.data);
+          try {
+            const data = JSON.parse(raw) as {
+              type?: string;
+              is_final?: boolean;
+              channel?: { alternatives?: Array<{ transcript?: string }> };
+              err_msg?: string;
+              message?: string;
+            };
+
+            if (data.type === "Error" || data.err_msg) {
+              onError(data.err_msg ?? data.message ?? "Deepgram transcription error.");
+              return;
+            }
+
+            const chunk = data.channel?.alternatives?.[0]?.transcript?.trim();
+            if (!chunk) return;
+
+            if (data.is_final) {
+              finalPartsRef.current.push(chunk);
+              setInterim("");
+              onTranscriptUpdate(finalPartsRef.current.join(" "));
+            } else {
+              setInterim(chunk);
+              onTranscriptUpdate([...finalPartsRef.current, chunk].join(" "));
+            }
+          } catch {
+            errorPayload = raw;
+          }
+        };
+
+        socket.onopen = () => {
+          opened = true;
+          window.clearTimeout(timer);
+          resolve();
+        };
+
+        socket.onerror = () => {
+          if (!opened) {
+            window.clearTimeout(timer);
+            reject(new Error("Deepgram WebSocket failed — verify API key and redeploy."));
+          }
+        };
+
+        socket.onclose = (ev) => {
+          if (opened) {
+            if (!intentionalCloseRef.current && ev.code !== 1000) {
+              onError(deepgramErrorMessage(ev.code, ev.reason, errorPayload));
+            }
+            cleanup({ intentional: true });
+            return;
+          }
+          window.clearTimeout(timer);
+          reject(new Error(deepgramErrorMessage(ev.code, ev.reason, errorPayload)));
+        };
       });
 
-      socket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(String(event.data)) as {
-            is_final?: boolean;
-            channel?: { alternatives?: Array<{ transcript?: string }> };
-          };
-          const chunk = data.channel?.alternatives?.[0]?.transcript?.trim();
-          if (!chunk) return;
+      if (!MediaRecorder.isTypeSupported("audio/webm")) {
+        throw new Error("This browser does not support audio/webm recording.");
+      }
 
-          if (data.is_final) {
-            finalPartsRef.current.push(chunk);
-            setInterim("");
-            onTranscriptUpdate(finalPartsRef.current.join(" "));
-          } else {
-            setInterim(chunk);
-            onTranscriptUpdate([...finalPartsRef.current, chunk].join(" "));
-          }
-        } catch {
-          /* ignore malformed frames */
-        }
-      };
-
-      socket.onerror = () => onError("Live transcription connection error.");
-
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+      });
       streamRef.current = stream;
 
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
@@ -98,16 +158,16 @@ export function useDeepgramScribe({ language, onTranscriptUpdate, onError }: Use
         }
       };
 
-      recorder.start(300);
+      recorder.start(250);
       setRecording(true);
     } catch (err) {
-      cleanup();
+      cleanup({ intentional: true });
       onError(err instanceof Error ? err.message : "Could not start microphone.");
     }
   }, [cleanup, language, onError, onTranscriptUpdate]);
 
   const stop = useCallback(() => {
-    cleanup();
+    cleanup({ intentional: true });
     onTranscriptUpdate(finalPartsRef.current.join(" "));
   }, [cleanup, onTranscriptUpdate]);
 
