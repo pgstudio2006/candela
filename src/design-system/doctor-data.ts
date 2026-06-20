@@ -185,6 +185,13 @@ export const SCRIBE_LANGUAGES = [
   { id: "hinglish", label: "Hinglish" },
   { id: "pa", label: "Punjabi" },
   { id: "mr", label: "Marathi" },
-];
+  { id: "bn", label: "Bengali" },
+  { id: "gu", label: "Gujarati" },
+  { id: "ta", label: "Tamil" },
+  { id: "te", label: "Telugu" },
+  { id: "kn", label: "Kannada" },
+  { id: "ml", label: "Malayalam" },
+  { id: "ur", label: "Urdu" },
+] as const;
 
 export const DEMO_DOCTOR_ID = "dr_1";

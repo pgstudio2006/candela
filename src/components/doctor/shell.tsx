@@ -6,18 +6,46 @@ import { DoctorCommandPalette } from "@/components/doctor/command-palette";
 import { useDoctorStore } from "@/components/doctor/doctor-store";
 import { DoctorSidebar } from "@/components/doctor/sidebar";
 import { CopilotPanel } from "@/components/frontdesk/copilot-panel";
+import { patientDisplayName } from "@/lib/frontdesk-workflow";
+import type { CopilotAction } from "@/lib/ai/scribe-types";
 import { getDoctorNavItem } from "@/design-system/doctor-nav";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 export function DoctorShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { session, authReady, signOut, setCommandOpen, commandOpen } = useSession();
-  const { getOpdQueue, startConsultation, ready, error, refresh } = useDoctorStore();
+  const {
+    getOpdQueue,
+    startConsultation,
+    getConsultation,
+    getVisit,
+    getPatient,
+    saveConsultSection,
+    setPrescription,
+    ready,
+    error,
+    refresh,
+  } = useDoctorStore();
   const [copilotOpen, setCopilotOpen] = useState(false);
   const settingsRef = useRef<HTMLButtonElement>(null);
   const current = getDoctorNavItem(pathname);
+
+  const visitId = useMemo(() => {
+    const match = pathname.match(/\/consult\/([^/]+)/);
+    return match?.[1];
+  }, [pathname]);
+
+  const consult = visitId ? getConsultation(visitId) : undefined;
+  const visit = visitId ? getVisit(visitId) : undefined;
+  const patient = visit ? getPatient(visit.patientId) : undefined;
+
+  const queueSummary = useMemo(() => {
+    const queue = getOpdQueue();
+    const nextPatient = queue[0] ? getPatient(queue[0].patientId) : undefined;
+    return `${queue.length} patient(s) in OPD queue${nextPatient ? ` · next: ${patientDisplayName(nextPatient)}` : ""}`;
+  }, [getOpdQueue, getPatient]);
 
   useEffect(() => {
     if (!authReady) return;
@@ -51,6 +79,21 @@ export function DoctorShell({ children }: { children: ReactNode }) {
     }
   }, [getOpdQueue, router, startConsultation]);
 
+  const onAgentAction = useCallback(
+    (action: CopilotAction) => {
+      if (action.type === "fill_section" && action.visitId) {
+        saveConsultSection(action.visitId, action.section, action.data);
+      }
+      if (action.type === "set_prescription" && action.visitId) {
+        setPrescription(
+          action.visitId,
+          action.lines.map((line, i) => ({ ...line, id: `rx_copilot_${Date.now()}_${i}` })),
+        );
+      }
+    },
+    [saveConsultSection, setPrescription],
+  );
+
   if (!authReady || !session) return null;
 
   return (
@@ -81,6 +124,27 @@ export function DoctorShell({ children }: { children: ReactNode }) {
           open={copilotOpen}
           onClose={() => setCopilotOpen(false)}
           context={current.label}
+          module="doctor"
+          page={pathname}
+          visitId={visitId}
+          patient={
+            patient
+              ? { name: patient.name, uhid: patient.uhid, age: patient.age }
+              : undefined
+          }
+          queueSummary={queueSummary}
+          consultSnapshot={
+            consult
+              ? {
+                  examination: consult.examination,
+                  diagnosis: consult.diagnosis,
+                  treatment: consult.treatment,
+                  prescription: consult.prescription,
+                  transcript: consult.scribeTranscript,
+                }
+              : undefined
+          }
+          onAgentAction={onAgentAction}
         />
       </div>
 

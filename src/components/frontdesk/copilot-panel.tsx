@@ -3,9 +3,11 @@
 import { useSession } from "@/components/candela/session-provider";
 import { getPatient } from "@/design-system/frontdesk-data";
 import { cn } from "@/lib/utils";
+import type { CopilotAction, CopilotContext, CopilotMessage } from "@/lib/ai/scribe-types";
 import { CopilotMark } from "@/components/frontdesk/copilot-mark";
-import { ArrowRight, Send, X } from "lucide-react";
+import { ArrowRight, Loader2, Send, X } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const WIDTH_KEY = "candela-copilot-width";
@@ -13,34 +15,51 @@ const MIN_W = 260;
 const MAX_W = 520;
 const DEFAULT_W = 340;
 
-const SUMMARY =
-  "47 arrivals today. Billing-first OPD active. 3 patients waiting over 20 min on Dr. Mehta's queue.";
-
-const INSIGHTS = [
-  { title: "Situation", body: "Spine OPD 68% check-in. Wellness queue clear." },
-  { title: "Priority", body: "Meena Devi — junior exam. Anita — billing pending." },
-  { title: "Impact", body: "Queue delay may push 11:30 appointments by ~15 min." },
-];
-
-const ACTIONS = [
-  { title: "Check in Anita Kumari", href: "/app/frontdesk/check-in", color: "#14B8A6" },
-  { title: "Bill Vikram Singh", href: "/app/frontdesk/billing", color: "#22C55E" },
-  { title: "Junior exam — Meena", href: "/app/frontdesk/junior-exam", color: "#8B5CF6" },
-];
-
 type CopilotPanelProps = {
   open: boolean;
   onClose: () => void;
   context: string;
+  module?: string;
+  page?: string;
+  visitId?: string;
+  patient?: CopilotContext["patient"];
+  queueSummary?: string;
+  consultSnapshot?: CopilotContext["consultSnapshot"];
+  onAgentAction?: (action: CopilotAction) => void;
 };
 
-export function CopilotPanel({ open, onClose, context }: CopilotPanelProps) {
-  const { activePatientId } = useSession();
-  const patient = activePatientId ? getPatient(activePatientId) : null;
+type ChatItem = CopilotMessage & { actions?: CopilotAction[] };
+
+export function CopilotPanel({
+  open,
+  onClose,
+  context,
+  module: moduleProp,
+  page: pageProp,
+  visitId,
+  patient,
+  queueSummary,
+  consultSnapshot,
+  onAgentAction,
+}: CopilotPanelProps) {
+  const router = useRouter();
+  const { activePatientId, session } = useSession();
+  const activePatient = activePatientId ? getPatient(activePatientId) : null;
   const [width, setWidth] = useState(DEFAULT_W);
-  const [tab, setTab] = useState<"summary" | "actions">("summary");
+  const [tab, setTab] = useState<"chat" | "actions">("chat");
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [messages, setMessages] = useState<ChatItem[]>([
+    {
+      role: "assistant",
+      content: `I'm your ${context} agent. Ask me to draft consult notes, add medicines, or navigate to a task — I'll execute it when possible.`,
+    },
+  ]);
+  const [pendingActions, setPendingActions] = useState<CopilotAction[]>([]);
   const dragging = useRef(false);
   const panelRef = useRef<HTMLElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const stored = localStorage.getItem(WIDTH_KEY);
@@ -49,6 +68,10 @@ export function CopilotPanel({ open, onClose, context }: CopilotPanelProps) {
       if (n >= MIN_W && n <= MAX_W) setWidth(n);
     }
   }, []);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages, loading]);
 
   const persistWidth = useCallback((w: number) => {
     const clamped = Math.min(MAX_W, Math.max(MIN_W, w));
@@ -77,7 +100,63 @@ export function CopilotPanel({ open, onClose, context }: CopilotPanelProps) {
     };
   }, [persistWidth]);
 
+  const runActions = (actions: CopilotAction[]) => {
+    for (const action of actions) {
+      onAgentAction?.(action);
+      if (action.type === "navigate") {
+        router.push(action.href);
+      }
+    }
+    setPendingActions((prev) => [...prev, ...actions]);
+  };
+
+  const send = async () => {
+    const text = input.trim();
+    if (!text || loading) return;
+    setInput("");
+    setError("");
+    setLoading(true);
+
+    const nextMessages: ChatItem[] = [...messages, { role: "user", content: text }];
+    setMessages(nextMessages);
+
+    try {
+      const res = await fetch("/api/copilot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: nextMessages.filter((m) => m.role === "user" || m.role === "assistant").map(({ role, content }) => ({ role, content })),
+          context: {
+            module,
+            role: session?.role ?? module,
+            page,
+            visitId,
+            patient: patient ?? (activePatient ? { name: activePatient.name, uhid: activePatient.uhid, age: activePatient.age } : undefined),
+            queueSummary,
+            consultSnapshot,
+          } satisfies CopilotContext,
+        }),
+      });
+      const data = (await res.json()) as { reply?: string; actions?: CopilotAction[]; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Copilot request failed");
+
+      const actions = data.actions ?? [];
+      setMessages((prev) => [...prev, { role: "assistant", content: data.reply ?? "Done.", actions }]);
+      if (actions.length) {
+        runActions(actions);
+        setTab("actions");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Copilot error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (!open) return null;
+
+  const module = moduleProp ?? session?.role ?? "workspace";
+  const page = pageProp ?? context;
 
   return (
     <>
@@ -91,7 +170,6 @@ export function CopilotPanel({ open, onClose, context }: CopilotPanelProps) {
           "fixed inset-y-0 right-0 z-50 max-w-[100vw] shadow-xl lg:static lg:z-auto lg:shadow-none",
         )}
       >
-        {/* Drag to resize — left edge */}
         <div
           role="separator"
           aria-orientation="vertical"
@@ -109,7 +187,7 @@ export function CopilotPanel({ open, onClose, context }: CopilotPanelProps) {
         <header className="flex h-12 shrink-0 items-center gap-2 border-b border-[var(--attio-border-subtle)] px-3">
           <CopilotMark size={16} active />
           <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-medium">Copilot</p>
+            <p className="text-[13px] font-medium">Copilot Agent</p>
             <p className="truncate text-[10px] text-[var(--attio-text-tertiary)]">{context}</p>
           </div>
           <button
@@ -123,7 +201,7 @@ export function CopilotPanel({ open, onClose, context }: CopilotPanelProps) {
         </header>
 
         <div className="flex border-b border-[var(--attio-border-subtle)] px-3">
-          {(["summary", "actions"] as const).map((t) => (
+          {(["chat", "actions"] as const).map((t) => (
             <button
               key={t}
               type="button"
@@ -136,82 +214,95 @@ export function CopilotPanel({ open, onClose, context }: CopilotPanelProps) {
               )}
             >
               {t}
+              {t === "actions" && pendingActions.length > 0 && (
+                <span className="ml-1 tabular-nums text-[10px]">({pendingActions.length})</span>
+              )}
             </button>
           ))}
         </div>
 
-        <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto">
-          <div className="space-y-4 p-4">
-            {tab === "summary" && (
-              <>
-                <p className="text-[13px] leading-[1.6] text-[var(--attio-text-secondary)]">{SUMMARY}</p>
-
-                {patient && (
-                  <div className="rounded-lg border border-[var(--attio-border-subtle)] p-3">
-                    <p className="text-[10px] font-medium tracking-wide text-[var(--attio-text-tertiary)] uppercase">
-                      Active patient
+        <div ref={scrollRef} className="scrollbar-none min-h-0 flex-1 overflow-y-auto">
+          {tab === "chat" ? (
+            <div className="space-y-3 p-4">
+              {messages.map((m, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    "rounded-lg px-3 py-2 text-[13px] leading-relaxed",
+                    m.role === "user"
+                      ? "ml-6 bg-[var(--attio-text)] text-white"
+                      : "mr-4 border border-[var(--attio-border-subtle)] bg-[var(--attio-surface)] text-[var(--attio-text-secondary)]",
+                  )}
+                >
+                  {m.content}
+                  {m.actions && m.actions.length > 0 && (
+                    <p className="mt-2 text-[10px] font-medium text-emerald-600">
+                      Executed {m.actions.length} action{m.actions.length === 1 ? "" : "s"}
                     </p>
-                    <p className="mt-1 text-[14px] font-medium">{patient.name}</p>
-                    <p className="font-mono text-[11px] text-[var(--attio-text-tertiary)]">{patient.uhid}</p>
-                  </div>
-                )}
-
-                <div className="space-y-3">
-                  {INSIGHTS.map((item) => (
-                    <div
-                      key={item.title}
-                      className="rounded-lg border border-[var(--attio-border-subtle)] bg-[var(--attio-surface)] px-3 py-2.5"
-                    >
-                      <p className="text-[12px] font-semibold text-[var(--attio-text)]">{item.title}</p>
-                      <p className="mt-1 text-[12px] leading-relaxed text-[var(--attio-text-tertiary)]">
-                        {item.body}
-                      </p>
-                    </div>
-                  ))}
+                  )}
                 </div>
-              </>
-            )}
-
-            {tab === "actions" && (
-              <ul className="space-y-2">
-                {ACTIONS.map((a) => (
-                  <li key={a.href}>
-                    <Link
-                      href={a.href}
-                      onClick={onClose}
-                      className="group flex items-center gap-3 rounded-lg border border-[var(--attio-border-subtle)] p-3 transition-colors hover:border-[var(--attio-border)] hover:bg-[var(--attio-surface)]"
-                    >
-                      <span
-                        className="flex size-8 items-center justify-center rounded-md text-white"
-                        style={{ backgroundColor: a.color }}
-                      >
-                        <ArrowRight className="size-3.5" />
-                      </span>
-                      <span className="flex-1 text-[13px] font-medium text-[var(--attio-text)]">
-                        {a.title}
-                      </span>
-                      <ArrowRight className="size-3.5 text-[var(--attio-text-tertiary)] opacity-0 group-hover:opacity-100" />
-                    </Link>
+              ))}
+              {loading && (
+                <div className="flex items-center gap-2 text-[12px] text-[var(--attio-text-tertiary)]">
+                  <Loader2 className="size-3.5 animate-spin" />
+                  Working…
+                </div>
+              )}
+              {error && <p className="text-[12px] text-red-600">{error}</p>}
+            </div>
+          ) : (
+            <ul className="space-y-2 p-4">
+              {pendingActions.length === 0 ? (
+                <p className="text-[12px] text-[var(--attio-text-tertiary)]">
+                  Agent actions appear here when Copilot updates the workspace.
+                </p>
+              ) : (
+                pendingActions.map((a, i) => (
+                  <li key={i} className="rounded-lg border border-[var(--attio-border-subtle)] p-3 text-[12px]">
+                    {a.type === "navigate" && (
+                      <Link href={a.href} className="font-medium text-[var(--attio-accent)] hover:underline">
+                        {a.label ?? "Open page"}
+                      </Link>
+                    )}
+                    {a.type === "fill_section" && (
+                      <p>
+                        Filled <span className="font-medium">{a.section}</span> on consult
+                      </p>
+                    )}
+                    {a.type === "set_prescription" && (
+                      <p>
+                        Updated prescription · {a.lines.length} medicine{a.lines.length === 1 ? "" : "s"}
+                      </p>
+                    )}
                   </li>
-                ))}
-              </ul>
-            )}
-          </div>
+                ))
+              )}
+            </ul>
+          )}
         </div>
 
         <div className="shrink-0 border-t border-[var(--attio-border-subtle)] p-3">
-          <div className="flex items-center gap-2 rounded-lg border border-[var(--attio-border)] bg-[var(--attio-surface)] px-3 py-2">
+          <form
+            className="flex items-center gap-2 rounded-lg border border-[var(--attio-border)] bg-[var(--attio-surface)] px-3 py-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void send();
+            }}
+          >
             <input
-              placeholder={`Ask Copilot about ${context.toLowerCase()}…`}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={`Tell Copilot what to do in ${context.toLowerCase()}…`}
               className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-[var(--attio-text-tertiary)]"
             />
             <button
-              type="button"
-              className="flex size-7 items-center justify-center rounded-md bg-[var(--attio-text)] text-white hover:bg-[#333]"
+              type="submit"
+              disabled={loading || !input.trim()}
+              className="flex size-7 items-center justify-center rounded-md bg-[var(--attio-text)] text-white hover:bg-[#333] disabled:opacity-50"
             >
-              <Send className="size-3.5" />
+              {loading ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
             </button>
-          </div>
+          </form>
         </div>
       </aside>
     </>

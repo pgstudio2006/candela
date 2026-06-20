@@ -53,6 +53,7 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
     setPrescription,
     applyTemplate,
     setScribeTranscript,
+    applyScribeDraft,
     applyScribeToExamination,
     updateConsultation,
     completeConsultation,
@@ -245,6 +246,11 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
           <AiScribePanel
             language={consult?.scribeLanguage ?? "en"}
             transcript={consult?.scribeTranscript ?? ""}
+            patientContext={
+              patient
+                ? `${patient.name}, UHID ${patient.uhid}, ${patient.age}y ${patient.gender}`
+                : undefined
+            }
             applied={scribeApplied}
             onLanguageChange={(lang) =>
               setScribeTranscript(visitId, consult?.scribeTranscript ?? "", lang)
@@ -252,9 +258,10 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
             onTranscriptChange={(text) =>
               setScribeTranscript(visitId, text, consult?.scribeLanguage ?? "en")
             }
-            onApprove={() => {
-              applyScribeToExamination(visitId);
+            onDraftAccepted={(draft) => {
+              applyScribeDraft(visitId, draft);
               setScribeApplied(true);
+              toast("Scribe applied — consult fields and prescription updated.", "success");
             }}
           />
         </div>

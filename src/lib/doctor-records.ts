@@ -1,4 +1,5 @@
 import type { ConsultationRecord, DoctorTemplate } from "@/design-system/doctor-data";
+import { scribeLanguageLabel as scribeLangLabel } from "@/lib/ai/deepgram-languages";
 
 export type PatientClinicalRecord = {
   visitId: string;
@@ -35,14 +36,7 @@ export function fieldEntries(data: Record<string, string | number | boolean>) {
 }
 
 export function scribeLanguageLabel(id?: string) {
-  const map: Record<string, string> = {
-    en: "English",
-    hi: "Hindi",
-    hinglish: "Hinglish",
-    pa: "Punjabi",
-    mr: "Marathi",
-  };
-  return id ? map[id] ?? id : "—";
+  return id ? scribeLangLabel(id) : "—";
 }
 
 export function humanizeFieldKey(key: string) {

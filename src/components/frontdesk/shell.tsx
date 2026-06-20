@@ -68,6 +68,8 @@ export function FrontdeskShell({ children }: { children: ReactNode }) {
           open={copilotOpen}
           onClose={() => setCopilotOpen(false)}
           context={current.label}
+          module="frontdesk"
+          page={pathname}
         />
       </div>
 

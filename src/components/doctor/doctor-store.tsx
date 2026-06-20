@@ -26,6 +26,7 @@ import {
   updateConsultationAction,
   updateDoctorTemplateAction,
 } from "@/app/actions/doctor-actions";
+import type { ScribeDraft } from "@/lib/ai/scribe-types";
 import { computeDoctorChartAnalytics } from "@/lib/doctor-analytics-data";
 import { patientDisplayName } from "@/lib/frontdesk-workflow";
 import { parseActionError } from "@/lib/action-errors";
@@ -84,6 +85,7 @@ type DoctorStoreValue = {
   setPrescription: (visitId: string, lines: PrescriptionLine[]) => void;
   applyTemplate: (visitId: string, templateId: string) => void;
   setScribeTranscript: (visitId: string, transcript: string, language: string) => void;
+  applyScribeDraft: (visitId: string, draft: ScribeDraft) => void;
   applyScribeToExamination: (visitId: string) => void;
   completeConsultation: (visitId: string, opts: {
     treatmentMode: TreatmentMode;
@@ -254,6 +256,28 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
       updateConsultation(visitId, { scribeTranscript: transcript, scribeLanguage: language });
     };
 
+    const applyScribeDraft = (visitId: string, draft: ScribeDraft) => {
+      if (draft.examination && Object.keys(draft.examination).length) {
+        saveConsultSection(visitId, "examination", draft.examination);
+      }
+      if (draft.diagnosis && Object.keys(draft.diagnosis).length) {
+        saveConsultSection(visitId, "diagnosis", draft.diagnosis);
+      }
+      if (draft.treatment && Object.keys(draft.treatment).length) {
+        saveConsultSection(visitId, "treatment", draft.treatment);
+      }
+      if (draft.prescription.length) {
+        setPrescription(
+          visitId,
+          draft.prescription.map((line, i) => ({
+            ...line,
+            id: `rx_scribe_${Date.now()}_${i}`,
+          })),
+        );
+      }
+      updateConsultation(visitId, { scribeAppliedAt: new Date().toISOString() });
+    };
+
     const applyScribeToExamination = (visitId: string) => {
       const c = getConsultation(visitId);
       if (!c?.scribeTranscript) return;
@@ -391,6 +415,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
       setPrescription,
       applyTemplate,
       setScribeTranscript,
+      applyScribeDraft,
       applyScribeToExamination,
       completeConsultation,
       saveIpdRound,
