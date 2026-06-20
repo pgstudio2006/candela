@@ -1,9 +1,10 @@
 "use client";
 
-import { FormCheckbox, FormField, FormGrid, FormModal, FormSection, FormSubmitBar } from "@/components/candela/form";
 import type { AdminRole, DepartmentConfig, StaffMember } from "@/design-system/admin-data";
 import { HEALTHCARE_STAFF_ROLES } from "@/lib/healthcare-roles";
+import { AttioButton } from "@/components/frontdesk/ui";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -12,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 type StaffFormProps = {
@@ -46,6 +48,8 @@ export function StaffFormModal({ open, onClose, departments, initial, onSave }: 
     setPassword("Welcome2026!");
   }, [open, initial]);
 
+  if (!open) return null;
+
   const toggleDept = (id: string) => {
     setDepartmentIds((prev) => (prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id]));
   };
@@ -71,67 +75,93 @@ export function StaffFormModal({ open, onClose, departments, initial, onSave }: 
   };
 
   return (
-    <FormModal open={open} onClose={onClose} title={initial ? "Edit staff member" : "Add staff member"} size="md">
-      <form id="staff-form" onSubmit={handleSubmit} className="candela-form space-y-4">
-        <FormGrid cols={2}>
-          <FormField label="Full name" required span={2}>
-            <Input value={name} onChange={(e) => setName(e.target.value)} required />
-          </FormField>
-          <FormField label="Email" required>
-            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-          </FormField>
-          <FormField label="Phone">
-            <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 98765 00000" />
-          </FormField>
-          <FormField label="Healthcare role" span={2}>
-            <Select value={role} onValueChange={(v) => v && setRole(v as AdminRole)}>
-              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {HEALTHCARE_STAFF_ROLES.map((r) => (
-                  <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </FormField>
-          <FormField label="License / ID">
-            <Input value={licenseNo} onChange={(e) => setLicenseNo(e.target.value)} placeholder="Optional" />
-          </FormField>
-        </FormGrid>
-
-        {!initial && (
-          <div className="space-y-3 rounded-lg border border-[var(--attio-border-subtle)] bg-[var(--attio-surface)] p-3">
-            <FormCheckbox label="Create platform login" checked={createLogin} onChange={setCreateLogin} description="Creates a User account for workspace access" />
-            {createLogin && (
-              <FormField label="Initial password">
-                <Input type="text" value={password} onChange={(e) => setPassword(e.target.value)} className="font-mono" />
-              </FormField>
-            )}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-[var(--attio-border)] bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-[var(--attio-border-subtle)] px-4 py-3">
+          <h2 className="text-[15px] font-semibold">{initial ? "Edit staff member" : "Add staff member"}</h2>
+          <button type="button" onClick={onClose} className="rounded p-1 hover:bg-[var(--attio-hover)]">
+            <X className="size-4" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4 p-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label className="text-[12px]">Full name *</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} className="h-9 text-[13px]" required />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[12px]">Email *</Label>
+              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="h-9 text-[13px]" required />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[12px]">Phone</Label>
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} className="h-9 text-[13px]" placeholder="+91 98765 00000" />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label className="text-[12px]">Healthcare role</Label>
+              <Select value={role} onValueChange={(v) => v && setRole(v as AdminRole)}>
+                <SelectTrigger className="h-9 text-[13px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {HEALTHCARE_STAFF_ROLES.map((r) => (
+                    <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[12px]">License / ID</Label>
+              <Input value={licenseNo} onChange={(e) => setLicenseNo(e.target.value)} className="h-9 text-[13px]" placeholder="Optional" />
+            </div>
           </div>
-        )}
-
-        <FormSection title="Departments">
-          <div className="flex flex-wrap gap-2">
-            {departments.map((d) => (
-              <button
-                key={d.id}
-                type="button"
-                onClick={() => toggleDept(d.id)}
-                className={cn(
-                  "rounded-md border px-2.5 py-1.5 text-[12px] transition-colors",
-                  departmentIds.includes(d.id)
-                    ? "border-[var(--attio-text)] bg-[var(--attio-text)] text-white"
-                    : "border-[var(--attio-border)] bg-white hover:bg-[var(--attio-surface)]",
-                )}
-              >
-                {d.label}
-              </button>
-            ))}
+          {!initial && (
+            <div className="space-y-2 rounded-lg border border-[var(--attio-border-subtle)] p-3">
+              <label className="flex items-center gap-2 text-[13px]">
+                <input type="checkbox" checked={createLogin} onChange={(e) => setCreateLogin(e.target.checked)} />
+                Create platform login (User account)
+              </label>
+              {createLogin && (
+                <Input
+                  type="text"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="h-9 text-[13px]"
+                  placeholder="Initial password"
+                />
+              )}
+            </div>
+          )}
+          <div className="space-y-2">
+            <Label className="text-[12px]">Departments</Label>
+            <div className="flex flex-wrap gap-2">
+              {departments.map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => toggleDept(d.id)}
+                  className={cn(
+                    "rounded-md border px-2.5 py-1 text-[12px] transition-colors",
+                    departmentIds.includes(d.id)
+                      ? "border-[var(--attio-text)] bg-[var(--attio-text)] text-white"
+                      : "border-[var(--attio-border)] hover:bg-[var(--attio-surface)]",
+                  )}
+                >
+                  {d.label}
+                </button>
+              ))}
+            </div>
           </div>
-        </FormSection>
-
-        <FormCheckbox label="On duty now" checked={onDuty} onChange={setOnDuty} />
-        <FormSubmitBar form="staff-form" onCancel={onClose} submitLabel={initial ? "Save changes" : "Add staff"} />
-      </form>
-    </FormModal>
+          <label className="flex items-center gap-2 text-[13px]">
+            <input type="checkbox" checked={onDuty} onChange={(e) => setOnDuty(e.target.checked)} />
+            On duty now
+          </label>
+          <div className="flex justify-end gap-2 border-t border-[var(--attio-border-subtle)] pt-4">
+            <AttioButton variant="secondary" onClick={onClose}>Cancel</AttioButton>
+            <AttioButton variant="primary" type="submit">{initial ? "Save changes" : "Add staff"}</AttioButton>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
