@@ -1,9 +1,8 @@
 "use client";
 
+import { FormField, FormGrid, FormModal, FormSubmitBar } from "@/components/candela/form";
 import type { CrmAgent, CrmFollowUp, CrmLead } from "@/design-system/crm-data";
-import { AttioButton } from "@/components/frontdesk/ui";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -11,7 +10,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 function defaultScheduleLocal(): string {
@@ -60,8 +58,6 @@ export function FollowUpScheduleModal({
     setNotes("");
   }, [open, defaultLeadId, defaultAssigneeId, openLeads, assignableAgents]);
 
-  if (!open) return null;
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!leadId || !assigneeId || !scheduledAt) return;
@@ -76,92 +72,66 @@ export function FollowUpScheduleModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-      <div className="w-full max-w-md rounded-xl border border-[var(--attio-border)] bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <h2 className="text-[15px] font-semibold">Schedule follow-up</h2>
-          <button type="button" onClick={onClose} className="rounded p-1 text-[var(--attio-text-tertiary)] hover:bg-[var(--attio-surface)]">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <form onSubmit={handleSubmit} className="space-y-4 p-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="fu-lead">Lead</Label>
-            <Select value={leadId} onValueChange={(v) => v && setLeadId(v)}>
-              <SelectTrigger id="fu-lead">
-                <SelectValue placeholder="Select lead" />
+    <FormModal open={open} onClose={onClose} title="Schedule follow-up" description="Set the next touchpoint for this lead" size="sm">
+      <form id="follow-up-schedule-form" onSubmit={handleSubmit} className="candela-form space-y-4">
+        <FormField label="Lead" htmlFor="fu-lead">
+          <Select value={leadId} onValueChange={(v) => v && setLeadId(v)}>
+            <SelectTrigger id="fu-lead" className="w-full">
+              <SelectValue placeholder="Select lead" />
+            </SelectTrigger>
+            <SelectContent>
+              {openLeads.map((l) => (
+                <SelectItem key={l.id} value={l.id}>
+                  {l.fullName} · {l.phone}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {openLeads.length === 0 && (
+            <p className="mt-1 text-[11px] text-[var(--attio-text-tertiary)]">No open leads — add a lead first.</p>
+          )}
+        </FormField>
+
+        <FormField label="Assignee" htmlFor="fu-assignee">
+          <Select value={assigneeId} onValueChange={(v) => v && setAssigneeId(v)}>
+            <SelectTrigger id="fu-assignee" className="w-full">
+              <SelectValue placeholder="Team member" />
+            </SelectTrigger>
+            <SelectContent>
+              {assignableAgents.map((a) => (
+                <SelectItem key={a.id} value={a.id}>
+                  {a.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+
+        <FormGrid cols={2}>
+          <FormField label="Channel" htmlFor="fu-channel">
+            <Select value={channel} onValueChange={(v) => v && setChannel(v as CrmFollowUp["channel"])}>
+              <SelectTrigger id="fu-channel" className="w-full">
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {openLeads.map((l) => (
-                  <SelectItem key={l.id} value={l.id}>
-                    {l.fullName} · {l.phone}
-                  </SelectItem>
-                ))}
+                <SelectItem value="call">Call</SelectItem>
+                <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                <SelectItem value="email">Email</SelectItem>
               </SelectContent>
             </Select>
-            {openLeads.length === 0 && (
-              <p className="text-[11px] text-[var(--attio-text-tertiary)]">No open leads — add a lead first.</p>
-            )}
-          </div>
+          </FormField>
+          <FormField label="When" htmlFor="fu-when">
+            <Input id="fu-when" type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} required />
+          </FormField>
+        </FormGrid>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="fu-assignee">Assignee</Label>
-            <Select value={assigneeId} onValueChange={(v) => v && setAssigneeId(v)}>
-              <SelectTrigger id="fu-assignee">
-                <SelectValue placeholder="Team member" />
-              </SelectTrigger>
-              <SelectContent>
-                {assignableAgents.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    {a.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <FormField label="Notes" htmlFor="fu-notes" hint="Optional — what to cover on this touchpoint">
+          <Input id="fu-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Package details, callback reason…" />
+        </FormField>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="fu-channel">Channel</Label>
-              <Select value={channel} onValueChange={(v) => v && setChannel(v as CrmFollowUp["channel"])}>
-                <SelectTrigger id="fu-channel">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="call">Call</SelectItem>
-                  <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                  <SelectItem value="email">Email</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="fu-when">When</Label>
-              <Input
-                id="fu-when"
-                type="datetime-local"
-                value={scheduledAt}
-                onChange={(e) => setScheduledAt(e.target.value)}
-                required
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="fu-notes">Notes (optional)</Label>
-            <Input id="fu-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What to cover on this touchpoint" />
-          </div>
-
-          <div className="flex justify-end gap-2 pt-1">
-            <AttioButton type="button" variant="secondary" onClick={onClose}>
-              Cancel
-            </AttioButton>
-            <AttioButton type="submit" variant="primary" disabled={!leadId || !assigneeId || openLeads.length === 0}>
-              Schedule
-            </AttioButton>
-          </div>
-        </form>
-      </div>
-    </div>
+        <FormSubmitBar form="follow-up-schedule-form" onCancel={onClose} submitLabel="Schedule" />
+      </form>
+    </FormModal>
   );
 }
 
@@ -182,48 +152,29 @@ export function FollowUpCompleteModal({
     if (open) setOutcome("");
   }, [open]);
 
-  if (!open) return null;
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!outcome.trim()) return;
+    onSave(outcome.trim());
+    onClose();
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-      <div className="w-full max-w-sm rounded-xl border border-[var(--attio-border)] bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <h2 className="text-[15px] font-semibold">Mark follow-up done</h2>
-          <button type="button" onClick={onClose} className="rounded p-1 text-[var(--attio-text-tertiary)] hover:bg-[var(--attio-surface)]">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!outcome.trim()) return;
-            onSave(outcome.trim());
-            onClose();
-          }}
-          className="space-y-4 p-4"
-        >
-          <p className="text-[13px] text-[var(--attio-text-secondary)]">{leadName}</p>
-          <div className="space-y-1.5">
-            <Label htmlFor="fu-outcome">Outcome</Label>
-            <Input
-              id="fu-outcome"
-              value={outcome}
-              onChange={(e) => setOutcome(e.target.value)}
-              placeholder="Patient agreed to visit, needs callback, etc."
-              required
-              autoFocus
-            />
-          </div>
-          <div className="flex justify-end gap-2">
-            <AttioButton type="button" variant="secondary" onClick={onClose}>
-              Cancel
-            </AttioButton>
-            <AttioButton type="submit" variant="primary" disabled={!outcome.trim()}>
-              Save
-            </AttioButton>
-          </div>
-        </form>
-      </div>
-    </div>
+    <FormModal open={open} onClose={onClose} title="Mark follow-up done" size="sm">
+      <form id="follow-up-complete-form" onSubmit={handleSubmit} className="candela-form space-y-4">
+        <p className="text-[13px] text-[var(--attio-text-secondary)]">{leadName}</p>
+        <FormField label="Outcome" htmlFor="fu-outcome" required>
+          <Input
+            id="fu-outcome"
+            value={outcome}
+            onChange={(e) => setOutcome(e.target.value)}
+            placeholder="Patient agreed to visit, needs callback, etc."
+            required
+            autoFocus
+          />
+        </FormField>
+        <FormSubmitBar form="follow-up-complete-form" onCancel={onClose} submitLabel="Save" />
+      </form>
+    </FormModal>
   );
 }

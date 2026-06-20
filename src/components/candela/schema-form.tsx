@@ -1,7 +1,7 @@
 "use client";
 
+import { FormField, FormGrid, FormSection } from "@/components/candela/form";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -40,33 +40,26 @@ function SchemaFieldInput({
   searchPatients?: Patient[];
   roster?: ClinicalRoster | null;
 }) {
-  const base = cn(
-    "rounded-md border border-[var(--attio-border)] bg-white text-[13px] text-[var(--attio-text)]",
-    "placeholder:text-[var(--attio-text-tertiary)] focus-visible:border-[var(--attio-text-tertiary)] focus-visible:ring-0 focus-visible:outline-none",
-  );
+  const readOnlyClass = "flex h-9 items-center rounded-md border border-[var(--attio-border)] bg-[var(--attio-surface)] px-3 text-[13px] text-[var(--attio-text-tertiary)]";
 
   if (field.type === "section" || field.type === "divider" || field.type === "help") return null;
 
   if (field.type === "formula" || field.readOnly) {
-    return (
-      <div className={cn(base, "flex h-9 items-center bg-[var(--attio-surface)] px-3 text-[var(--attio-text-tertiary)]")}>
-        {String(value ?? field.defaultValue ?? "Computed")}
-      </div>
-    );
+    return <div className={readOnlyClass}>{String(value ?? field.defaultValue ?? "Computed")}</div>;
   }
 
   if (field.type === "rating" || field.type === "pain-scale") {
     return (
-      <input type="range" min={0} max={10} value={Number(value ?? 0)} onChange={(e) => onChange(Number(e.target.value))} className="w-full" />
+      <input type="range" min={0} max={10} value={Number(value ?? 0)} onChange={(e) => onChange(Number(e.target.value))} className="w-full accent-[var(--attio-text)]" />
     );
   }
 
   if (field.type === "multiselect" || field.type === "checkbox") {
     return (
-      <div className="space-y-1">
+      <div className="space-y-2 rounded-lg border border-[var(--attio-border-subtle)] bg-[var(--attio-surface)] p-3">
         {field.options?.map((o) => (
-          <label key={o.value} className="flex items-center gap-2 text-[12px]">
-            <input type="checkbox" checked={String(value).includes(o.value)} onChange={() => onChange(o.value)} />
+          <label key={o.value} className="flex items-center gap-2 text-[13px]">
+            <input type="checkbox" checked={String(value).includes(o.value)} onChange={() => onChange(o.value)} className="size-4 rounded border-[var(--attio-border)]" />
             {o.label}
           </label>
         ))}
@@ -76,10 +69,10 @@ function SchemaFieldInput({
 
   if (field.type === "radio") {
     return (
-      <div className="space-y-1">
+      <div className="space-y-2 rounded-lg border border-[var(--attio-border-subtle)] bg-[var(--attio-surface)] p-3">
         {field.options?.map((o) => (
-          <label key={o.value} className="flex items-center gap-2 text-[12px]">
-            <input type="radio" name={field.id} checked={value === o.value} onChange={() => onChange(o.value)} />
+          <label key={o.value} className="flex items-center gap-2 text-[13px]">
+            <input type="radio" name={field.id} checked={value === o.value} onChange={() => onChange(o.value)} className="size-4" />
             {o.label}
           </label>
         ))}
@@ -89,7 +82,7 @@ function SchemaFieldInput({
 
   if (field.type === "file" || field.type === "image" || field.type === "signature") {
     return (
-      <div className={cn(base, "flex h-20 items-center justify-center border-dashed text-[12px] text-[var(--attio-text-tertiary)]")}>
+      <div className="flex h-20 items-center justify-center rounded-md border border-dashed border-[var(--attio-border)] bg-[var(--attio-surface)] text-[12px] text-[var(--attio-text-tertiary)]">
         {field.type === "signature" ? "Signature pad (capture in module)" : "Upload (file picker in module)"}
       </div>
     );
@@ -97,8 +90,8 @@ function SchemaFieldInput({
 
   if (field.type === "consent-version") {
     return (
-      <label className="flex items-start gap-2 text-[12px]">
-        <input type="checkbox" checked={Boolean(value)} onChange={(e) => onChange(e.target.checked)} />
+      <label className="flex items-start gap-2 rounded-lg border border-[var(--attio-border-subtle)] bg-[var(--attio-surface)] p-3 text-[13px]">
+        <input type="checkbox" checked={Boolean(value)} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 size-4 rounded border-[var(--attio-border)]" />
         <span>I consent · template v2026.1</span>
       </label>
     );
@@ -107,7 +100,7 @@ function SchemaFieldInput({
   if (["icd-picker", "body-region", "allergy-list", "vitals-group", "package-picker", "discount-percent", "payment-mode"].includes(field.type)) {
     return (
       <Select value={String(value ?? "")} onValueChange={(v) => v != null && onChange(v)}>
-        <SelectTrigger className={cn(base, "h-9 w-full")}>
+        <SelectTrigger className="w-full">
           <SelectValue placeholder={`Select ${field.label}…`} />
         </SelectTrigger>
         <SelectContent>
@@ -125,7 +118,7 @@ function SchemaFieldInput({
         value={String(value ?? "")}
         onChange={(e) => onChange(e.target.value)}
         placeholder={field.placeholder}
-        className={cn(base, "min-h-[80px] resize-none")}
+        className="min-h-[88px] resize-y"
       />
     );
   }
@@ -149,7 +142,7 @@ function SchemaFieldInput({
     }
     return (
       <Select value={raw || undefined} onValueChange={(v) => v != null && onChange(v)}>
-        <SelectTrigger className={cn(base, "h-9 w-full")}>
+        <SelectTrigger className="w-full">
           <SelectValue placeholder={field.placeholder ?? "Select…"} />
         </SelectTrigger>
         <SelectContent>
@@ -171,8 +164,8 @@ function SchemaFieldInput({
         aria-checked={Boolean(value)}
         onClick={() => onChange(!value)}
         className={cn(
-          "relative h-6 w-11 rounded-full transition-colors",
-          value ? "bg-zinc-900" : "bg-zinc-200",
+          "relative h-6 w-11 shrink-0 rounded-full transition-colors",
+          value ? "bg-[var(--attio-text)]" : "bg-[var(--attio-border)]",
         )}
       >
         <span
@@ -216,7 +209,6 @@ function SchemaFieldInput({
         )
       }
       placeholder={field.placeholder}
-      className={cn(base, "h-9")}
     />
   );
 }
@@ -283,7 +275,7 @@ export function SchemaForm({
 
   return (
     <form
-      className={cn("space-y-8", className)}
+      className={cn("candela-form space-y-[var(--cf-section-gap,1.5rem)]", className)}
       onSubmit={(e) => {
         e.preventDefault();
         const nextErrors = validateFormValues(schema, values);
@@ -292,60 +284,55 @@ export function SchemaForm({
       }}
     >
       {schema.sections.map((section) => (
-        <div key={section.id}>
-          <h3 className="mb-3 text-[10px] font-semibold tracking-[0.08em] text-[var(--attio-text-tertiary)] uppercase">
-            {section.label}
-          </h3>
-          <div className="grid gap-4 sm:grid-cols-2">
+        <FormSection key={section.id} title={section.label}>
+          <FormGrid cols={2}>
             {section.fields.map((field) => {
               if (field.type === "divider") {
                 return <hr key={field.id} className="sm:col-span-2 border-[var(--attio-border-subtle)]" />;
               }
               if (field.type === "help") {
                 return (
-                  <p key={field.id} className="sm:col-span-2 text-[12px] text-[var(--attio-text-tertiary)]">{field.hint ?? field.label}</p>
+                  <p key={field.id} className="sm:col-span-2 text-[12px] leading-relaxed text-[var(--attio-text-tertiary)]">
+                    {field.hint ?? field.label}
+                  </p>
                 );
               }
               if (field.type === "section") {
                 return (
-                  <h4 key={field.id} className="sm:col-span-2 text-[13px] font-semibold">{field.label}</h4>
+                  <h4 key={field.id} className="sm:col-span-2 text-[13px] font-semibold text-[var(--attio-text)]">
+                    {field.label}
+                  </h4>
                 );
               }
+
+              if (field.type === "toggle") {
+                return (
+                  <FormField key={field.id} label={field.label} required={field.required} hint={field.hint} error={errors[field.id]} span={2} row>
+                    <SchemaFieldInput field={field} value={values[field.id]} onChange={(v) => set(field.id, v)} searchPatients={searchPatients} roster={roster} />
+                  </FormField>
+                );
+              }
+
               return (
-              <div
-                key={field.id}
-                className={cn(
-                  "space-y-1.5",
-                  field.span === 2 && "sm:col-span-2",
-                  field.type === "toggle" && "flex items-center justify-between sm:col-span-2",
-                )}
-              >
-                <Label className="text-[12px] font-medium text-[var(--attio-text-secondary)]">
-                  {field.label}
-                  {field.required && <span className="text-red-500"> *</span>}
-                </Label>
-                {field.type !== "toggle" && (
+                <FormField
+                  key={field.id}
+                  label={field.label}
+                  required={field.required}
+                  hint={field.hint}
+                  error={errors[field.id]}
+                  span={field.span === 2 ? 2 : 1}
+                >
                   <SchemaFieldInput field={field} value={values[field.id]} onChange={(v) => set(field.id, v)} searchPatients={searchPatients} roster={roster} />
-                )}
-                {field.type === "toggle" && (
-                  <SchemaFieldInput field={field} value={values[field.id]} onChange={(v) => set(field.id, v)} searchPatients={searchPatients} roster={roster} />
-                )}
-                {field.hint && (
-                  <p className="text-[11px] text-zinc-400">{field.hint}</p>
-                )}
-                {errors[field.id] && (
-                  <p className="text-[11px] text-red-600">{errors[field.id]}</p>
-                )}
-              </div>
+                </FormField>
               );
             })}
-          </div>
-        </div>
+          </FormGrid>
+        </FormSection>
       ))}
       {onSubmit && (
         <button
           type="submit"
-          className="h-8 rounded-md bg-[var(--attio-text)] px-3 text-[12px] font-medium text-white hover:bg-[#333]"
+          className="h-9 rounded-md bg-[var(--attio-text)] px-4 text-[13px] font-medium text-white transition-colors hover:bg-[#333]"
         >
           {submitLabel}
         </button>

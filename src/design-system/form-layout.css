@@ -1,0 +1,80 @@
+/* Candela workspace form system — consistent fields, grids, and modals */
+
+.candela-form {
+  --cf-field-gap: 0.375rem;
+  --cf-section-gap: 1.5rem;
+  --cf-grid-gap: 1rem;
+  --cf-control-h: 2.25rem;
+  --cf-label-size: 12px;
+  --cf-control-size: 13px;
+}
+
+.candela-form [data-slot="input"],
+.candela-form [data-slot="textarea"],
+.candela-form [data-slot="select-trigger"],
+.candela-form select.candela-native-select,
+[data-candela-app] .candela-form [data-slot="input"],
+[data-candela-app] .candela-form [data-slot="textarea"],
+[data-candela-app] .candela-form [data-slot="select-trigger"],
+[data-candela-app] .candela-form select.candela-native-select {
+  width: 100%;
+  min-height: var(--cf-control-h);
+  border-radius: 0.375rem;
+  border-color: var(--attio-border);
+  background-color: #fff;
+  font-size: var(--cf-control-size);
+  color: var(--attio-text);
+  box-shadow: none;
+}
+
+.candela-form [data-slot="input"],
+.candela-form select.candela-native-select,
+[data-candela-app] .candela-form [data-slot="input"],
+[data-candela-app] .candela-form select.candela-native-select {
+  height: var(--cf-control-h);
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+
+.candela-form [data-slot="textarea"],
+[data-candela-app] .candela-form [data-slot="textarea"] {
+  min-height: 5rem;
+  padding: 0.625rem 0.75rem;
+  resize: vertical;
+}
+
+.candela-form [data-slot="input"]::placeholder,
+.candela-form [data-slot="textarea"]::placeholder,
+[data-candela-app] .candela-form [data-slot="input"]::placeholder,
+[data-candela-app] .candela-form [data-slot="textarea"]::placeholder {
+  color: var(--attio-text-tertiary);
+}
+
+.candela-form [data-slot="input"]:focus-visible,
+.candela-form [data-slot="textarea"]:focus-visible,
+.candela-form [data-slot="select-trigger"]:focus-visible,
+.candela-form select.candela-native-select:focus-visible,
+[data-candela-app] .candela-form [data-slot="input"]:focus-visible,
+[data-candela-app] .candela-form [data-slot="textarea"]:focus-visible,
+[data-candela-app] .candela-form [data-slot="select-trigger"]:focus-visible,
+[data-candela-app] .candela-form select.candela-native-select:focus-visible {
+  border-color: var(--attio-text-tertiary);
+  outline: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--attio-text-tertiary) 35%, transparent);
+}
+
+.candela-form [data-slot="select-trigger"],
+[data-candela-app] .candela-form [data-slot="select-trigger"] {
+  justify-content: space-between;
+  padding-left: 0.75rem;
+  padding-right: 0.625rem;
+}
+
+.candela-form select.candela-native-select,
+[data-candela-app] .candela-form select.candela-native-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238a8a88' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.625rem center;
+  padding-right: 2rem;
+}
