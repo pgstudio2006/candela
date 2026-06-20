@@ -60,6 +60,7 @@ export type Visit = {
   counselPackageLabel?: string;
   deferredReason?: string;
   routingNote?: string;
+  notes?: string;
 };
 
 export const APPOINTMENT_SLOTS = {

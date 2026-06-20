@@ -26,11 +26,14 @@ import {
   SEED_STAFF,
 } from "@/design-system/admin-data";
 import { PATIENTS, VISITS } from "@/design-system/frontdesk-data";
+import { isDemoSeedEnabled } from "@/lib/demo-seed";
+import { ensureHospitalBootstrap } from "@/server/hospital-bootstrap";
 
 const ADMIN_SETTINGS_ID = "admin_settings";
 let bootstrapPromise: Promise<void> | null = null;
 
 async function seedCoreData() {
+  if (!isDemoSeedEnabled()) return;
   if (await prisma.patient.count()) return;
   await prisma.patient.createMany({
     data: PATIENTS.map((p) => ({
@@ -188,6 +191,8 @@ async function seedAdminData() {
 }
 
 async function runBootstrap() {
+  await ensureHospitalBootstrap();
+  if (!isDemoSeedEnabled()) return;
   await seedCoreData();
   await seedCrmData();
   await seedHrData();

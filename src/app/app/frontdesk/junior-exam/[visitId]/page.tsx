@@ -5,7 +5,7 @@ import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { useFormSchema } from "@/components/frontdesk/use-form-schema";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
-import { ArrowLeft, Send } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Send } from "lucide-react";
 import { useToast } from "@/components/ui/toast-provider";
 import { validateFormValues } from "@/lib/schema-registry";
 import Link from "next/link";
@@ -42,7 +42,11 @@ export default function JuniorExamDetailPage() {
       toast(result.error ?? "Could not complete junior exam", "error");
       return;
     }
-    toast("Handoff sent to doctor queue", "success");
+    if (data.redFlags) {
+      toast("RED FLAG escalated — doctor queue prioritized", "error");
+    } else {
+      toast("Handoff sent to doctor queue", "success");
+    }
     router.push("/app/frontdesk/queue");
   };
 
@@ -55,6 +59,7 @@ export default function JuniorExamDetailPage() {
   }
 
   const handoffPreview = saved?.data ?? {};
+  const redFlagsActive = Boolean(handoffPreview.redFlags);
 
   return (
     <PageChrome
@@ -91,7 +96,21 @@ export default function JuniorExamDetailPage() {
         <StatusBadge label={visit.billing} variant={visit.billing === "paid" ? "success" : "warning"} />
         <StatusBadge label={patient.department} variant="neutral" />
         <StatusBadge label={`Exam: ${visit.exam}`} variant="info" />
+        {redFlagsActive && <StatusBadge label="RED FLAG" variant="warning" />}
       </div>
+
+      {redFlagsActive && (
+        <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-900">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <div>
+            <p className="font-medium">Red flag escalation</p>
+            <p className="mt-0.5 text-red-800">
+              Completing handoff will escalate this patient to urgent priority and alert the consultant.
+              {handoffPreview.redFlagNotes ? ` Notes: ${String(handoffPreview.redFlagNotes)}` : ""}
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
         <Panel title="Junior doctor examination">

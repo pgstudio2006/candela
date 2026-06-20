@@ -7,7 +7,7 @@ import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatStageStatus } from "@/lib/frontdesk-workflow";
-import { ArrowLeft, CreditCard, ListOrdered, Printer } from "lucide-react";
+import { ArrowLeft, CreditCard, ListOrdered, Pencil, Printer } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -45,6 +45,9 @@ export default function PatientRecordPage() {
       meta={`${patient.uhid} · ${patient.age}y · ${patient.phone}`}
       actions={
         <>
+          <Link href={`/app/frontdesk/patients/${patient.id}/edit`}>
+            <AttioButton variant="secondary" className="gap-1"><Pencil className="size-3.5" /> Edit</AttioButton>
+          </Link>
           <Link href={`/app/frontdesk/check-in?patient=${patient.id}${activeVisit ? `&visit=${activeVisit.id}` : ""}`}>
             <AttioButton variant="secondary">Check in</AttioButton>
           </Link>

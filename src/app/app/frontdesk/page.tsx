@@ -4,6 +4,7 @@ import { useSession } from "@/components/candela/session-provider";
 import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, DataTable, MetricStrip, Panel, StatusBadge } from "@/components/frontdesk/ui";
+import { useFrontdeskPoll } from "@/hooks/use-frontdesk-poll";
 import { formatStageStatus } from "@/lib/frontdesk-workflow";
 import { Zap } from "lucide-react";
 import Link from "next/link";
@@ -11,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 export default function FrontdeskDashboardPage() {
+  useFrontdeskPoll();
   const router = useRouter();
   const [tab, setTab] = useState("overview");
   const { getDashboardKpis, getActionItems, visits, patients, getWaitingCheckIns } = useFrontdeskStore();
@@ -35,7 +37,7 @@ export default function FrontdeskDashboardPage() {
         { label: "Dashboard" },
       ]}
       title="Command center"
-      meta="Wed 18 Jun 2026 · Gurgaon · live workflow"
+      meta={`${new Date().toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" })} · live · auto-refresh 15s`}
       tabs={[
         { id: "overview", label: "Overview" },
         { id: "pipeline", label: "Pipeline" },

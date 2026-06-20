@@ -3,16 +3,21 @@
 import type { BillingResult, CounselBillingInput } from "@/server/clinical";
 import {
   bookAppointment,
+  cancelAppointment,
   canOverrideDuplicate,
   checkDuplicatePatient,
   checkInVisit,
   completeJuniorExam,
   fetchVisitReceipt,
   getClinicalSnapshot,
+  listFrontdeskAuditLogs,
   processBilling,
   processCounselBilling,
   registerPatient,
+  rescheduleAppointment,
   saveSubmission,
+  searchPatientsPaginated,
+  updatePatient,
 } from "@/server/clinical";
 import { requireModule } from "@/server/auth";
 
@@ -84,6 +89,27 @@ export async function bookAppointmentAction(input: {
   return bookAppointment(ctx, input);
 }
 
+export async function cancelAppointmentAction(appointmentId: string) {
+  const ctx = await requireModule("frontdesk");
+  return cancelAppointment(ctx, appointmentId);
+}
+
+export async function rescheduleAppointmentAction(
+  appointmentId: string,
+  input: { date: string; time: string; doctorId?: string; departmentId?: string },
+) {
+  const ctx = await requireModule("frontdesk");
+  return rescheduleAppointment(ctx, appointmentId, input);
+}
+
+export async function updatePatientAction(
+  patientId: string,
+  data: Record<string, string | number | boolean>,
+) {
+  const ctx = await requireModule("frontdesk");
+  return updatePatient(ctx, patientId, data);
+}
+
 export async function saveSubmissionAction(
   formId: string,
   data: Record<string, string | number | boolean>,
@@ -102,4 +128,19 @@ export async function getVisitReceiptAction(visitId: string) {
     const message = err instanceof Error ? err.message : "Could not load receipt.";
     return { error: message };
   }
+}
+
+export async function searchPatientsPaginatedAction(input: {
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  view?: "all" | "balance" | "today";
+}) {
+  const ctx = await requireModule("frontdesk");
+  return searchPatientsPaginated(ctx, input);
+}
+
+export async function listFrontdeskAuditLogsAction(input?: { limit?: number; cursor?: string }) {
+  const ctx = await requireModule("frontdesk");
+  return listFrontdeskAuditLogs(ctx, input ?? {});
 }

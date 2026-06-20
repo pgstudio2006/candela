@@ -4,7 +4,7 @@ import {
   type Patient,
   type Visit,
 } from "@/design-system/frontdesk-data";
-import { buildActionItems, computeKpis, computeWaitMinutes, findDuplicatePatients, matchPatientByQuery, nextUhid, nowTime, patientDisplayName, sortVisitsByToken, type Appointment, type FormSubmission, type FrontdeskCounters } from "@/lib/frontdesk-workflow";
+import { buildActionItems, computeKpis, computeWaitMinutes, findDuplicatePatients, matchPatientByQuery, nextUhid, nowTime, patientDisplayName, sortQueueVisits, sortVisitsByToken, type Appointment, type FormSubmission, type FrontdeskCounters } from "@/lib/frontdesk-workflow";
 import type { PaymentScope } from "@/lib/billing-routing";
 import type { BillingHandoffPayload } from "@/design-system/counsellor-data";
 import {
@@ -16,13 +16,16 @@ import { parseActionError } from "@/lib/action-errors";
 import { isTransientSessionError, sleep } from "@/lib/session-retry";
 import {
   bookAppointmentAction,
+  cancelAppointmentAction,
   checkInVisitAction,
   completeJuniorExamAction,
   getClinicalSnapshotAction,
   processBillingAction,
   processCounselBillingAction,
   registerPatientAction,
+  rescheduleAppointmentAction,
   saveSubmissionAction,
+  updatePatientAction,
 } from "@/app/actions/clinical-actions";
 import {
   createContext,
@@ -97,6 +100,15 @@ type FrontdeskStoreValue = FrontdeskState & {
   processCounselBilling: (visitId: string, input: CounselBillingInput) => Promise<BillingResult>;
   completeJuniorExam: (visitId: string, data: JuniorExamInput) => Promise<{ ok: boolean; error?: string }>;
   bookAppointment: (data: AppointmentInput) => Promise<{ appointmentId: string; visitId: string; error?: string }>;
+  cancelAppointment: (appointmentId: string) => Promise<{ ok: boolean; error?: string }>;
+  rescheduleAppointment: (
+    appointmentId: string,
+    input: { date: string; time: string; doctorId?: string; departmentId?: string },
+  ) => Promise<{ ok: boolean; error?: string }>;
+  updatePatientAsync: (
+    patientId: string,
+    data: RegisterInput,
+  ) => Promise<{ ok: true; patientId: string; uhid: string } | { ok: false; error: string }>;
   saveSubmission: (
     formId: string,
     data: Record<string, string | number | boolean>,
@@ -340,6 +352,51 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
     [refresh],
   );
 
+  const cancelAppointment = useCallback(
+    async (appointmentId: string): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        await cancelAppointmentAction(appointmentId);
+        await refresh();
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: parseActionError(err).message };
+      }
+    },
+    [refresh],
+  );
+
+  const rescheduleAppointment = useCallback(
+    async (
+      appointmentId: string,
+      input: { date: string; time: string; doctorId?: string; departmentId?: string },
+    ): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        await rescheduleAppointmentAction(appointmentId, input);
+        await refresh();
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: parseActionError(err).message };
+      }
+    },
+    [refresh],
+  );
+
+  const updatePatientAsync = useCallback(
+    async (
+      patientId: string,
+      data: RegisterInput,
+    ): Promise<{ ok: true; patientId: string; uhid: string } | { ok: false; error: string }> => {
+      try {
+        const result = await updatePatientAction(patientId, data);
+        await refresh({ silent: true });
+        return { ok: true, ...result };
+      } catch (err) {
+        return { ok: false, error: parseActionError(err).message };
+      }
+    },
+    [refresh],
+  );
+
   const saveSubmission = useCallback(
     async (
       formId: string,
@@ -369,6 +426,9 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
       processCounselBilling,
       completeJuniorExam,
       bookAppointment,
+      cancelAppointment,
+      rescheduleAppointment,
+      updatePatientAsync,
       saveSubmission,
       getSubmission: (formId, visitId) =>
         state.submissions.find((s) => s.formId === formId && s.visitId === visitId),
@@ -398,7 +458,7 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
           .map((v) => ({ visit: v, patient: getPatient(v.patientId)! }))
           .filter((x) => x.patient),
       getQueueVisits: (doctorId) =>
-        sortVisitsByToken(
+        sortQueueVisits(
           state.visits.filter(
             (v) =>
               ["queued", "junior_exam"].includes(v.stage) &&
@@ -417,7 +477,7 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
         void refresh();
       },
     };
-  }, [state, ready, error, refresh, registerPatientAsync, checkInVisit, processBilling, processCounselBilling, completeJuniorExam, bookAppointment, saveSubmission]);
+  }, [state, ready, error, refresh, registerPatientAsync, checkInVisit, processBilling, processCounselBilling, completeJuniorExam, bookAppointment, cancelAppointment, rescheduleAppointment, updatePatientAsync, saveSubmission]);
 
   return <FrontdeskContext.Provider value={value}>{children}</FrontdeskContext.Provider>;
 }

@@ -1,9 +1,12 @@
 import {
   Calendar,
   ClipboardCheck,
+  ClipboardList,
   CreditCard,
+  FileText,
   LayoutDashboard,
   ListOrdered,
+  Monitor,
   Stethoscope,
   UserPlus,
   Users,
@@ -35,6 +38,9 @@ export const FRONTDESK_NAV: FrontdeskNavItem[] = [
   { id: "check-in", label: "Check-in", href: "/app/frontdesk/check-in", icon: ClipboardCheck, color: "#14B8A6" },
   { id: "appointments", label: "Appointments", href: "/app/frontdesk/appointments", icon: Calendar, color: "#F59E0B" },
   { id: "queue", label: "Queue", href: "/app/frontdesk/queue", icon: ListOrdered, color: "#F97316" },
+  { id: "display", label: "Display board", href: "/app/frontdesk/display", icon: Monitor, color: "#EC4899" },
+  { id: "handover", label: "Shift handover", href: "/app/frontdesk/handover", icon: ClipboardList, color: "#64748B" },
+  { id: "audit", label: "Audit log", href: "/app/frontdesk/audit", icon: FileText, color: "#475569" },
   { id: "billing", label: "Billing", href: "/app/frontdesk/billing", icon: CreditCard, color: "#22C55E" },
   { id: "junior-exam", label: "Junior exam", href: "/app/frontdesk/junior-exam", icon: Stethoscope, color: "#8B5CF6" },
 ];

@@ -1,12 +1,14 @@
 "use client";
 
 import { SidebarIcon } from "@/components/frontdesk/sidebar-icon";
+import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
 import {
   FRONTDESK_LISTS,
   FRONTDESK_NAV,
 } from "@/design-system/frontdesk-nav";
+import { patientDisplayName } from "@/lib/frontdesk-workflow";
 import { cn } from "@/lib/utils";
-import { Command, Settings } from "lucide-react";
+import { Command, Settings, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -20,7 +22,7 @@ type PaletteItem = {
   action?: "settings";
 };
 
-const PALETTE_ITEMS: PaletteItem[] = [
+const NAV_ITEMS: PaletteItem[] = [
   ...FRONTDESK_NAV.map((n) => ({
     id: n.id,
     label: n.label,
@@ -56,14 +58,29 @@ export function FrontdeskCommandPalette({
   onOpenSettings,
 }: FrontdeskCommandPaletteProps) {
   const router = useRouter();
+  const { searchPatients } = useFrontdeskStore();
   const [q, setQ] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
-  const items = useMemo(
+  const patientItems = useMemo((): PaletteItem[] => {
+    const query = q.trim();
+    if (query.length < 2) return [];
+    return searchPatients(query)
+      .slice(0, 8)
+      .map((p) => ({
+        id: `patient-${p.id}`,
+        label: `${patientDisplayName(p)} · ${p.uhid} · ${p.phone}`,
+        href: `/app/frontdesk/patients/${p.id}`,
+        icon: User,
+        group: "Patients",
+      }));
+  }, [q, searchPatients]);
+
+  const navItems = useMemo(
     () =>
-      PALETTE_ITEMS.filter(
+      NAV_ITEMS.filter(
         (i) =>
           !q ||
           i.label.toLowerCase().includes(q.toLowerCase()) ||
@@ -72,14 +89,19 @@ export function FrontdeskCommandPalette({
     [q],
   );
 
+  const items = useMemo(() => [...patientItems, ...navItems], [patientItems, navItems]);
+
   const grouped = useMemo(() => {
+    const order = ["Patients", "Workspace", "Lists", "Actions"];
     const map = new Map<string, PaletteItem[]>();
     for (const item of items) {
       const list = map.get(item.group) ?? [];
       list.push(item);
       map.set(item.group, list);
     }
-    return [...map.entries()];
+    return order
+      .filter((g) => map.has(g))
+      .map((g) => [g, map.get(g)!] as const);
   }, [items]);
 
   useEffect(() => {
@@ -168,7 +190,7 @@ export function FrontdeskCommandPalette({
         <ul ref={listRef} className="max-h-80 overflow-y-auto p-1.5">
           {items.length === 0 ? (
             <li className="px-3 py-6 text-center text-[13px] text-[var(--attio-text-tertiary)]">
-              No results for &ldquo;{q}&rdquo;
+              {q.trim().length >= 2 ? `No results for "${q}"` : "Type to search patients or screens…"}
             </li>
           ) : (
             grouped.map(([group, groupItems]) => (
@@ -195,7 +217,7 @@ export function FrontdeskCommandPalette({
                           onClick={() => runItem(item)}
                         >
                           {item.icon && <SidebarIcon icon={item.icon} active={active} />}
-                          <span className="flex-1">{item.label}</span>
+                          <span className="flex-1 truncate">{item.label}</span>
                         </button>
                       </li>
                     );

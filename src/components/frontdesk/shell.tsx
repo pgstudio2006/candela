@@ -18,6 +18,7 @@ export function FrontdeskShell({ children }: { children: ReactNode }) {
   const [copilotOpen, setCopilotOpen] = useState(false);
   const settingsRef = useRef<HTMLButtonElement>(null);
   const current = getFrontdeskNavItem(pathname);
+  const isDisplayBoard = pathname.startsWith("/app/frontdesk/display");
 
   useEffect(() => {
     if (!authReady) return;
@@ -42,6 +43,16 @@ export function FrontdeskShell({ children }: { children: ReactNode }) {
   }, []);
 
   if (!authReady || !session) return null;
+
+  if (isDisplayBoard) {
+    return (
+      <div className="min-h-screen bg-[#0f172a] text-white" data-candela-app>
+        <StoreGate ready={ready} error={error} onRetry={() => void refresh()}>
+          {children}
+        </StoreGate>
+      </div>
+    );
+  }
 
   return (
     <div

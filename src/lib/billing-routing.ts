@@ -32,7 +32,7 @@ export function resolvePostCounselRoute(input: {
   const routeHref =
     audience === "nurse"
       ? `/app/nurse/queue?visit=${visitId}`
-      : `/app/frontdesk/queue?visit=${visitId}`;
+      : `/app/frontdesk/routing?visit=${visitId}&dest=nursing`;
 
   if (convertToIpd) {
     if (paymentScope === "defer") {

@@ -5,8 +5,13 @@ export type ServerErrorCode =
   | "NOT_FOUND"
   | "CONFLICT"
   | "DUPLICATE_PATIENT"
+  | "DUPLICATE_PHONE"
   | "INVALID_SESSION"
-  | "INTERNAL_ERROR";
+  | "INTERNAL_ERROR"
+  | "VALIDATION"
+  | "DOCTOR_ON_LEAVE"
+  | "SLOT_TAKEN"
+  | "INVALID";
 
 export class ServerActionError extends Error {
   constructor(

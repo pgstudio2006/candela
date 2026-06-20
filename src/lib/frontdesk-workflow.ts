@@ -53,6 +53,23 @@ export function sortVisitsByToken<T extends { token?: number }>(visits: T[]): T[
   return [...visits].sort((a, b) => (a.token ?? 99_999) - (b.token ?? 99_999));
 }
 
+export function isRedFlagVisit(visit: { routingNote?: string; notes?: string }) {
+  const note = `${visit.routingNote ?? ""} ${visit.notes ?? ""}`.toUpperCase();
+  return note.includes("RED FLAG");
+}
+
+/** Urgent (red-flag) visits first, then FIFO by token. */
+export function sortQueueVisits<T extends { token?: number; routingNote?: string; notes?: string }>(
+  visits: T[],
+): T[] {
+  return [...visits].sort((a, b) => {
+    const aUrgent = isRedFlagVisit(a) ? 0 : 1;
+    const bUrgent = isRedFlagVisit(b) ? 0 : 1;
+    if (aUrgent !== bUrgent) return aUrgent - bUrgent;
+    return (a.token ?? 99_999) - (b.token ?? 99_999);
+  });
+}
+
 export function isAwaitingJuniorExam(visit: { stage: string; exam?: string }) {
   return visit.stage === "junior_exam" && visit.exam !== "done";
 }
@@ -183,6 +200,7 @@ export type FormSubmission = {
 export type Appointment = {
   id: string;
   patientId: string;
+  visitId?: string;
   departmentId: string;
   doctorId: string;
   doctorName: string;
@@ -222,7 +240,15 @@ export function buildActionItems(visits: Visit[], patients: Patient[]): ActionIt
     const p = patients.find((x) => x.id === v.patientId);
     if (!p) continue;
     const label = patientDisplayName(p);
-    if (v.stage === "junior_exam" && (v.exam ?? "not_started") !== "done") {
+    if (isRedFlagVisit(v)) {
+      items.push({
+        id: `rf-${v.id}`,
+        priority: "urgent",
+        text: `${label} — RED FLAG escalation · ${v.routingNote ?? "review immediately"}`,
+        action: "Open queue",
+        href: `/app/frontdesk/queue`,
+      });
+    } else if (v.stage === "junior_exam" && (v.exam ?? "not_started") !== "done") {
       items.push({
         id: `je-${v.id}`,
         priority: v.billing === "deferred" ? "urgent" : "high",

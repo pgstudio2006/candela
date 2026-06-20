@@ -3,20 +3,22 @@
 import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
-import { isAwaitingJuniorExam, patientDisplayName, sortVisitsByToken } from "@/lib/frontdesk-workflow";
+import { useFrontdeskPoll } from "@/hooks/use-frontdesk-poll";
+import { isAwaitingJuniorExam, isRedFlagVisit, patientDisplayName, sortQueueVisits } from "@/lib/frontdesk-workflow";
 import { cn } from "@/lib/utils";
 import { Clock } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 export default function QueuePage() {
+  useFrontdeskPoll();
   const router = useRouter();
   const { getQueueVisits, getPatient, visits, roster } = useFrontdeskStore();
 
   const doctors = roster.allDoctors;
 
   const callNext = () => {
-    const next = sortVisitsByToken(visits.filter(isAwaitingJuniorExam))[0];
+    const next = sortQueueVisits(visits.filter(isAwaitingJuniorExam))[0];
     if (next) router.push(`/app/frontdesk/junior-exam/${next.id}`);
   };
 
@@ -32,7 +34,7 @@ export default function QueuePage() {
     >
       <div className="grid gap-4 lg:grid-cols-3">
         {doctors.map((doc) => {
-          const queue = sortVisitsByToken(getQueueVisits(doc.id));
+          const queue = sortQueueVisits(getQueueVisits(doc.id));
           return (
             <Panel
               key={doc.id}
@@ -67,6 +69,7 @@ export default function QueuePage() {
                         <StatusBadge label={v.billing} variant={v.billing === "paid" ? "success" : "warning"} />
                         <StatusBadge label={`Exam ${v.exam}`} variant={v.exam === "done" ? "success" : "info"} />
                         {v.appointment && <StatusBadge label="Appt" variant="info" />}
+                        {isRedFlagVisit(v) && <StatusBadge label="RED FLAG" variant="warning" />}
                       </div>
                       {v.exam !== "done" && (
                         <Link href={`/app/frontdesk/junior-exam/${v.id}`} className="mt-2 inline-block text-[12px] text-[var(--attio-accent)]">

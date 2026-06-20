@@ -63,8 +63,35 @@ openssl rand -base64 32
 npm ci
 npm run db:generate
 npm run db:push
-npm run db:seed
 npm run build
+```
+
+### Production (no demo patients)
+
+On first deploy, **do not** run `db:seed` unless you want demo data. The app auto-bootstraps **departments, doctors, and admin settings** on first front-desk load via `ensureHospitalBootstrap()`.
+
+Set tenant/branch/users via your normal onboarding (or `prisma/seed.ts` for initial org only).
+
+Optional env for GST tax invoices:
+
+```env
+NODE_ENV=production
+ALLOW_DEMO_SEED=false
+NOTIFICATIONS_DEMO=false
+BRANCH_GSTIN=06AABCN1234F1Z9
+BRANCH_LEGAL_NAME=Navayu Spine & Joint Care Pvt Ltd
+BRANCH_ADDRESS=Sector 44, Gurgaon, Haryana 122003
+BRANCH_STATE=Haryana
+OPD_GST_RATE=0
+OPD_GST_MODE=exempt
+```
+
+Or store GST in branch `meta.gst` JSON: `{ "gstin", "legalName", "address", "placeOfSupply", "sacCode": "999312", "gstRatePercent", "taxMode" }`.
+
+### Development / demo
+
+```bash
+npm run db:seed
 ```
 
 ## 5. PM2

@@ -7,6 +7,7 @@ import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { PostCounselBillingForm } from "@/components/frontdesk/post-counsel-billing-form";
 import { useFormSchema } from "@/components/frontdesk/use-form-schema";
 import { Panel, StatusBadge } from "@/components/frontdesk/ui";
+import { useFrontdeskPoll } from "@/hooks/use-frontdesk-poll";
 import { BILLING_TEMPLATES } from "@/design-system/frontdesk-data";
 import { useToast } from "@/components/ui/toast-provider";
 import Link from "next/link";
@@ -14,6 +15,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 
 function BillingContent() {
+  useFrontdeskPoll();
   const router = useRouter();
   const params = useSearchParams();
   const visitParam = params.get("visit") ?? undefined;
@@ -229,7 +231,7 @@ function BillingContent() {
               {isPostCounsel ? (
                 <ul className="space-y-2 text-[12px] text-[var(--attio-text-secondary)]">
                   <li>
-                    <strong className="text-[var(--attio-text)]">Full pay</strong> → package activated / IPD admitted
+                    <strong className="text-[var(--attio-text)]">Full pay</strong> → nursing intake (routing screen)
                   </li>
                   <li>
                     <strong className="text-[var(--attio-text)]">Partial</strong> → balance on patient ledger
