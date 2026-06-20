@@ -1,9 +1,8 @@
 "use client";
 
+import { FormCheckbox, FormField, FormGrid, FormModal, FormSection, FormSubmitBar } from "@/components/candela/form";
 import type { CrmAgent } from "@/design-system/crm-data";
-import { AttioButton } from "@/components/frontdesk/ui";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -11,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { X } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useEffect, useState } from "react";
 
 const SPECIALTY_OPTIONS = ["spine", "knee", "shoulder", "wellness", "general"];
@@ -48,8 +47,6 @@ export function CrmAgentFormModal({ open, onClose, initial, agents = [], onSave 
     setPassword("");
   }, [open, initial]);
 
-  if (!open) return null;
-
   const toggleTag = (tag: string) => {
     setSpecialtyTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
   };
@@ -74,100 +71,69 @@ export function CrmAgentFormModal({ open, onClose, initial, agents = [], onSave 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-      <div className="w-full max-w-lg rounded-xl border border-[var(--attio-border)] bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <h2 className="text-[15px] font-semibold">{initial ? "Edit team member" : "Add team member"}</h2>
-          <button type="button" onClick={onClose} className="rounded p-1 hover:bg-[var(--attio-hover)]">
-            <X className="size-4" />
-          </button>
-        </div>
-        <form onSubmit={handleSubmit} className="space-y-4 p-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label className="text-[12px]">Full name *</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} className="h-9 text-[13px]" required />
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label className="text-[12px]">Work email *</Label>
-              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="h-9 text-[13px]" required />
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label className="text-[12px]">{initial ? "New password (optional)" : "Login password"}</Label>
-              <Input
-                type="text"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={initial ? "Leave blank to keep current" : "Auto-generated if empty"}
-                className="h-9 text-[13px] font-mono"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[12px]">Role</Label>
-              <Select value={role} onValueChange={(v) => v && setRole(v as CrmAgent["role"])}>
-                <SelectTrigger className="h-9 text-[13px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="counsellor">Counsellor</SelectItem>
-                  <SelectItem value="caller">Caller / SDR</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[12px]">Max open leads</Label>
-              <Input type="number" value={maxOpenLeads} onChange={(e) => setMaxOpenLeads(Number(e.target.value))} className="h-9 text-[13px]" min={1} />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[12px]">Lead weight %</Label>
-              <Input type="number" value={leadWeightPercent} onChange={(e) => setLeadWeightPercent(Number(e.target.value))} className="h-9 text-[13px]" min={0} max={100} />
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label className="text-[12px]">Backup when absent</Label>
-              <Select value={backupAgentId || "none"} onValueChange={(v) => setBackupAgentId(!v || v === "none" ? "" : v)}>
-                <SelectTrigger className="h-9 text-[13px]">
-                  <SelectValue placeholder="Select backup agent" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  {agents.filter((a) => a.id !== initial?.id).map((a) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {a.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+    <FormModal open={open} onClose={onClose} title={initial ? "Edit team member" : "Add team member"} size="md">
+      <form id="crm-agent-form" onSubmit={handleSubmit} className="candela-form space-y-4">
+        <FormGrid cols={2}>
+          <FormField label="Full name" required span={2}>
+            <Input value={name} onChange={(e) => setName(e.target.value)} required />
+          </FormField>
+          <FormField label="Work email" required span={2}>
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          </FormField>
+          <FormField label={initial ? "New password" : "Login password"} span={2} hint={initial ? "Leave blank to keep current" : "Auto-generated if empty"}>
+            <Input type="text" value={password} onChange={(e) => setPassword(e.target.value)} className="font-mono" />
+          </FormField>
+          <FormField label="Role">
+            <Select value={role} onValueChange={(v) => v && setRole(v as CrmAgent["role"])}>
+              <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="counsellor">Counsellor</SelectItem>
+                <SelectItem value="caller">Caller / SDR</SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
+          <FormField label="Max open leads">
+            <Input type="number" value={maxOpenLeads} onChange={(e) => setMaxOpenLeads(Number(e.target.value))} min={1} />
+          </FormField>
+          <FormField label="Lead weight %">
+            <Input type="number" value={leadWeightPercent} onChange={(e) => setLeadWeightPercent(Number(e.target.value))} min={0} max={100} />
+          </FormField>
+          <FormField label="Backup when absent" span={2}>
+            <Select value={backupAgentId || "none"} onValueChange={(v) => setBackupAgentId(!v || v === "none" ? "" : v)}>
+              <SelectTrigger className="w-full"><SelectValue placeholder="Select backup agent" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                {agents.filter((a) => a.id !== initial?.id).map((a) => (
+                  <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
+        </FormGrid>
+
+        <FormSection title="Specialty tags" description="Used for lead routing by specialty">
+          <div className="flex flex-wrap gap-2">
+            {SPECIALTY_OPTIONS.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => toggleTag(tag)}
+                className={cn(
+                  "rounded-md border px-2.5 py-1.5 text-[12px] capitalize transition-colors",
+                  specialtyTags.includes(tag)
+                    ? "border-[var(--attio-text)] bg-[var(--attio-text)] text-white"
+                    : "border-[var(--attio-border)] bg-white hover:bg-[var(--attio-surface)]",
+                )}
+              >
+                {tag}
+              </button>
+            ))}
           </div>
-          <div className="space-y-2">
-            <Label className="text-[12px]">Specialty tags (for routing)</Label>
-            <div className="flex flex-wrap gap-2">
-              {SPECIALTY_OPTIONS.map((tag) => (
-                <button
-                  key={tag}
-                  type="button"
-                  onClick={() => toggleTag(tag)}
-                  className={`rounded-md border px-2.5 py-1 text-[12px] capitalize ${specialtyTags.includes(tag) ? "border-[var(--attio-text)] bg-[var(--attio-text)] text-white" : "border-[var(--attio-border)]"}`}
-                >
-                  {tag}
-                </button>
-              ))}
-            </div>
-          </div>
-          <label className="flex items-center gap-2 text-[13px]">
-            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-            Active — receives new lead assignments
-          </label>
-          <div className="flex justify-end gap-2 border-t pt-4">
-            <AttioButton variant="secondary" type="button" onClick={onClose}>
-              Cancel
-            </AttioButton>
-            <AttioButton variant="primary" type="submit">
-              {initial ? "Save" : "Add person"}
-            </AttioButton>
-          </div>
-        </form>
-      </div>
-    </div>
+        </FormSection>
+
+        <FormCheckbox label="Active" description="Receives new lead assignments" checked={active} onChange={setActive} />
+        <FormSubmitBar form="crm-agent-form" onCancel={onClose} submitLabel={initial ? "Save" : "Add person"} />
+      </form>
+    </FormModal>
   );
 }
