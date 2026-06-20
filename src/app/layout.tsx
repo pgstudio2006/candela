@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ToastProvider } from "@/components/ui/toast-provider";
+import { DeployRecovery } from "@/components/candela/deploy-recovery";
 import { ErrorBoundary } from "@/components/candela/error-boundary";
 import { MobileNav } from "@/components/candela/mobile-nav";
 import { SessionProvider } from "@/components/candela/session-provider";
@@ -42,6 +43,7 @@ export default function RootLayout({
           <SessionProvider>
             <ToastProvider>
               <ErrorBoundary>
+                <DeployRecovery />
                 {children}
                 <MobileNav />
               </ErrorBoundary>

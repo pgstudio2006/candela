@@ -15,6 +15,7 @@ type AiScribePanelProps = {
   patientContext?: string;
   onLanguageChange: (lang: string) => void;
   onTranscriptChange: (text: string) => void;
+  onRecordingStop?: (text: string) => void;
   onDraftAccepted: (draft: ScribeDraft) => void;
   applied?: boolean;
 };
@@ -25,6 +26,7 @@ export function AiScribePanel({
   patientContext,
   onLanguageChange,
   onTranscriptChange,
+  onRecordingStop,
   onDraftAccepted,
   applied,
 }: AiScribePanelProps) {
@@ -35,6 +37,7 @@ export function AiScribePanel({
   const { recording, interim, start, stop } = useDeepgramScribe({
     language,
     onTranscriptUpdate: onTranscriptChange,
+    onRecordingStop,
     onError: setError,
   });
 

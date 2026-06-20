@@ -162,6 +162,34 @@ export async function getDoctorSnapshot(activeDoctorId = DEMO_DOCTOR_ID, ctx?: i
   };
 }
 
+function juniorExamToConsultFields(junior: Record<string, string | number | boolean>) {
+  return {
+    examination: {
+      chiefComplaint: String(junior.chiefComplaint ?? ""),
+      painScale: junior.painScale ?? "",
+      duration: String(junior.duration ?? ""),
+      region: String(junior.region ?? ""),
+      redFlags: Boolean(junior.redFlags),
+      redFlagNotes: String(junior.redFlagNotes ?? ""),
+      priorSurgery: Boolean(junior.priorSurgery),
+      neuroDeficit: Boolean(junior.neuroDeficit),
+      rom: String(junior.rom ?? ""),
+      specialTests: String(junior.specialTests ?? ""),
+      juniorImpression: String(junior.juniorImpression ?? ""),
+      seniorHandoff: String(junior.seniorHandoff ?? ""),
+    },
+    diagnosis: { clinicalImpression: String(junior.juniorImpression ?? "") },
+    treatment: { plan: String(junior.seniorHandoff ?? "") },
+    notes: [
+      junior.seniorHandoff ? `Handoff: ${junior.seniorHandoff}` : "",
+      junior.rom ? `ROM: ${junior.rom}` : "",
+      junior.redFlagNotes ? `Red flags: ${junior.redFlagNotes}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+  };
+}
+
 export async function startConsultation(visitId: string, doctorId: string, ctx?: import("@/server/context").ServerContext) {
   const visit = await prisma.opdVisit.findUnique({ where: { id: visitId } });
   if (!visit) return null;
@@ -178,13 +206,35 @@ export async function startConsultation(visitId: string, doctorId: string, ctx?:
   }
 
   const existing = await prisma.consultation.findUnique({ where: { visitId } });
-  if (existing) return mapConsultation(existing);
+  if (existing) {
+    const juniorExam = await prisma.formSubmission.findFirst({
+      where: { formId: "junior-exam", visitId },
+      orderBy: { createdAt: "desc" },
+    });
+    const junior = asRecord(juniorExam?.data);
+    const exam = asRecord(existing.examination);
+    if (juniorExam && !exam.chiefComplaint && !exam.juniorImpression) {
+      const fromJunior = juniorExamToConsultFields(junior);
+      const updated = await prisma.consultation.update({
+        where: { visitId },
+        data: {
+          examination: fromJunior.examination,
+          diagnosis: fromJunior.diagnosis,
+          treatment: fromJunior.treatment,
+          notes: fromJunior.notes || existing.notes,
+        },
+      });
+      return mapConsultation(updated);
+    }
+    return mapConsultation(existing);
+  }
 
   const juniorExam = await prisma.formSubmission.findFirst({
     where: { formId: "junior-exam", visitId },
     orderBy: { createdAt: "desc" },
   });
   const junior = asRecord(juniorExam?.data);
+  const fromJunior = juniorExam ? juniorExamToConsultFields(junior) : null;
 
   const created = await prisma.consultation.create({
     data: {
@@ -198,16 +248,11 @@ export async function startConsultation(visitId: string, doctorId: string, ctx?:
       recommendCounsellor: true,
       skipCounsellor: false,
       whatsappRxSent: false,
-      examination: {
-        chiefComplaint: String(junior.chiefComplaint ?? ""),
-        mskExam: String(junior.juniorImpression ?? ""),
-        specialTests: String(junior.specialTests ?? ""),
-        historyPresent: String(junior.duration ?? ""),
-      },
-      diagnosis: { clinicalImpression: String(junior.juniorImpression ?? "") },
-      treatment: { plan: String(junior.seniorHandoff ?? "") },
+      examination: fromJunior?.examination ?? {},
+      diagnosis: fromJunior?.diagnosis ?? {},
+      treatment: fromJunior?.treatment ?? {},
       prescription: [],
-      notes: String(junior.seniorHandoff ?? ""),
+      notes: fromJunior?.notes ?? "",
     },
   });
 
@@ -215,29 +260,53 @@ export async function startConsultation(visitId: string, doctorId: string, ctx?:
 }
 
 export async function updateConsultation(visitId: string, patch: Partial<ConsultationRecord>) {
-  await prisma.consultation.update({
+  const visit = await prisma.opdVisit.findUnique({ where: { id: visitId } });
+  if (!visit) throw new ServerActionError("NOT_FOUND", "Visit not found.");
+
+  const data: Record<string, unknown> = {};
+  if (patch.completedAt !== undefined) data.completedAt = patch.completedAt;
+  if (patch.status !== undefined) data.status = patch.status;
+  if (patch.treatmentMode !== undefined) data.treatmentMode = patch.treatmentMode;
+  if (patch.recommendCounsellor !== undefined) data.recommendCounsellor = patch.recommendCounsellor;
+  if (patch.skipCounsellor !== undefined) data.skipCounsellor = patch.skipCounsellor;
+  if (patch.packageId !== undefined) data.packageId = patch.packageId;
+  if (patch.counsellorNotes !== undefined) data.counsellorNotes = patch.counsellorNotes;
+  if (patch.doctorAdvice !== undefined) data.doctorAdvice = patch.doctorAdvice;
+  if (patch.whatsappRxSent !== undefined) data.whatsappRxSent = patch.whatsappRxSent;
+  if (patch.examination !== undefined) data.examination = patch.examination;
+  if (patch.diagnosis !== undefined) data.diagnosis = patch.diagnosis;
+  if (patch.treatment !== undefined) data.treatment = patch.treatment;
+  if (patch.prescription !== undefined) data.prescription = patch.prescription;
+  if (patch.notes !== undefined) data.notes = patch.notes;
+  if (patch.scribeTranscript !== undefined) data.scribeTranscript = patch.scribeTranscript;
+  if (patch.scribeLanguage !== undefined) data.scribeLanguage = patch.scribeLanguage;
+  if (patch.scribeAppliedAt !== undefined) data.scribeAppliedAt = patch.scribeAppliedAt;
+  if (patch.templateId !== undefined) data.templateId = patch.templateId;
+  if (patch.handoff !== undefined) data.handoff = patch.handoff;
+
+  if (Object.keys(data).length === 0) return;
+
+  await prisma.consultation.upsert({
     where: { visitId },
-    data: {
-      completedAt: patch.completedAt,
-      status: patch.status,
-      treatmentMode: patch.treatmentMode,
-      recommendCounsellor: patch.recommendCounsellor,
-      skipCounsellor: patch.skipCounsellor,
-      packageId: patch.packageId,
-      counsellorNotes: patch.counsellorNotes,
-      doctorAdvice: patch.doctorAdvice,
-      whatsappRxSent: patch.whatsappRxSent,
-      examination: patch.examination,
-      diagnosis: patch.diagnosis,
-      treatment: patch.treatment,
-      prescription: patch.prescription,
-      notes: patch.notes,
-      scribeTranscript: patch.scribeTranscript,
-      scribeLanguage: patch.scribeLanguage,
-      scribeAppliedAt: patch.scribeAppliedAt,
-      templateId: patch.templateId,
-      handoff: patch.handoff,
+    create: {
+      id: `consult_${visitId}`,
+      visitId,
+      patientId: visit.patientId,
+      doctorId: visit.doctorId ?? DEMO_DOCTOR_ID,
+      startedAt: new Date().toISOString(),
+      status: "in_progress",
+      treatmentMode: "opd",
+      recommendCounsellor: true,
+      skipCounsellor: false,
+      whatsappRxSent: false,
+      examination: {},
+      diagnosis: {},
+      treatment: {},
+      prescription: [],
+      notes: "",
+      ...data,
     },
+    update: data,
   });
 }
 

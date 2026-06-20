@@ -5,6 +5,7 @@ import { useCallback, useRef, useState } from "react";
 type UseDeepgramScribeOptions = {
   language: string;
   onTranscriptUpdate: (fullText: string) => void;
+  onRecordingStop?: (fullText: string) => void;
   onError: (message: string) => void;
 };
 
@@ -24,7 +25,7 @@ function deepgramErrorMessage(code: number, reason: string, payload?: string): s
   return reason || `Deepgram connection closed (code ${code}).`;
 }
 
-export function useDeepgramScribe({ language, onTranscriptUpdate, onError }: UseDeepgramScribeOptions) {
+export function useDeepgramScribe({ language, onTranscriptUpdate, onRecordingStop, onError }: UseDeepgramScribeOptions) {
   const [recording, setRecording] = useState(false);
   const [interim, setInterim] = useState("");
   const socketRef = useRef<WebSocket | null>(null);
@@ -167,9 +168,11 @@ export function useDeepgramScribe({ language, onTranscriptUpdate, onError }: Use
   }, [cleanup, language, onError, onTranscriptUpdate]);
 
   const stop = useCallback(() => {
+    const finalText = finalPartsRef.current.join(" ");
     cleanup({ intentional: true });
-    onTranscriptUpdate(finalPartsRef.current.join(" "));
-  }, [cleanup, onTranscriptUpdate]);
+    onTranscriptUpdate(finalText);
+    onRecordingStop?.(finalText);
+  }, [cleanup, onRecordingStop, onTranscriptUpdate]);
 
   return { recording, interim, start, stop };
 }

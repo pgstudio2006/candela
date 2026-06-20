@@ -30,6 +30,7 @@ import type { ScribeDraft } from "@/lib/ai/scribe-types";
 import { computeDoctorChartAnalytics } from "@/lib/doctor-analytics-data";
 import { patientDisplayName } from "@/lib/frontdesk-workflow";
 import { parseActionError } from "@/lib/action-errors";
+import { isTransientSessionError, sleep } from "@/lib/session-retry";
 import {
   createContext,
   useCallback,
@@ -39,6 +40,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useSession } from "@/components/candela/session-provider";
 
 type DoctorState = {
   patients: Patient[];
@@ -55,7 +57,7 @@ type DoctorState = {
 type DoctorStoreValue = {
   ready: boolean;
   error: string | null;
-  refresh: () => Promise<void>;
+  refresh: (opts?: { silent?: boolean }) => Promise<void>;
   patients: Patient[];
   visits: Visit[];
   activeDoctorId: string;
@@ -85,6 +87,7 @@ type DoctorStoreValue = {
   setPrescription: (visitId: string, lines: PrescriptionLine[]) => void;
   applyTemplate: (visitId: string, templateId: string) => void;
   setScribeTranscript: (visitId: string, transcript: string, language: string) => void;
+  persistScribeTranscript: (visitId: string, transcript: string, language: string) => void;
   applyScribeDraft: (visitId: string, draft: ScribeDraft) => void;
   applyScribeToExamination: (visitId: string) => void;
   completeConsultation: (visitId: string, opts: {
@@ -143,12 +146,14 @@ function emptyConsultation(visit: Visit, patientId: string, doctorId: string): C
 }
 
 export function DoctorStoreProvider({ children }: { children: ReactNode }) {
+  const { authReady, session } = useSession();
   const [doctor, setDoctor] = useState<DoctorState>(initialDoctorState);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    setReady(false);
+  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent ?? false;
+    if (!silent) setReady(false);
     try {
       const snapshot = await getDoctorSnapshotAction();
       setDoctor({
@@ -171,8 +176,49 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (!authReady || !session?.branchId) return;
+
+    let cancelled = false;
+    const load = async (attempt = 0) => {
+      if (cancelled) return;
+      if (attempt === 0) {
+        await refresh();
+        return;
+      }
+      await sleep(400 * attempt);
+      if (cancelled) return;
+      try {
+        const snapshot = await getDoctorSnapshotAction();
+        if (cancelled) return;
+        setDoctor({
+          patients: snapshot.patients,
+          visits: snapshot.visits,
+          consultations: snapshot.consultations,
+          counsellorQueue: snapshot.counsellorQueue,
+          ipdPatients: snapshot.ipdPatients,
+          activeDoctorId: snapshot.activeDoctorId,
+          templates: snapshot.templates,
+          documentTemplates: snapshot.documentTemplates,
+          packages: snapshot.packages,
+        });
+        setError(null);
+        setReady(true);
+      } catch (err) {
+        if (cancelled) return;
+        if (attempt < 2 && isTransientSessionError(err)) {
+          await load(attempt + 1);
+          return;
+        }
+        setError(parseActionError(err).message);
+        setReady(true);
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, session?.branchId, refresh]);
 
   const syncDoctor = useCallback((fn: (prev: DoctorState) => DoctorState) => {
     setDoctor((prev) => {
@@ -207,7 +253,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
         ...prev,
         consultations: [...prev.consultations, record],
       }));
-      void startConsultationAction(visitId, doctorId).then(() => refresh());
+      void startConsultationAction(visitId, doctorId).then(() => refresh({ silent: true }));
       return record;
     };
 
@@ -218,7 +264,9 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
           c.visitId === visitId ? { ...c, ...patch } : c,
         ),
       }));
-      void updateConsultationAction(visitId, patch as Record<string, unknown>).then(() => refresh());
+      void updateConsultationAction(visitId, patch as Record<string, unknown>).then(() =>
+        refresh({ silent: true }),
+      );
     };
 
     const saveConsultSection = (
@@ -232,12 +280,17 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
           c.visitId === visitId ? { ...c, [section]: { ...c[section], ...data } } : c,
         ),
       }));
-      void saveConsultSectionAction(visitId, section, data).then(() => refresh());
+      void saveConsultSectionAction(visitId, section, data).then(() => refresh({ silent: true }));
     };
 
     const setPrescription = (visitId: string, lines: PrescriptionLine[]) => {
-      updateConsultation(visitId, { prescription: lines });
-      void setPrescriptionAction(visitId, lines).then(() => refresh());
+      syncDoctor((prev) => ({
+        ...prev,
+        consultations: prev.consultations.map((c) =>
+          c.visitId === visitId ? { ...c, prescription: lines } : c,
+        ),
+      }));
+      void setPrescriptionAction(visitId, lines).then(() => refresh({ silent: true }));
     };
 
     const applyTemplate = (visitId: string, templateId: string) => {
@@ -253,7 +306,19 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
     };
 
     const setScribeTranscript = (visitId: string, transcript: string, language: string) => {
-      updateConsultation(visitId, { scribeTranscript: transcript, scribeLanguage: language });
+      syncDoctor((prev) => ({
+        ...prev,
+        consultations: prev.consultations.map((c) =>
+          c.visitId === visitId ? { ...c, scribeTranscript: transcript, scribeLanguage: language } : c,
+        ),
+      }));
+    };
+
+    const persistScribeTranscript = (visitId: string, transcript: string, language: string) => {
+      setScribeTranscript(visitId, transcript, language);
+      void updateConsultationAction(visitId, { scribeTranscript: transcript, scribeLanguage: language }).then(
+        () => refresh({ silent: true }),
+      );
     };
 
     const applyScribeDraft = (visitId: string, draft: ScribeDraft) => {
@@ -317,7 +382,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
             : ip,
         ),
       }));
-      void saveIpdRoundAction(ipdId, note).then(() => refresh());
+      void saveIpdRoundAction(ipdId, note).then(() => refresh({ silent: true }));
     };
 
     const completed = doctor.consultations.filter((c) => c.status === "completed");
@@ -334,7 +399,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
         ...prev,
         templates: [...prev.templates, created],
       }));
-      void createDoctorTemplateAction(doctorId, tpl).then(() => refresh());
+      void createDoctorTemplateAction(doctorId, tpl).then(() => refresh({ silent: true }));
       return created;
     };
 
@@ -345,7 +410,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
           t.id === id ? { ...t, ...patch } : t,
         ),
       }));
-      void updateDoctorTemplateAction(id, patch).then(() => refresh());
+      void updateDoctorTemplateAction(id, patch).then(() => refresh({ silent: true }));
     };
 
     const deleteDoctorTemplate = (id: string) => {
@@ -353,7 +418,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
         ...prev,
         templates: prev.templates.filter((t) => t.id !== id),
       }));
-      void deleteDoctorTemplateAction(id).then(() => refresh());
+      void deleteDoctorTemplateAction(id).then(() => refresh({ silent: true }));
     };
 
     const getPatientConsultations = (patientId: string) =>
@@ -390,7 +455,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
             },
           ],
         }));
-        void addDocumentTemplateAction(kind, label, description).then(() => refresh());
+        void addDocumentTemplateAction(kind, label, description).then(() => refresh({ silent: true }));
       },
       saveDocumentTemplate: (template) => {
         syncDoctor((prev) => ({
@@ -399,7 +464,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
             t.id === template.id ? template : t,
           ),
         }));
-        void saveDocumentTemplateAction(template).then(() => refresh());
+        void saveDocumentTemplateAction(template).then(() => refresh({ silent: true }));
       },
       getPatientConsultations,
       createDoctorTemplate,
@@ -415,6 +480,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
       setPrescription,
       applyTemplate,
       setScribeTranscript,
+      persistScribeTranscript,
       applyScribeDraft,
       applyScribeToExamination,
       completeConsultation,

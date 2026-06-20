@@ -27,9 +27,16 @@ export function StoreGate({ ready, error, onRetry, variant = "page", children }:
           <p className="mt-1 max-w-md text-[13px] text-[var(--attio-text-tertiary)]">{error}</p>
         </div>
         {onRetry && (
-          <AttioButton variant="primary" onClick={onRetry}>
-            Retry
-          </AttioButton>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <AttioButton variant="primary" onClick={onRetry}>
+              Retry
+            </AttioButton>
+            {error?.toLowerCase().includes("session") && (
+              <AttioButton variant="secondary" onClick={() => { window.location.href = "/workspace"; }}>
+                Re-sign in to workspace
+              </AttioButton>
+            )}
+          </div>
         )}
       </div>
     );

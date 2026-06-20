@@ -1,5 +1,6 @@
 "use client";
 
+import { MarkdownMessage } from "@/components/candela/markdown-message";
 import { useSession } from "@/components/candela/session-provider";
 import { getPatient } from "@/design-system/frontdesk-data";
 import { cn } from "@/lib/utils";
@@ -234,7 +235,7 @@ export function CopilotPanel({
                       : "mr-4 border border-[var(--attio-border-subtle)] bg-[var(--attio-surface)] text-[var(--attio-text-secondary)]",
                   )}
                 >
-                  {m.content}
+                  {m.role === "assistant" ? <MarkdownMessage content={m.content} /> : m.content}
                   {m.actions && m.actions.length > 0 && (
                     <p className="mt-2 text-[10px] font-medium text-emerald-600">
                       Executed {m.actions.length} action{m.actions.length === 1 ? "" : "s"}

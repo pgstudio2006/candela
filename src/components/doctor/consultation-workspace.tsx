@@ -53,6 +53,7 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
     setPrescription,
     applyTemplate,
     setScribeTranscript,
+    persistScribeTranscript,
     applyScribeDraft,
     applyScribeToExamination,
     updateConsultation,
@@ -257,6 +258,9 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
             }
             onTranscriptChange={(text) =>
               setScribeTranscript(visitId, text, consult?.scribeLanguage ?? "en")
+            }
+            onRecordingStop={(text) =>
+              persistScribeTranscript(visitId, text, consult?.scribeLanguage ?? "en")
             }
             onDraftAccepted={(draft) => {
               applyScribeDraft(visitId, draft);

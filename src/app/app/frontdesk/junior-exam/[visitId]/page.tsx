@@ -36,7 +36,7 @@ export default function JuniorExamDetailPage() {
       toast(firstError, "error");
       return;
     }
-    saveSubmission("junior-exam", data, { visitId, patientId: patient!.id });
+    await saveSubmission("junior-exam", data, { visitId, patientId: patient!.id });
     const result = await completeJuniorExam(visitId, data);
     if (!result.ok) {
       toast(result.error ?? "Could not complete junior exam", "error");
@@ -100,8 +100,9 @@ export default function JuniorExamDetailPage() {
             formKey={`${schema.id}-${visitId}`}
             initialValues={saved?.data}
             submitLabel="Save draft"
-            onSubmit={(data) => {
-              saveSubmission("junior-exam", data, { visitId, patientId: patient.id });
+            onSubmit={async (data) => {
+              await saveSubmission("junior-exam", data, { visitId, patientId: patient.id });
+              toast("Draft saved", "success");
             }}
           />
         </Panel>
@@ -129,8 +130,11 @@ export default function JuniorExamDetailPage() {
             variant="primary"
             className="mt-4 w-full"
             onClick={() => {
-              const data = saved?.data ?? {};
-              void finishHandoff(data);
+              if (!saved?.data) {
+                toast("Save the examination form before completing handoff", "error");
+                return;
+              }
+              void finishHandoff(saved.data);
             }}
           >
             Complete handoff

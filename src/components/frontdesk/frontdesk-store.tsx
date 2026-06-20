@@ -24,6 +24,7 @@ import {
   type ClinicalRoster,
 } from "@/lib/clinical-roster";
 import { parseActionError } from "@/lib/action-errors";
+import { isTransientSessionError, sleep } from "@/lib/session-retry";
 import {
   bookAppointmentAction,
   checkInVisitAction,
@@ -43,6 +44,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useSession } from "@/components/candela/session-provider";
 
 type FrontdeskState = {
   patients: Patient[];
@@ -84,7 +86,7 @@ export type RegisterPatientResult =
 type FrontdeskStoreValue = FrontdeskState & {
   ready: boolean;
   error: string | null;
-  refresh: () => Promise<void>;
+  refresh: (opts?: { silent?: boolean }) => Promise<void>;
   resolveDoctorName: (doctorId: string) => string;
   getBillingHandoff: (visitId: string) => BillingHandoffPayload | undefined;
   registerPatientAsync: (
@@ -151,12 +153,14 @@ function cloneState(state: FrontdeskState): FrontdeskState {
 }
 
 export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
+  const { authReady, session } = useSession();
   const [state, setState] = useState<FrontdeskState>(initialState);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    setReady(false);
+  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent ?? false;
+    if (!silent) setReady(false);
     try {
       const snapshot = await getClinicalSnapshotAction();
       setState({
@@ -178,8 +182,48 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (!authReady || !session?.branchId) return;
+
+    let cancelled = false;
+    const load = async (attempt = 0) => {
+      if (cancelled) return;
+      if (attempt === 0) {
+        await refresh();
+        return;
+      }
+      await sleep(400 * attempt);
+      if (cancelled) return;
+      try {
+        const snapshot = await getClinicalSnapshotAction();
+        if (cancelled) return;
+        setState({
+          patients: snapshot.patients,
+          visits: snapshot.visits,
+          appointments: snapshot.appointments,
+          submissions: snapshot.submissions,
+          counters: snapshot.counters,
+          billingHandoffs: snapshot.billingHandoffs,
+          roster: snapshot.roster,
+        });
+        setError(null);
+        setReady(true);
+      } catch (err) {
+        if (cancelled) return;
+        if (attempt < 2 && isTransientSessionError(err)) {
+          await load(attempt + 1);
+          return;
+        }
+        console.error("Frontdesk refresh failed:", err);
+        setError(parseActionError(err).message);
+        setReady(true);
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, session?.branchId, refresh]);
 
   const update = useCallback((fn: (prev: FrontdeskState) => FrontdeskState) => {
     setState((prev) => fn(cloneState(prev)));
@@ -299,7 +343,7 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
       ctx?: { patientId?: string; visitId?: string },
     ) => {
       await saveSubmissionAction(formId, data, ctx);
-      await refresh();
+      await refresh({ silent: true });
     },
     [refresh],
   );
