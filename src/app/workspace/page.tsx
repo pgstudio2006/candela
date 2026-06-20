@@ -26,6 +26,17 @@ export default function WorkspacePage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const [previewRole, setPreviewRole] = useState<CandelaRole | null>(null);
+
+  useEffect(() => {
+    void fetch("/api/session/compat", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data: { session?: { role?: CandelaRole } | null }) => {
+        if (data.session?.role) setPreviewRole(data.session.role);
+      })
+      .catch(() => undefined);
+  }, []);
+
   useEffect(() => {
     if (!authReady) return;
     if (session) {
@@ -128,7 +139,7 @@ export default function WorkspacePage() {
     }
   };
 
-  const ws = getWorkspace("frontdesk");
+  const ws = getWorkspace(previewRole ?? session?.role ?? "frontdesk");
 
   return (
     <GlassAuthShell

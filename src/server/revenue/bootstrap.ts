@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { SEED_AGENT_PASSWORDS } from "@/lib/crm-auth";
 import { SEED_STAFF_PASSWORDS } from "@/lib/pharmacy-auth";
 import { defaultCounsellorState, defaultCrmState, defaultPharmacyState } from "@/server/revenue/state-seeds";
-import { hashPassword } from "@/server/revenue/password";
+import { hashPassword, verifyPassword } from "@/server/revenue/password";
 
 let bootstrapped = false;
 
@@ -117,6 +117,18 @@ export async function ensureRevenueSeeded() {
       skipDuplicates: true,
     });
   }
+
+  await Promise.all(
+    Object.entries(SEED_AGENT_PASSWORDS).map(async ([id, plain]) => {
+      const cred = await prisma.crmOperatorCredential.findUnique({ where: { id } });
+      if (!cred || (await verifyPassword(plain, cred.passwordHash))) return;
+      if (!(await verifyPassword("welcome123", cred.passwordHash))) return;
+      await prisma.crmOperatorCredential.update({
+        where: { id },
+        data: { passwordHash: await hashPassword(plain) },
+      });
+    }),
+  );
 
   if (counsellorCredentialCount === 0) {
     const [priyaCounsellorHash, anitaCounsellorHash] = await Promise.all([

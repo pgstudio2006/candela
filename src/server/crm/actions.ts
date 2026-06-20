@@ -138,8 +138,12 @@ export async function saveCrmStateAction(next: CrmStateShape): Promise<void> {
   );
 
   await Promise.all(
-    next.agents.map(async (agent) =>
-      prisma.crmOperatorCredential.upsert({
+    next.agents.map(async (agent) => {
+      const explicitPassword = next.agentPasswords[agent.id]?.trim();
+      const passwordFields = explicitPassword
+        ? { passwordHash: await hashPassword(explicitPassword) }
+        : {};
+      return prisma.crmOperatorCredential.upsert({
         where: { id: agent.id },
         create: {
           id: agent.id,
@@ -151,7 +155,7 @@ export async function saveCrmStateAction(next: CrmStateShape): Promise<void> {
           maxOpenLeads: agent.maxOpenLeads,
           backupAgentId: agent.backupAgentId,
           leadWeightPct: agent.leadWeightPercent ?? 0,
-          passwordHash: await hashPassword(next.agentPasswords[agent.id] ?? "welcome123"),
+          passwordHash: await hashPassword(explicitPassword || "welcome123"),
         },
         update: {
           name: agent.name,
@@ -162,10 +166,10 @@ export async function saveCrmStateAction(next: CrmStateShape): Promise<void> {
           maxOpenLeads: agent.maxOpenLeads,
           backupAgentId: agent.backupAgentId,
           leadWeightPct: agent.leadWeightPercent ?? 0,
-          passwordHash: await hashPassword(next.agentPasswords[agent.id] ?? "welcome123"),
+          ...passwordFields,
         },
-      }),
-    ),
+      });
+    }),
   );
 }
 

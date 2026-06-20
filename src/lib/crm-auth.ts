@@ -5,6 +5,7 @@ export const CRM_MANAGER_EMAIL = "crm@navayu.in";
 
 /** Default demo passwords for seed team members (agent id → password) */
 export const SEED_AGENT_PASSWORDS: Record<string, string> = {
+  crm_mgr: "crm2026",
   ag_priya: "priya2026",
   ag_anita: "anita2026",
   ag_rahul: "rahul2026",
