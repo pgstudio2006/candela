@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { writePlatformAudit } from "@/server/platform-audit";
+import {
+  ingestInboundLeadWebhook,
+  mapWebhookSourceToIntegration,
+  resolveWebhookContext,
+} from "@/server/crm/index";
 
 type WebhookBody = {
   fullName?: string;
@@ -9,9 +12,10 @@ type WebhookBody = {
   source?: string;
   notes?: string;
   externalId?: string;
+  specialty?: string;
 };
 
-/** Inbound CRM webhook — POST /api/hooks/crm?token=... */
+/** Inbound CRM webhook — POST /api/hooks/crm?token=...&tenantId=...&branchId=... */
 export async function POST(
   request: Request,
   context: { params: Promise<{ source: string }> },
@@ -36,51 +40,34 @@ export async function POST(
     return NextResponse.json({ ok: false, error: "fullName and phone required" }, { status: 400 });
   }
 
-  const stateRow = await prisma.crmWorkspaceState.findUnique({ where: { id: "default" } });
-  const state = (stateRow?.payload ?? {}) as { leads?: Array<Record<string, unknown>> };
-  const leads = state.leads ?? [];
+  const ctx = resolveWebhookContext(url);
+  const integrationId = mapWebhookSourceToIntegration(body.source ?? source);
 
-  const phoneNorm = body.phone.replace(/\D/g, "").slice(-10);
-  const duplicate = leads.find(
-    (l) => String(l.phone ?? "").replace(/\D/g, "").slice(-10) === phoneNorm,
-  );
-  if (duplicate) {
-    return NextResponse.json({ ok: true, duplicate: true, leadId: duplicate.id });
+  try {
+    const result = await ingestInboundLeadWebhook(
+      ctx,
+      integrationId,
+      {
+        name: body.fullName.trim(),
+        phone: body.phone.trim(),
+        email: body.email?.trim(),
+        specialty: body.specialty,
+        notes: body.notes ?? (body.externalId ? `External ID: ${body.externalId}` : undefined),
+      },
+      source,
+    );
+
+    if (!result.ok) {
+      return NextResponse.json({ ok: false, error: result.error }, { status: 400 });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      duplicate: result.duplicate,
+      leadId: result.leadId,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Webhook ingest failed";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
-
-  const leadId = `lead_${Date.now()}`;
-  const newLead = {
-    id: leadId,
-    fullName: body.fullName.trim(),
-    phone: body.phone.trim(),
-    email: body.email?.trim() ?? "",
-    source: body.source ?? source,
-    stage: "new",
-    notes: body.notes ?? "",
-    externalId: body.externalId ?? "",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  await prisma.crmWorkspaceState.upsert({
-    where: { id: "default" },
-    create: { id: "default", payload: { leads: [newLead] } as object },
-    update: { payload: { ...state, leads: [newLead, ...leads] } as object },
-  });
-
-  await prisma.crmWebhookConfig.updateMany({
-    where: { id: { contains: source.toLowerCase() } },
-    data: { lastEventAt: new Date().toISOString(), leadsToday: { increment: 1 } },
-  });
-
-  await writePlatformAudit({
-    module: "crm",
-    action: "webhook_lead_ingested",
-    entityType: "lead",
-    entityId: leadId,
-    summary: `Webhook lead from ${source}: ${newLead.fullName}`,
-    payload: newLead,
-  });
-
-  return NextResponse.json({ ok: true, leadId });
 }

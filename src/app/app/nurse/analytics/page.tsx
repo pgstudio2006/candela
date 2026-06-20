@@ -4,9 +4,11 @@ import { useNurseStore } from "@/components/nurse/nurse-store";
 import { ChartCard, DonutChart, HorizontalBarList } from "@/components/doctor/analytics-charts";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { MetricStrip, Panel } from "@/components/frontdesk/ui";
+import { useNursePoll } from "@/hooks/use-nurse-poll";
 import { useMemo } from "react";
 
 export default function NurseAnalyticsPage() {
+  useNursePoll(30_000);
   const { getAnalytics, getDashboardKpis } = useNurseStore();
   const a = getAnalytics();
   const kpis = getDashboardKpis();

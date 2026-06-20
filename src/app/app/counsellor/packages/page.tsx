@@ -1,16 +1,21 @@
 "use client";
 
-import { CARE_PACKAGES, PACKAGE_ADDONS } from "@/design-system/counsellor-data";
+import { useCounsellorStore } from "@/components/counsellor/counsellor-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { Panel } from "@/components/frontdesk/ui";
+import { PACKAGE_ADDONS } from "@/design-system/counsellor-data";
+import { useCounsellorPoll } from "@/hooks/use-counsellor-poll";
 
 export default function CounsellorPackagesPage() {
+  useCounsellorPoll();
+  const { packages } = useCounsellorStore();
+
   return (
-    <PageChrome breadcrumbs={[{ label: "Counsellor", href: "/app/counsellor" }, { label: "Packages" }]} title="Package catalog" meta="Care programs · add-ons · used in counsel sessions">
+    <PageChrome breadcrumbs={[{ label: "Counsellor", href: "/app/counsellor" }, { label: "Packages" }]} title="Package catalog" meta="Branch packages from admin · add-ons">
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel title="Care packages">
           <ul className="divide-y divide-[var(--attio-border-subtle)]">
-            {CARE_PACKAGES.map((p) => (
+            {packages.map((p) => (
               <li key={p.id} className="py-3">
                 <p className="text-[14px] font-medium">{p.label}</p>
                 <p className="mt-1 text-[18px] font-semibold tabular-nums">₹{p.amount.toLocaleString("en-IN")}</p>
@@ -28,7 +33,6 @@ export default function CounsellorPackagesPage() {
               </li>
             ))}
           </ul>
-          <p className="mt-4 text-[11px] text-[var(--attio-text-tertiary)]">Admin catalog editing coming in Admin module — counsellors apply during session.</p>
         </Panel>
       </div>
     </PageChrome>

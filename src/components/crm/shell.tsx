@@ -5,6 +5,7 @@ import { useCrmStore } from "@/components/crm/crm-store";
 import { CrmCommandPalette } from "@/components/crm/command-palette";
 import { CrmOperatorBanner } from "@/components/crm/operator-picker";
 import { CrmSidebar } from "@/components/crm/sidebar";
+import { useCrmPoll } from "@/hooks/use-crm-poll";
 import { CRM_MANAGER_ID } from "@/components/crm/crm-store";
 import { useSession } from "@/components/candela/session-provider";
 import { CopilotPanel } from "@/components/frontdesk/copilot-panel";
@@ -20,6 +21,8 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const { ready, error, refresh } = useCrmStore();
   const [copilotOpen, setCopilotOpen] = useState(false);
   const current = getCrmNavItem(pathname);
+
+  useCrmPoll();
 
   useEffect(() => {
     if (!authReady) return;

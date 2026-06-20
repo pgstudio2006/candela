@@ -1,6 +1,7 @@
 import type { Patient, Visit } from "@/design-system/frontdesk-data";
 import type { CounselQuote } from "@/design-system/counsellor-data";
 import { formatConsultDate } from "@/lib/doctor-records";
+import { computeQuoteGstBreakdown, formatGstPercent } from "@/lib/counsellor-gst-quote";
 import { NavayuLetterhead, letterheadStyles as s } from "@/components/doctor/print/navayu-letterhead";
 
 type PrintableQuoteProps = {
@@ -12,6 +13,8 @@ type PrintableQuoteProps = {
 };
 
 export function PrintableQuote({ patient, visit, quote, doctorName, counsellorName }: PrintableQuoteProps) {
+  const gst = computeQuoteGstBreakdown(quote);
+
   return (
     <NavayuLetterhead docTitle="Package Quotation">
       <div style={s.metaGrid}>
@@ -30,14 +33,14 @@ export function PrintableQuote({ patient, visit, quote, doctorName, counsellorNa
         <thead>
           <tr>
             <th style={s.th}>Description</th>
-            <th style={{ ...s.th, textAlign: "right" }}>Amount (₹)</th>
+            <th style={{ ...s.th, textAlign: "right" }}>Taxable (₹)</th>
           </tr>
         </thead>
         <tbody>
-          {quote.lineItems.map((line) => (
-            <tr key={line.id}>
+          {gst.lines.map((line) => (
+            <tr key={line.label}>
               <td style={s.td}>{line.label}</td>
-              <td style={{ ...s.td, textAlign: "right" }}>{line.amount.toLocaleString("en-IN")}</td>
+              <td style={{ ...s.td, textAlign: "right" }}>{line.taxableAmount.toLocaleString("en-IN")}</td>
             </tr>
           ))}
         </tbody>
@@ -46,9 +49,18 @@ export function PrintableQuote({ patient, visit, quote, doctorName, counsellorNa
           {quote.discountPercent > 0 && (
             <tr><td style={s.td}>Discount ({quote.discountPercent}%)</td><td style={{ ...s.td, textAlign: "right" }}>-{quote.discountAmount.toLocaleString("en-IN")}</td></tr>
           )}
-          <tr><td style={{ ...s.td, fontWeight: 700 }}>Net payable</td><td style={{ ...s.td, textAlign: "right", fontWeight: 700 }}>₹{quote.netAmount.toLocaleString("en-IN")}</td></tr>
+          {gst.taxTotal > 0 && (
+            <>
+              <tr><td style={s.td}>CGST ({formatGstPercent(gst.settings.gstRatePercent / 2)})</td><td style={{ ...s.td, textAlign: "right" }}>{gst.cgstTotal.toLocaleString("en-IN")}</td></tr>
+              <tr><td style={s.td}>SGST ({formatGstPercent(gst.settings.gstRatePercent / 2)})</td><td style={{ ...s.td, textAlign: "right" }}>{gst.sgstTotal.toLocaleString("en-IN")}</td></tr>
+            </>
+          )}
+          <tr><td style={{ ...s.td, fontWeight: 700 }}>Grand total</td><td style={{ ...s.td, textAlign: "right", fontWeight: 700 }}>₹{gst.grandTotal.toLocaleString("en-IN")}</td></tr>
         </tfoot>
       </table>
+      <p style={{ marginTop: 8, fontSize: 10, color: "#6b7280" }}>
+        GSTIN: {gst.settings.gstin} · SAC {gst.settings.sacCode} · {gst.settings.legalName}
+      </p>
       {quote.emiMonths ? <p style={{ marginTop: 12, fontSize: 11 }}>EMI option: {quote.emiMonths} months available</p> : null}
       <p style={{ marginTop: 16, fontSize: 10, color: "#6b7280" }}>Valid for 7 days · Subject to clinical eligibility · {quote.consentCaptured ? "Consent captured" : "Pending consent"}</p>
     </NavayuLetterhead>

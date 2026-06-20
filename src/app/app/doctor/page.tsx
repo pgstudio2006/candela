@@ -3,12 +3,15 @@
 import { useDoctorStore } from "@/components/doctor/doctor-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, DataTable, MetricStrip, Panel, StatusBadge } from "@/components/frontdesk/ui";
+import { useDoctorPoll } from "@/hooks/use-doctor-poll";
+import { isRedFlagVisit } from "@/lib/frontdesk-workflow";
 import { Stethoscope } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 export default function DoctorDashboardPage() {
+  useDoctorPoll();
   const router = useRouter();
   const [tab, setTab] = useState("overview");
   const {
@@ -35,7 +38,7 @@ export default function DoctorDashboardPage() {
         text: `${p?.name ?? "Patient"} waiting — token #${next.token}`,
         action: "Start consultation",
         href: `/app/doctor/consult/${next.id}`,
-        priority: next.waitMin > 15 ? "urgent" : "high",
+        priority: isRedFlagVisit(next) || next.waitMin > 15 ? "urgent" : "high",
       });
     }
     const ipdDue = ipdPatients.filter(
@@ -85,8 +88,9 @@ export default function DoctorDashboardPage() {
           className="gap-1.5"
           onClick={() => {
             if (next) {
-              startConsultation(next.id);
-              router.push(`/app/doctor/consult/${next.id}`);
+              void startConsultation(next.id).then(() =>
+                router.push(`/app/doctor/consult/${next.id}`),
+              );
             } else {
               router.push("/app/doctor/queue");
             }
@@ -156,8 +160,9 @@ export default function DoctorDashboardPage() {
               onRowClick={(i) => {
                 const v = queue[i];
                 if (v) {
-                  startConsultation(v.id);
-                  router.push(`/app/doctor/consult/${v.id}`);
+                  void startConsultation(v.id).then(() =>
+                    router.push(`/app/doctor/consult/${v.id}`),
+                  );
                 }
               }}
             />

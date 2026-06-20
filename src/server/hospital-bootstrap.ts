@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_DOCUMENT_TEMPLATES } from "@/design-system/document-templates";
+import { DOCTOR_TEMPLATES } from "@/design-system/doctor-data";
 import {
   SEED_ADMIN_SETTINGS,
   SEED_DEPARTMENTS,
@@ -9,43 +10,52 @@ import { isDemoSeedEnabled } from "@/lib/demo-seed";
 
 const ADMIN_SETTINGS_ID = "admin_settings";
 
-/** Production-safe bootstrap: departments, doctors, settings — no demo patients. */
+/** Production-safe bootstrap: document templates only unless demo seed enabled. */
 export async function ensureHospitalBootstrap() {
-  if (!(await prisma.adminStaff.count())) {
-    await prisma.adminStaff.createMany({
-      data: SEED_STAFF.map((x) => ({
-        ...x,
-        departmentIds: x.departmentIds,
-      })),
-      skipDuplicates: true,
-    });
-  }
+  if (isDemoSeedEnabled()) {
+    if (!(await prisma.adminStaff.count())) {
+      await prisma.adminStaff.createMany({
+        data: SEED_STAFF.map((x) => ({
+          ...x,
+          departmentIds: x.departmentIds,
+        })),
+        skipDuplicates: true,
+      });
+    }
 
-  if (!(await prisma.adminDepartment.count())) {
-    await prisma.adminDepartment.createMany({
-      data: SEED_DEPARTMENTS.map((x) => ({
-        ...x,
-        doctorIds: x.doctorIds,
-        defaultPackageIds: x.defaultPackageIds,
-        bays: x.bays,
-      })),
-      skipDuplicates: true,
-    });
+    if (!(await prisma.adminDepartment.count())) {
+      await prisma.adminDepartment.createMany({
+        data: SEED_DEPARTMENTS.map((x) => ({
+          ...x,
+          doctorIds: x.doctorIds,
+          defaultPackageIds: x.defaultPackageIds,
+          bays: x.bays,
+        })),
+        skipDuplicates: true,
+      });
+    }
   }
-
-  await prisma.adminSetting.upsert({
-    where: { id: ADMIN_SETTINGS_ID },
-    update: {},
-    create: {
-      id: ADMIN_SETTINGS_ID,
-      ...SEED_ADMIN_SETTINGS,
-      resolvedLeakageIds: [],
-    },
-  });
 
   if (!(await prisma.documentTemplate.count())) {
     for (const template of DEFAULT_DOCUMENT_TEMPLATES) {
       await prisma.documentTemplate.create({ data: template }).catch(() => undefined);
+    }
+  }
+
+  if (!(await prisma.doctorTemplate.count())) {
+    for (const template of DOCTOR_TEMPLATES) {
+      await prisma.doctorTemplate.create({
+        data: {
+          id: template.id,
+          label: template.label,
+          doctorId: template.doctorId,
+          disease: template.disease,
+          diagnosis: template.diagnosis,
+          treatment: template.treatment,
+          prescription: template.prescription,
+          isSystem: true,
+        },
+      }).catch(() => undefined);
     }
   }
 

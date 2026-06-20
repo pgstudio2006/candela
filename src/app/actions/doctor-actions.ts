@@ -10,6 +10,8 @@ import {
   createDoctorTemplate,
   deleteDoctorTemplate,
   getDoctorSnapshot,
+  getIpdRoundHistory,
+  listDoctorAuditLogs,
   saveConsultSection,
   saveDocumentTemplate,
   saveIpdRound,
@@ -22,18 +24,17 @@ import {
 export async function getDoctorSnapshotAction(activeDoctorId?: string) {
   const ctx = await requireModule("doctor");
   const doctorId = activeDoctorId ?? (await resolveDoctorIdForContext(ctx));
-  return getDoctorSnapshot(doctorId, ctx);
+  return getDoctorSnapshot(ctx, doctorId);
 }
 
-export async function startConsultationAction(visitId: string, _doctorId: string) {
+export async function startConsultationAction(visitId: string) {
   const ctx = await requireModule("doctor");
-  const doctorId = await resolveDoctorIdForContext(ctx);
-  return startConsultation(visitId, doctorId, ctx);
+  return startConsultation(ctx, visitId);
 }
 
 export async function updateConsultationAction(visitId: string, patch: Record<string, unknown>) {
-  await requireModule("doctor");
-  return updateConsultation(visitId, patch as Parameters<typeof updateConsultation>[1]);
+  const ctx = await requireModule("doctor");
+  return updateConsultation(ctx, visitId, patch as Parameters<typeof updateConsultation>[2]);
 }
 
 export async function saveConsultSectionAction(
@@ -41,13 +42,13 @@ export async function saveConsultSectionAction(
   section: "examination" | "diagnosis" | "treatment",
   data: Record<string, string | number | boolean>,
 ) {
-  await requireModule("doctor");
-  return saveConsultSection(visitId, section, data);
+  const ctx = await requireModule("doctor");
+  return saveConsultSection(ctx, visitId, section, data);
 }
 
 export async function setPrescriptionAction(visitId: string, lines: PrescriptionLine[]) {
-  await requireModule("doctor");
-  return setPrescription(visitId, lines);
+  const ctx = await requireModule("doctor");
+  return setPrescription(ctx, visitId, lines);
 }
 
 export async function completeConsultationAction(
@@ -61,35 +62,45 @@ export async function completeConsultationAction(
   },
 ) {
   const ctx = await requireModule("doctor");
-  return completeConsultation(visitId, opts, ctx);
+  return completeConsultation(ctx, visitId, opts);
 }
 
 export async function createDoctorTemplateAction(doctorId: string, tpl: Omit<DoctorTemplate, "id" | "doctorId">) {
-  await requireModule("doctor");
-  return createDoctorTemplate(doctorId, tpl);
+  const ctx = await requireModule("doctor");
+  return createDoctorTemplate(ctx, doctorId, tpl);
 }
 
 export async function updateDoctorTemplateAction(id: string, patch: Partial<DoctorTemplate>) {
-  await requireModule("doctor");
-  return updateDoctorTemplate(id, patch);
+  const ctx = await requireModule("doctor");
+  return updateDoctorTemplate(ctx, id, patch);
 }
 
 export async function deleteDoctorTemplateAction(id: string) {
-  await requireModule("doctor");
-  return deleteDoctorTemplate(id);
+  const ctx = await requireModule("doctor");
+  return deleteDoctorTemplate(ctx, id);
 }
 
 export async function saveIpdRoundAction(ipdId: string, note: Record<string, string | number | boolean>) {
-  await requireModule("doctor");
-  return saveIpdRound(ipdId, note);
+  const ctx = await requireModule("doctor");
+  return saveIpdRound(ctx, ipdId, note);
+}
+
+export async function getIpdRoundHistoryAction(ipdId: string) {
+  const ctx = await requireModule("doctor");
+  return getIpdRoundHistory(ctx, ipdId);
+}
+
+export async function listDoctorAuditLogsAction(input?: { limit?: number; cursor?: string }) {
+  const ctx = await requireModule("doctor");
+  return listDoctorAuditLogs(ctx, input ?? {});
 }
 
 export async function addDocumentTemplateAction(kind: DocumentTemplate["kind"], label: string, description: string) {
-  await requireModule("doctor");
-  return addDocumentTemplate(kind, label, description);
+  const ctx = await requireModule("doctor");
+  return addDocumentTemplate(ctx, kind, label, description);
 }
 
 export async function saveDocumentTemplateAction(template: DocumentTemplate) {
-  await requireModule("doctor");
-  return saveDocumentTemplate(template);
+  const ctx = await requireModule("doctor");
+  return saveDocumentTemplate(ctx, template);
 }

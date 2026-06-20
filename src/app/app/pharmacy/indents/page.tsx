@@ -30,7 +30,7 @@ export default function PharmacyIndentsPage() {
           status: <StatusBadge label={i.status} variant="info" />,
           actions:
             i.status === "pending" ? (
-              <AttioButton variant="primary" className="!h-7 !text-[11px]" onClick={() => fulfillIndent(i.id, i.qtyRequested)}>
+              <AttioButton variant="primary" className="!h-7 !text-[11px]" onClick={() => void fulfillIndent(i.id, i.qtyRequested)}>
                 Issue
               </AttioButton>
             ) : null,

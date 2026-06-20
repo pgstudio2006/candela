@@ -2,12 +2,7 @@
 
 import type { Patient, Visit } from "@/design-system/frontdesk-data";
 import {
-  DEFAULT_DISCOUNT_POLICY,
-  DEMO_COUNSELLOR_ID,
-  DEMO_COUNSELLOR_NAME,
   computeQuote,
-  packageById,
-  queueWaitMinutes,
   type BillingHandoffPayload,
   type CounselOutcome,
   type CounselQuote,
@@ -17,18 +12,16 @@ import {
 } from "@/design-system/counsellor-data";
 import type { CounsellorQueueItem } from "@/design-system/doctor-data";
 import {
-  getCounsellorStateAction,
-  listBillingHandoffsAction,
-  listCounsellorPatientsAction,
-  listCounsellorQueueAction,
-  listCounsellorVisitsAction,
-  removeCounsellorQueueItemAction,
-  saveBillingHandoffAction,
-  saveCounsellorStateAction,
-  setVisitStageAction,
+  claimCounselSessionAction,
+  completeCounselSessionAction,
+  getCounsellorSnapshotAction,
+  requestDiscountApprovalAction,
+  resolveDiscountApprovalAction,
+  saveCounsellorPrefsAction,
 } from "@/server/counsellor/actions";
 import { parseActionError } from "@/lib/action-errors";
 import { patientDisplayName } from "@/lib/frontdesk-workflow";
+import { isTransientSessionError, sleep } from "@/lib/session-retry";
 import {
   createContext,
   useCallback,
@@ -38,35 +31,46 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useSession } from "@/components/candela/session-provider";
 
 type CounsellorState = {
-  sessions: CounselSession[];
-  approvals: DiscountApproval[];
-  discountPolicy: DiscountPolicy;
-  activeCounsellorId: string;
-  activeBranchId: string;
-  seniorMode: boolean;
-};
-
-type CounsellorStoreValue = {
-  ready: boolean;
-  error: string | null;
-  refresh: () => Promise<void>;
   patients: Patient[];
   visits: Visit[];
   queue: CounsellorQueueItem[];
   sessions: CounselSession[];
   approvals: DiscountApproval[];
+  approvedDiscounts: DiscountApproval[];
+  billingHandoffs: BillingHandoffPayload[];
+  packages: Awaited<ReturnType<typeof getCounsellorSnapshotAction>>["packages"];
   discountPolicy: DiscountPolicy;
+  seniorMode: boolean;
+  activeCounsellorId: string;
+  activeCounsellorName: string;
+  branchId: string;
+};
+
+type CounsellorStoreValue = {
+  ready: boolean;
+  error: string | null;
+  refresh: (opts?: { silent?: boolean }) => Promise<void>;
+  patients: Patient[];
+  visits: Visit[];
+  queue: CounsellorQueueItem[];
+  sessions: CounselSession[];
+  approvals: DiscountApproval[];
+  approvedDiscounts: DiscountApproval[];
+  discountPolicy: DiscountPolicy;
+  activeCounsellorId: string;
+  activeCounsellorName: string;
   activeBranchId: string;
   seniorMode: boolean;
+  packages: CounsellorState["packages"];
   getPatient: (id: string) => Patient | undefined;
   getVisit: (id: string) => Visit | undefined;
   getQueueItem: (visitId: string) => CounsellorQueueItem | undefined;
   getSession: (visitId: string) => CounselSession | undefined;
   getFilteredQueue: (opts?: { priority?: string; doctorId?: string }) => CounsellorQueueItem[];
-  claimSession: (visitId: string) => CounselSession;
-  updateSession: (visitId: string, patch: Partial<CounselSession>) => void;
+  claimSession: (visitId: string) => Promise<CounselSession>;
   buildQuote: (
     visitId: string,
     packageId: string,
@@ -75,8 +79,8 @@ type CounsellorStoreValue = {
     discountReason?: string,
     tier?: CounselQuote["tier"],
   ) => CounselQuote;
-  requestDiscountApproval: (visitId: string, quote: CounselQuote, reason: string) => void;
-  resolveApproval: (approvalId: string, approved: boolean) => void;
+  requestDiscountApproval: (visitId: string, quote: CounselQuote, reason: string) => Promise<void>;
+  resolveApproval: (approvalId: string, approved: boolean) => Promise<void>;
   completeSession: (
     visitId: string,
     outcome: CounselOutcome,
@@ -92,7 +96,7 @@ type CounsellorStoreValue = {
       voiceNote?: string;
       aiScript?: string;
     },
-  ) => void;
+  ) => Promise<{ ok: boolean; error?: string }>;
   getBillingHandoffs: () => BillingHandoffPayload[];
   getDashboardKpis: () => { label: string; value: string; delta: string; trend: "up" | "down" | "neutral" }[];
   getAnalytics: () => {
@@ -108,96 +112,103 @@ type CounsellorStoreValue = {
   getPatientCommercialHistory: (patientId: string) => CounselSession[];
   maxDiscountPercent: () => number;
   setSeniorMode: (v: boolean) => void;
-  setActiveBranch: (id: string) => void;
 };
 
 const CounsellorContext = createContext<CounsellorStoreValue | null>(null);
 
-function loadState(): CounsellorState {
+function applySnapshot(snapshot: Awaited<ReturnType<typeof getCounsellorSnapshotAction>>): CounsellorState {
   return {
-    sessions: [],
-    approvals: [],
-    discountPolicy: DEFAULT_DISCOUNT_POLICY,
-    activeCounsellorId: DEMO_COUNSELLOR_ID,
-    activeBranchId: "branch_gurgaon",
-    seniorMode: false,
+    patients: snapshot.patients,
+    visits: snapshot.visits,
+    queue: snapshot.queue,
+    sessions: snapshot.sessions,
+    approvals: snapshot.approvals,
+    approvedDiscounts: snapshot.approvedDiscounts,
+    billingHandoffs: snapshot.billingHandoffs,
+    packages: snapshot.packages,
+    discountPolicy: snapshot.discountPolicy,
+    seniorMode: snapshot.seniorMode,
+    activeCounsellorId: snapshot.activeCounsellorId,
+    activeCounsellorName: snapshot.activeCounsellorName,
+    branchId: snapshot.branchId,
   };
 }
 
-async function persist(state: CounsellorState) {
-  await saveCounsellorStateAction(state);
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("candela-counsellor-updated"));
-  }
-}
-
 export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
-  const [clinical, setClinical] = useState(() => ({
-    patients: [] as Patient[],
-    visits: [] as Visit[],
-  }));
-  const [counsellor, setCounsellor] = useState<CounsellorState>(loadState);
-  const [queue, setQueue] = useState<CounsellorQueueItem[]>([]);
-  const [billingHandoffs, setBillingHandoffs] = useState<BillingHandoffPayload[]>([]);
+  const { authReady, session } = useSession();
+  const [state, setState] = useState<CounsellorState | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const refreshQueue = useCallback(async () => {
-    const [nextQueue, patients, visits, handoffs] = await Promise.all([
-      listCounsellorQueueAction(),
-      listCounsellorPatientsAction(),
-      listCounsellorVisitsAction(),
-      listBillingHandoffsAction(),
-    ]);
-    setQueue(nextQueue);
-    setClinical({ patients, visits });
-    setBillingHandoffs(handoffs);
-  }, []);
-
-  const refresh = useCallback(async () => {
-    setReady(false);
+  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent ?? false;
+    if (!silent) setReady(false);
     try {
-      const [remoteState] = await Promise.all([getCounsellorStateAction(), refreshQueue()]);
-      setCounsellor(remoteState);
+      const snapshot = await getCounsellorSnapshotAction();
+      setState(applySnapshot(snapshot));
       setError(null);
     } catch (err) {
       setError(parseActionError(err).message);
     } finally {
       setReady(true);
     }
-  }, [refreshQueue]);
-
-
-  useEffect(() => {
-    void refresh();
-    const onUpdate = () => {
-      void refreshQueue();
-    };
-    window.addEventListener("candela-counsellor-queue-updated", onUpdate);
-    window.addEventListener("storage", onUpdate);
-    return () => {
-      window.removeEventListener("candela-counsellor-queue-updated", onUpdate);
-      window.removeEventListener("storage", onUpdate);
-    };
-  }, [refresh, refreshQueue]);
-
-  const syncCounsellor = useCallback((fn: (prev: CounsellorState) => CounsellorState) => {
-    setCounsellor((prev) => {
-      const next = fn(prev);
-      void persist(next);
-      return next;
-    });
   }, []);
 
-  const value = useMemo<CounsellorStoreValue>(() => {
-    const { patients, visits } = clinical;
+  useEffect(() => {
+    if (!authReady || !session?.branchId) return;
+    let cancelled = false;
 
-    const getPatient = (id: string) => patients.find((p) => p.id === id);
-    const getVisit = (id: string) => visits.find((v) => v.id === id);
-    const getQueueItem = (visitId: string) => queue.find((q) => q.visitId === visitId);
+    const load = async (attempt = 0) => {
+      if (cancelled) return;
+      try {
+        const snapshot = await getCounsellorSnapshotAction();
+        if (cancelled) return;
+        setState(applySnapshot(snapshot));
+        setError(null);
+        setReady(true);
+      } catch (err) {
+        if (cancelled) return;
+        if (attempt < 2 && isTransientSessionError(err)) {
+          await sleep(400 * attempt);
+          await load(attempt + 1);
+          return;
+        }
+        setError(parseActionError(err).message);
+        setReady(true);
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, session?.branchId]);
+
+  const value = useMemo<CounsellorStoreValue>(() => {
+    const data = state ?? {
+      patients: [],
+      visits: [],
+      queue: [],
+      sessions: [],
+      approvals: [],
+      approvedDiscounts: [],
+      billingHandoffs: [],
+      packages: [],
+      discountPolicy: { counsellorMaxPercent: 5, seniorMaxPercent: 10, managerApprovalAbove: 10, requireReasonAbove: 3 },
+      seniorMode: false,
+      activeCounsellorId: "",
+      activeCounsellorName: "Counsellor",
+      branchId: "",
+    };
+
+    const getPatient = (id: string) => data.patients.find((p) => p.id === id);
+    const getVisit = (id: string) => data.visits.find((v) => v.id === id);
+    const getQueueItem = (visitId: string) => data.queue.find((q) => q.visitId === visitId);
+    const getSession = (visitId: string) =>
+      data.sessions.find((s) => s.visitId === visitId && !s.completedAt);
 
     const getFilteredQueue = (opts?: { priority?: string; doctorId?: string }) =>
-      [...queue]
+      [...data.queue]
         .filter((q) => !opts?.priority || q.priority === opts.priority)
         .filter((q) => !opts?.doctorId || q.doctorId === opts.doctorId)
         .sort((a, b) => {
@@ -206,44 +217,8 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
           return new Date(a.sentAt).getTime() - new Date(b.sentAt).getTime();
         });
 
-    const getSession = (visitId: string) =>
-      counsellor.sessions.find((s) => s.visitId === visitId && !s.completedAt);
-
     const maxDiscountPercent = () =>
-      counsellor.seniorMode
-        ? counsellor.discountPolicy.seniorMaxPercent
-        : counsellor.discountPolicy.counsellorMaxPercent;
-
-    const claimSession = (visitId: string) => {
-      const existing = getSession(visitId);
-      if (existing) return existing;
-      const item = getQueueItem(visitId);
-      if (!item) throw new Error("Not in queue");
-      const session: CounselSession = {
-        id: `cs_${Date.now()}`,
-        visitId,
-        patientId: item.patientId,
-        queueItemId: item.id,
-        counsellorId: counsellor.activeCounsellorId,
-        counsellorName: DEMO_COUNSELLOR_NAME,
-        branchId: counsellor.activeBranchId,
-        startedAt: new Date().toISOString(),
-        internalNotes: "",
-        patientObjections: [],
-        sentToBilling: false,
-      };
-      syncCounsellor((prev) => ({ ...prev, sessions: [...prev.sessions, session] }));
-      return session;
-    };
-
-    const updateSession = (visitId: string, patch: Partial<CounselSession>) => {
-      syncCounsellor((prev) => ({
-        ...prev,
-        sessions: prev.sessions.map((s) =>
-          s.visitId === visitId && !s.completedAt ? { ...s, ...patch } : s,
-        ),
-      }));
-    };
+      data.seniorMode ? data.discountPolicy.seniorMaxPercent : data.discountPolicy.counsellorMaxPercent;
 
     const buildQuote = (
       visitId: string,
@@ -257,7 +232,7 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
       const base = computeQuote(packageId, addonIds, discountPercent);
       const limit = maxDiscountPercent();
       let approvalStatus: CounselQuote["approvalStatus"] = "none";
-      if (discountPercent > counsellor.discountPolicy.managerApprovalAbove) approvalStatus = "pending";
+      if (discountPercent > data.discountPolicy.managerApprovalAbove) approvalStatus = "pending";
       else if (discountPercent > limit) approvalStatus = "pending";
 
       return {
@@ -272,174 +247,89 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
       };
     };
 
-    const requestDiscountApproval = (visitId: string, quote: CounselQuote, reason: string) => {
-      const patient = getPatient(quote.patientId);
-      const approval: DiscountApproval = {
-        id: `appr_${Date.now()}`,
-        visitId,
-        patientId: quote.patientId,
-        patientName: patient?.name ?? quote.patientId,
-        requestedPercent: quote.discountPercent,
-        reason,
-        status: "pending",
-        requestedAt: new Date().toISOString(),
-        quoteSnapshot: quote,
-      };
-      syncCounsellor((prev) => ({ ...prev, approvals: [...prev.approvals, approval] }));
-    };
-
-    const resolveApproval = (approvalId: string, approved: boolean) => {
-      syncCounsellor((prev) => ({
-        ...prev,
-        approvals: prev.approvals.map((a) =>
-          a.id === approvalId
-            ? { ...a, status: approved ? "approved" : "rejected", resolvedAt: new Date().toISOString() }
-            : a,
-        ),
-      }));
-    };
-
-    const completeSession = (
-      visitId: string,
-      outcome: CounselOutcome,
-      opts: {
-        quote?: CounselQuote;
-        internalNotes: string;
-        objections: string[];
-        callbackAt?: string;
-        sendToBilling?: boolean;
-        paymentExpectation?: BillingHandoffPayload["paymentExpectation"];
-        consentCaptured?: boolean;
-        whatsappSent?: boolean;
-        voiceNote?: string;
-        aiScript?: string;
-      },
-    ) => {
-      const item = getQueueItem(visitId);
-      const patient = item ? getPatient(item.patientId) : undefined;
-      const now = new Date().toISOString();
-
-      syncCounsellor((prev) => ({
-        ...prev,
-        sessions: prev.sessions.map((s) =>
-          s.visitId === visitId && !s.completedAt
-            ? {
-                ...s,
-                completedAt: now,
-                outcome,
-                quote: opts.quote,
-                internalNotes: opts.internalNotes,
-                patientObjections: opts.objections,
-                callbackAt: opts.callbackAt,
-                voiceNote: opts.voiceNote,
-                aiScript: opts.aiScript,
-                sentToBilling: Boolean(opts.sendToBilling && outcome === "converted"),
-                billingSentAt: opts.sendToBilling ? now : undefined,
-              }
-            : s,
-        ),
-      }));
-
-      void (async () => {
-        try {
-          if (opts.sendToBilling && outcome === "converted" && opts.quote && item && patient) {
-            const handoffPayload: BillingHandoffPayload = {
-              visitId,
-              patientId: patient.id,
-              patientName: patientDisplayName(patient),
-              uhid: patient.uhid,
-              quote: {
-                ...opts.quote,
-                consentCaptured: opts.consentCaptured ?? false,
-                whatsappSent: opts.whatsappSent ?? false,
-              },
-              counsellorName: DEMO_COUNSELLOR_NAME,
-              counselNotes: opts.internalNotes,
-              doctorName: item.doctorName,
-              doctorId: item.doctorId,
-              sentAt: now,
-              paymentExpectation: opts.paymentExpectation ?? "desk",
-              treatmentMode: item.treatmentMode ?? item.payload.treatmentMode,
-              admissionRecommended:
-                item.treatmentMode === "ipd" ||
-                item.payload.treatmentMode === "ipd" ||
-                item.payload.treatmentMode === "daycare" ||
-                Boolean(opts.quote?.lineItems.some((l) => l.id === "addon_ipd_day")),
-              diagnosisSummary: String(
-                item.payload.diagnosis?.primaryDiagnosis ?? item.payload.diagnosis?.primary ?? "",
-              ),
-            };
-            await saveBillingHandoffAction(handoffPayload);
-            setClinical((prev) => ({
-              ...prev,
-              visits: prev.visits.map((v) =>
-                v.id === visitId
-                  ? { ...v, stage: "billing", billAmount: opts.quote!.netAmount, billing: "pending" as const }
-                  : v,
-              ),
-            }));
-            await setVisitStageAction(visitId, "billing");
-          } else if (outcome === "converted") {
-            await setVisitStageAction(visitId, "completed");
-          }
-          await removeCounsellorQueueItemAction(visitId);
-          await refreshQueue();
-        } catch (err) {
-          console.error("Counsellor session completion failed:", err);
-          window.dispatchEvent(
-            new CustomEvent("candela-counsellor-error", {
-              detail: { message: "Could not complete session. Please retry." },
-            }),
-          );
-        }
-      })();
-    };
-
-    const completedSessions = counsellor.sessions.filter((s) => s.completedAt);
+    const completedSessions = data.sessions.filter((s) => s.completedAt);
     const converted = completedSessions.filter((s) => s.outcome === "converted");
 
     return {
       ready,
       error,
       refresh,
-      patients,
-      visits,
-      queue,
-      sessions: counsellor.sessions,
-      approvals: counsellor.approvals.filter((a) => a.status === "pending"),
-      discountPolicy: counsellor.discountPolicy,
-      activeBranchId: counsellor.activeBranchId,
-      seniorMode: counsellor.seniorMode,
+      patients: data.patients,
+      visits: data.visits,
+      queue: data.queue,
+      sessions: data.sessions,
+      approvals: data.approvals,
+      approvedDiscounts: data.approvedDiscounts,
+      discountPolicy: data.discountPolicy,
+      activeCounsellorId: data.activeCounsellorId,
+      activeCounsellorName: data.activeCounsellorName,
+      activeBranchId: data.branchId,
+      seniorMode: data.seniorMode,
+      packages: data.packages,
       getPatient,
       getVisit,
       getQueueItem,
       getSession,
       getFilteredQueue,
-      claimSession,
-      updateSession,
+      claimSession: async (visitId) => {
+        const session = await claimCounselSessionAction(visitId);
+        await refresh({ silent: true });
+        return session;
+      },
       buildQuote,
-      requestDiscountApproval,
-      resolveApproval,
-      completeSession,
-      getBillingHandoffs: () => billingHandoffs,
+      requestDiscountApproval: async (visitId, quote, reason) => {
+        await requestDiscountApprovalAction(visitId, quote, reason);
+        await refresh({ silent: true });
+      },
+      resolveApproval: async (approvalId, approved) => {
+        await resolveDiscountApprovalAction(approvalId, approved);
+        await refresh({ silent: true });
+      },
+      completeSession: async (visitId, outcome, opts) => {
+        try {
+          await completeCounselSessionAction(visitId, {
+            outcome,
+            quote: opts.quote,
+            internalNotes: opts.internalNotes,
+            objections: opts.objections,
+            callbackAt: opts.callbackAt,
+            sendToBilling: Boolean(opts.sendToBilling),
+            paymentExpectation: opts.paymentExpectation ?? "desk",
+            consentCaptured: opts.consentCaptured,
+            whatsappSent: opts.whatsappSent,
+            voiceNote: opts.voiceNote,
+            aiScript: opts.aiScript,
+          });
+          await refresh();
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, error: parseActionError(err).message };
+        }
+      },
+      getBillingHandoffs: () => data.billingHandoffs,
       maxDiscountPercent,
-      setSeniorMode: (v: boolean) => syncCounsellor((prev) => ({ ...prev, seniorMode: v })),
-      setActiveBranch: (id: string) => syncCounsellor((prev) => ({ ...prev, activeBranchId: id })),
+      setSeniorMode: (v) => {
+        void saveCounsellorPrefsAction({ seniorMode: v }).then(() => refresh({ silent: true }));
+        setState((prev) => (prev ? { ...prev, seniorMode: v } : prev));
+      },
       getDashboardKpis: () => {
-        const waiting = queue.length;
-        const pipeline = queue.reduce((s, q) => s + (packageById(q.packageId ?? "pkg_basic")?.amount ?? 0), 0);
+        const waiting = data.queue.length;
+        const pipeline = data.queue.reduce(
+          (s, q) => s + (data.packages.find((p) => p.id === (q.packageId ?? "pkg_basic"))?.amount ?? 0),
+          0,
+        );
         const todayConverted = converted.filter((s) => {
           const d = new Date(s.completedAt!);
           return d.toDateString() === new Date().toDateString();
         }).length;
-        const pendingApprovals = counsellor.approvals.filter((a) => a.status === "pending").length;
+        const pendingApprovals = data.approvals.length;
         return [
           { label: "Queue waiting", value: String(waiting), delta: waiting ? "Needs counsel" : "Clear", trend: waiting > 2 ? "down" as const : "neutral" as const },
           { label: "Converted today", value: String(todayConverted), delta: "Packages sold", trend: "up" as const },
           { label: "Pipeline value", value: `₹${(pipeline / 1000).toFixed(0)}K`, delta: "In queue", trend: "neutral" as const },
           { label: "Discount approvals", value: String(pendingApprovals), delta: "Pending manager", trend: pendingApprovals ? "down" as const : "neutral" as const },
           { label: "Conversion rate", value: completedSessions.length ? `${Math.round((converted.length / completedSessions.length) * 100)}%` : "—", delta: "Outcomes", trend: "neutral" as const },
-          { label: "Avg wait", value: queue[0] ? `${queueWaitMinutes(queue[0].sentAt)}m` : "0m", delta: "Oldest", trend: "neutral" as const },
+          { label: "Counsellor", value: data.activeCounsellorName.split(" ")[0] ?? "—", delta: "Signed in", trend: "neutral" as const },
         ];
       },
       getAnalytics: () => {
@@ -464,7 +354,10 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
           conversionRate: completedSessions.length ? Math.round((converted.length / completedSessions.length) * 100) : 0,
           avgDiscount: discounts.length ? Math.round(discounts.reduce((a, b) => a + b, 0) / discounts.length) : 0,
           avgCloseMin: closeTimes.length ? Math.round(closeTimes.reduce((a, b) => a + b, 0) / closeTimes.length) : 0,
-          pipelineValue: queue.reduce((s, q) => s + (packageById(q.packageId ?? "pkg_basic")?.amount ?? 0), 0),
+          pipelineValue: data.queue.reduce(
+            (s, q) => s + (data.packages.find((p) => p.id === (q.packageId ?? "pkg_basic"))?.amount ?? 0),
+            0,
+          ),
           outcomes: [...outcomes.entries()].map(([label, count]) => ({ label, count })),
           packageMix: [...pkgMix.entries()].map(([label, count]) => ({ label, count })),
           lostReasons: [...lost.entries()].map(([label, count]) => ({ label, count })).slice(0, 6),
@@ -472,19 +365,19 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
       },
       searchPatients: (q: string) => {
         const query = q.trim().toLowerCase();
-        if (!query) return patients;
-        return patients.filter(
+        if (!query) return data.patients;
+        return data.patients.filter(
           (p) =>
             patientDisplayName(p).toLowerCase().includes(query) ||
             p.uhid.toLowerCase().includes(query),
         );
       },
       getPatientCommercialHistory: (patientId: string) =>
-        counsellor.sessions
+        data.sessions
           .filter((s) => s.patientId === patientId && s.completedAt)
           .sort((a, b) => (b.completedAt! > a.completedAt! ? 1 : -1)),
     };
-  }, [clinical, counsellor, queue, billingHandoffs, ready, error, refresh, syncCounsellor, refreshQueue]);
+  }, [state, ready, error, refresh]);
 
   return <CounsellorContext.Provider value={value}>{children}</CounsellorContext.Provider>;
 }

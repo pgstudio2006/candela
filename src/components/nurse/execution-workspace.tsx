@@ -6,6 +6,7 @@ import { useNurseStore } from "@/components/nurse/nurse-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { requiredConsentsComplete, TREATMENT_BAYS, consentProgress } from "@/design-system/nurse-data";
+import { useNursePoll } from "@/hooks/use-nurse-poll";
 import { cn } from "@/lib/utils";
 import { ArrowLeft, CheckCircle2, HeartPulse, Play, Shield } from "lucide-react";
 import Link from "next/link";
@@ -24,6 +25,7 @@ const STEPS: { id: Step; label: string }[] = [
 ];
 
 export function ExecutionWorkspace({ visitId }: ExecutionWorkspaceProps) {
+  useNursePoll();
   const router = useRouter();
   const {
     getHandoff,
@@ -35,7 +37,8 @@ export function ExecutionWorkspace({ visitId }: ExecutionWorkspaceProps) {
     startSession,
     completeSession,
     completeEpisode,
-    updateEpisodeNotes,
+    activeNurseName,
+    error: storeError,
   } = useNurseStore();
 
   const handoff = getHandoff(visitId);
@@ -45,6 +48,10 @@ export function ExecutionWorkspace({ visitId }: ExecutionWorkspaceProps) {
 
   const [step, setStep] = useState<Step>("handoff");
   const [bay, setBay] = useState(TREATMENT_BAYS[0].id);
+  const [claimError, setClaimError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [sessionMessage, setSessionMessage] = useState<string | null>(null);
+  const [savingVitals, setSavingVitals] = useState(false);
   const [vitals, setVitals] = useState({
     bpSystolic: 120,
     bpDiastolic: 80,
@@ -60,24 +67,52 @@ export function ExecutionWorkspace({ visitId }: ExecutionWorkspaceProps) {
   const [sessionNotes, setSessionNotes] = useState("");
 
   useEffect(() => {
-    if (handoff) claimEpisode(visitId);
+    if (!handoff) return;
+    void claimEpisode(visitId).catch((err) => {
+      setClaimError(err instanceof Error ? err.message : "Could not claim episode");
+    });
   }, [handoff, visitId, claimEpisode]);
+
+  useEffect(() => {
+    if (episode?.vitals) {
+      setVitals({
+        bpSystolic: episode.vitals.bpSystolic,
+        bpDiastolic: episode.vitals.bpDiastolic,
+        pulse: episode.vitals.pulse,
+        spo2: episode.vitals.spo2,
+        temperature: episode.vitals.temperature,
+        weight: episode.vitals.weight,
+        painScore: episode.vitals.painScore,
+        allergies: episode.vitals.allergies,
+        redFlags: episode.vitals.redFlags,
+        nursingNotes: episode.vitals.nursingNotes,
+      });
+    }
+  }, [episode?.vitals]);
 
   if (!handoff || !patient) {
     return (
       <PageChrome breadcrumbs={[{ label: "Nursing" }, { label: "Episode" }]} title="Episode not found">
         <p className="text-[13px] text-[var(--attio-text-tertiary)]">No nursing handoff for this visit.</p>
-        <Link href="/app/nurse/queue" className="mt-4 inline-block text-[var(--attio-accent)]">Back to queue</Link>
+        <Link href="/app/nurse/queue" className="mt-4 inline-block text-[var(--attio-accent)]">
+          Back to queue
+        </Link>
       </PageChrome>
     );
   }
 
   const consentsOk = episode ? requiredConsentsComplete(episode.consents) : false;
   const progress = episode ? consentProgress(episode.consents) : { done: 0, total: 0 };
-  const activeSession = episode?.sessions.find((s) => s.status === "in_progress" || s.status === "scheduled");
+  const activeSession =
+    episode?.sessions.find((s) => s.status === "in_progress") ??
+    episode?.sessions.find((s) => s.status === "scheduled");
+  const completedSessions = episode?.sessions.filter((s) => s.status === "completed").length ?? 0;
+  const totalSessions = activeSession?.totalSessions ?? episode?.sessions[0]?.totalSessions ?? 1;
+  const allSessionsDone = completedSessions >= totalSessions;
 
   const stepIndex = STEPS.findIndex((s) => s.id === step);
-  const canTreatment = consentsOk && episode?.vitals;
+  const canTreatment = consentsOk && Boolean(episode?.vitals);
+  const bayLabel = TREATMENT_BAYS.find((b) => b.id === bay)?.label ?? bay;
 
   return (
     <PageChrome
@@ -89,14 +124,40 @@ export function ExecutionWorkspace({ visitId }: ExecutionWorkspaceProps) {
       title={`Care episode · ${patient.name}`}
       meta={`${handoff.packageLabel} · ${handoff.treatmentPath.toUpperCase()} · ${handoff.doctorName}`}
       actions={
-        <Link href="/app/nurse/queue" className="inline-flex items-center gap-1 text-[13px] text-[var(--attio-text-secondary)] hover:text-[var(--attio-text)]">
+        <Link
+          href="/app/nurse/queue"
+          className="inline-flex items-center gap-1 text-[13px] text-[var(--attio-text-secondary)] hover:text-[var(--attio-text)]"
+        >
           <ArrowLeft className="size-3.5" /> Queue
         </Link>
       }
     >
+      {(claimError || storeError || actionError) && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-900">
+          {claimError ?? actionError ?? storeError}
+        </div>
+      )}
+
       {handoff.balanceDue && handoff.balanceDue > 0 && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
           Balance due: ₹{handoff.balanceDue.toLocaleString("en-IN")} — treatment authorized per billing policy
+        </div>
+      )}
+
+      {handoff.treatmentPath === "ipd" && (handoff.ipdWard || handoff.ipdBed) && (
+        <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-[13px] text-blue-900">
+          IPD admission · {handoff.ipdWard ?? "Ward TBD"}
+          {handoff.ipdBed ? ` · Bed ${handoff.ipdBed}` : ""}
+        </div>
+      )}
+
+      {episode && (
+        <div className="mb-4 flex flex-wrap gap-2 text-[12px] text-[var(--attio-text-secondary)]">
+          <span>Assigned nurse: {episode.nurseName}</span>
+          {episode.nurseId !== undefined && episode.nurseName !== activeNurseName && (
+            <StatusBadge label="Claimed by colleague" variant="warning" />
+          )}
+          {episode.vitals?.redFlags?.trim() && <StatusBadge label="Red flags noted" variant="warning" />}
         </div>
       )}
 
@@ -123,6 +184,9 @@ export function ExecutionWorkspace({ visitId }: ExecutionWorkspaceProps) {
         <StatusBadge label={handoff.billingStatus} variant={handoff.billingStatus === "paid" ? "success" : "warning"} />
         <StatusBadge label={`Consent ${progress.done}/${progress.total}`} variant={consentsOk ? "success" : "warning"} />
         {episode?.status && <StatusBadge label={episode.status.replace("_", " ")} variant="info" />}
+        {completedSessions > 0 && (
+          <StatusBadge label={`Sessions ${completedSessions}/${totalSessions}`} variant="neutral" />
+        )}
       </div>
 
       {step === "handoff" && (
@@ -186,8 +250,16 @@ export function ExecutionWorkspace({ visitId }: ExecutionWorkspaceProps) {
           <AttioButton
             variant="primary"
             className="mt-4 gap-1.5"
-            onClick={() => {
-              saveVitals(visitId, vitals);
+            disabled={savingVitals}
+            onClick={async () => {
+              setSavingVitals(true);
+              setActionError(null);
+              const result = await saveVitals(visitId, vitals);
+              setSavingVitals(false);
+              if (!result.ok) {
+                setActionError(result.error ?? "Failed to save vitals");
+                return;
+              }
               setStep("consent");
             }}
           >
@@ -215,7 +287,13 @@ export function ExecutionWorkspace({ visitId }: ExecutionWorkspaceProps) {
 
       {step === "treatment" && (
         <div className="space-y-4">
-          <Panel title="Session 1 · Treatment execution">
+          {sessionMessage && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] text-emerald-900">
+              {sessionMessage}
+            </div>
+          )}
+
+          <Panel title={`Session ${activeSession?.sessionNumber ?? 1} · Treatment execution`}>
             {!canTreatment && (
               <p className="mb-3 text-[13px] text-amber-700">Complete vitals and verify all required consents before starting.</p>
             )}
@@ -224,7 +302,7 @@ export function ExecutionWorkspace({ visitId }: ExecutionWorkspaceProps) {
                 <p className="text-[11px] text-[var(--attio-text-tertiary)]">Procedure</p>
                 <p className="font-medium">{handoff.packageLabel}</p>
                 <p className="mt-1 text-[12px] text-[var(--attio-text-secondary)]">
-                  Session 1 of {activeSession?.totalSessions ?? 6}
+                  Session {activeSession?.sessionNumber ?? 1} of {totalSessions}
                 </p>
               </div>
               <label className="block text-[12px]">
@@ -236,7 +314,9 @@ export function ExecutionWorkspace({ visitId }: ExecutionWorkspaceProps) {
                   disabled={episode?.status === "in_treatment"}
                 >
                   {TREATMENT_BAYS.map((b) => (
-                    <option key={b.id} value={b.id}>{b.label}</option>
+                    <option key={b.id} value={b.id}>
+                      {b.label}
+                    </option>
                   ))}
                 </select>
               </label>
@@ -249,30 +329,65 @@ export function ExecutionWorkspace({ visitId }: ExecutionWorkspaceProps) {
               className="mt-3 w-full rounded-lg border border-[var(--attio-border)] px-3 py-2 text-[13px]"
             />
             <div className="mt-4 flex flex-wrap gap-2">
-              {episode?.status !== "in_treatment" && (
+              {episode?.status !== "in_treatment" && activeSession?.status === "scheduled" && (
                 <AttioButton
                   variant="primary"
                   className="gap-1.5"
                   disabled={!canTreatment}
-                  onClick={() => startSession(visitId, TREATMENT_BAYS.find((b) => b.id === bay)?.label ?? bay)}
+                  onClick={async () => {
+                    setActionError(null);
+                    try {
+                      await startSession(visitId, bayLabel);
+                      setSessionMessage(null);
+                    } catch (err) {
+                      setActionError(err instanceof Error ? err.message : "Could not start session");
+                    }
+                  }}
                 >
-                  <Play className="size-3.5" /> Start session 1
+                  <Play className="size-3.5" /> Start session {activeSession.sessionNumber}
                 </AttioButton>
               )}
-              {episode?.status === "in_treatment" && activeSession && (
-                <>
-                  <AttioButton
-                    variant="primary"
-                    className="gap-1.5"
-                    onClick={() => {
-                      completeSession(visitId, activeSession.id, sessionNotes);
-                      completeEpisode(visitId);
-                      router.push("/app/nurse/queue");
-                    }}
-                  >
-                    <CheckCircle2 className="size-3.5" /> Complete session & close episode
-                  </AttioButton>
-                </>
+              {episode?.status === "in_treatment" && activeSession?.status === "in_progress" && (
+                <AttioButton
+                  variant="primary"
+                  className="gap-1.5"
+                  onClick={async () => {
+                    setActionError(null);
+                    const result = await completeSession(visitId, activeSession.id, sessionNotes);
+                    if (!result.ok) {
+                      setActionError(result.error ?? "Could not complete session");
+                      return;
+                    }
+                    setSessionNotes("");
+                    if (result.nextSessionNumber) {
+                      setSessionMessage(
+                        `Session ${activeSession.sessionNumber} complete. Session ${result.nextSessionNumber} is scheduled — return patient for next visit or start now if ready.`,
+                      );
+                    } else if (allSessionsDone || activeSession.sessionNumber >= totalSessions) {
+                      setSessionMessage("Final session complete. Close the care plan when ready.");
+                    } else {
+                      setSessionMessage(`Session ${activeSession.sessionNumber} complete.`);
+                    }
+                  }}
+                >
+                  <CheckCircle2 className="size-3.5" /> Complete session
+                </AttioButton>
+              )}
+              {episode && episode.status !== "completed" && completedSessions > 0 && episode.status !== "in_treatment" && (
+                <AttioButton
+                  variant="secondary"
+                  onClick={async () => {
+                    setActionError(null);
+                    const result = await completeEpisode(visitId);
+                    if (!result.ok) {
+                      setActionError(result.error ?? "Could not close episode");
+                      return;
+                    }
+                    router.push("/app/nurse/queue");
+                  }}
+                >
+                  Close care plan ({completedSessions}/{totalSessions} sessions)
+                </AttioButton>
               )}
             </div>
           </Panel>
@@ -280,7 +395,9 @@ export function ExecutionWorkspace({ visitId }: ExecutionWorkspaceProps) {
           {episode?.vitals && (
             <Panel title="Vitals snapshot">
               <p className="text-[12px] text-[var(--attio-text-secondary)]">
-                BP {episode.vitals.bpSystolic}/{episode.vitals.bpDiastolic} · Pulse {episode.vitals.pulse} · SpO₂ {episode.vitals.spo2}% · Pain {episode.vitals.painScore}/10
+                BP {episode.vitals.bpSystolic}/{episode.vitals.bpDiastolic} · Pulse {episode.vitals.pulse} · SpO₂{" "}
+                {episode.vitals.spo2}% · Pain {episode.vitals.painScore}/10
+                {episode.vitals.recordedBy ? ` · Recorded by ${episode.vitals.recordedBy}` : ""}
               </p>
             </Panel>
           )}

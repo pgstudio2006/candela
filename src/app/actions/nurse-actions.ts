@@ -8,6 +8,7 @@ import {
   completeSession,
   declineConsent,
   getNurseSnapshot,
+  listNurseAuditLogs,
   presentConsent,
   saveVitals,
   signConsent,
@@ -24,7 +25,7 @@ export async function getNurseSnapshotAction() {
 
 export async function claimEpisodeAction(visitId: string) {
   const ctx = await requireModule("nurse");
-  return claimEpisode(visitId, ctx);
+  return claimEpisode(ctx, visitId);
 }
 
 export async function saveVitalsAction(
@@ -32,21 +33,26 @@ export async function saveVitalsAction(
   vitals: Omit<VitalsRecord, "visitId" | "recordedAt" | "recordedBy">,
 ) {
   const ctx = await requireModule("nurse");
-  return saveVitals(visitId, vitals, ctx);
+  return saveVitals(ctx, visitId, vitals);
 }
 
 export async function presentConsentAction(visitId: string, consentId: string) {
-  await requireModule("nurse");
-  return presentConsent(visitId, consentId);
+  const ctx = await requireModule("nurse");
+  return presentConsent(ctx, visitId, consentId);
 }
 
 export async function signConsentAction(
   visitId: string,
   consentId: string,
-  data: { signatureDataUrl: string; signerName: string; signerRole: ConsentRecord["signerRole"]; witnessName?: string },
+  data: {
+    signatureDataUrl: string;
+    signerName: string;
+    signerRole?: ConsentRecord["signerRole"];
+    witnessName?: string;
+  },
 ) {
-  await requireModule("nurse");
-  return signConsent(visitId, consentId, data);
+  const ctx = await requireModule("nurse");
+  return signConsent(ctx, visitId, consentId, data);
 }
 
 export async function uploadConsentAction(
@@ -54,36 +60,41 @@ export async function uploadConsentAction(
   consentId: string,
   data: { uploadDataUrl: string; uploadFileName: string; signerName: string },
 ) {
-  await requireModule("nurse");
-  return uploadConsent(visitId, consentId, data);
+  const ctx = await requireModule("nurse");
+  return uploadConsent(ctx, visitId, consentId, data);
 }
 
 export async function verifyConsentAction(visitId: string, consentId: string) {
-  await requireModule("nurse");
-  return verifyConsent(visitId, consentId);
+  const ctx = await requireModule("nurse");
+  return verifyConsent(ctx, visitId, consentId);
 }
 
 export async function declineConsentAction(visitId: string, consentId: string, reason: string) {
-  await requireModule("nurse");
-  return declineConsent(visitId, consentId, reason);
+  const ctx = await requireModule("nurse");
+  return declineConsent(ctx, visitId, consentId, reason);
 }
 
 export async function startSessionAction(visitId: string, bay: string) {
-  await requireModule("nurse");
-  return startSession(visitId, bay);
+  const ctx = await requireModule("nurse");
+  return startSession(ctx, visitId, bay);
 }
 
 export async function completeSessionAction(visitId: string, sessionId: string, notes?: string) {
-  await requireModule("nurse");
-  return completeSession(visitId, sessionId, notes);
+  const ctx = await requireModule("nurse");
+  return completeSession(ctx, visitId, sessionId, notes);
 }
 
 export async function completeEpisodeAction(visitId: string) {
-  await requireModule("nurse");
-  return completeEpisode(visitId);
+  const ctx = await requireModule("nurse");
+  return completeEpisode(ctx, visitId);
 }
 
 export async function updateEpisodeNotesAction(visitId: string, notes: string) {
-  await requireModule("nurse");
-  return updateEpisodeNotes(visitId, notes);
+  const ctx = await requireModule("nurse");
+  return updateEpisodeNotes(ctx, visitId, notes);
+}
+
+export async function listNurseAuditLogsAction(input?: { limit?: number; cursor?: string }) {
+  const ctx = await requireModule("nurse");
+  return listNurseAuditLogs(ctx, input ?? {});
 }

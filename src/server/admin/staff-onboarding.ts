@@ -1,15 +1,19 @@
-// @ts-nocheck
-import { hash } from "bcryptjs";
 import { db } from "@/lib/db";
 import { prisma } from "@/lib/prisma";
 import type { StaffMember } from "@/design-system/admin-data";
+import { validateAdminPassword } from "@/lib/admin-validation";
 import { doctorIdFromStaffId, moduleRoleForStaffRole, type HealthcareStaffRole } from "@/lib/healthcare-roles";
 import type { ServerContext } from "@/server/context";
 import { branchScope } from "@/server/tenancy";
 import { writePlatformAudit } from "@/server/platform-audit";
+import { hashPassword } from "@/server/revenue/password";
 
 function newStaffId() {
   return `st_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function generateStaffPassword() {
+  return `welcome${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
 export async function syncDoctorToDepartments(staffId: string, departmentIds: string[]) {
@@ -39,9 +43,17 @@ export async function addStaffWithLogin(
   const scope = branchScope(ctx);
   const staffId = newStaffId();
   const roleKey = input.moduleRole ?? moduleRoleForStaffRole(input.staff.role as HealthcareStaffRole);
+  const initialPassword = input.password?.trim()
+    ? validateAdminPassword(input.password)
+    : generateStaffPassword();
 
   await prisma.adminStaff.create({
-    data: { id: staffId, ...input.staff },
+    data: {
+      id: staffId,
+      ...input.staff,
+      email: input.staff.email.trim().toLowerCase(),
+      branchId: input.staff.branchId || scope.branchId,
+    },
   });
 
   if (input.staff.role === "doctor" && input.staff.departmentIds.length) {
@@ -53,7 +65,7 @@ export async function addStaffWithLogin(
       where: { email: input.staff.email.toLowerCase(), tenantId: scope.tenantId },
     });
 
-    const passwordHash = await hash(input.password ?? "Welcome2026!", 10);
+    const passwordHash = await hashPassword(initialPassword);
     const role = await db.role.findFirst({
       where: { key: roleKey, tenantId: scope.tenantId },
     });
@@ -92,5 +104,5 @@ export async function addStaffWithLogin(
     summary: `Onboarded ${input.staff.name}${roleKey ? ` with ${roleKey} login` : ""}`,
   });
 
-  return { staffId };
+  return { staffId, initialPassword };
 }

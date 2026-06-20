@@ -83,8 +83,7 @@ export default function PharmacyDrugsPage() {
                 variant="primary"
                 onClick={() => {
                   if (!form.brandName || !form.genericName) return;
-                  addDrug(form);
-                  setOpen(false);
+                  void addDrug(form).then(() => setOpen(false));
                 }}
               >
                 Save

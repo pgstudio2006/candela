@@ -1,50 +1,139 @@
 "use server";
 
+import type { Drug, PaymentMode, PharmacyBill, PoLine, Prescription, PurchaseOrder, Supplier } from "@/design-system/pharmacy-data";
 import { prisma } from "@/lib/prisma";
 import { requireModule } from "@/server/auth";
 import { ensureRevenueSeeded } from "@/server/revenue/bootstrap";
 import { hashPassword, verifyPassword } from "@/server/revenue/password";
-import { readPharmacyWorkspace, writePharmacyWorkspace } from "@/server/workspace-state";
-import { getServerContext } from "@/server/context";
-import { defaultPharmacyState, type PharmacyStateShape } from "@/server/revenue/state-seeds";
-import type {
-  Drug,
-  PharmacyActivity,
-  PharmacyBill,
-  Prescription,
-  PurchaseOrder,
-  ReturnRecord,
-  ScheduleHEntry,
-  StockBatch,
-  Supplier,
-  WardIndent,
-} from "@/design-system/pharmacy-data";
+import type { PharmacyStateShape } from "@/server/revenue/state-seeds";
+import {
+  addDrug,
+  adjustStock,
+  approveReturn,
+  createPO,
+  dispensePrescription,
+  fulfillIndent,
+  getPharmacySnapshot,
+  listPharmacyAuditLogs,
+  markBillPaid,
+  quarantineBatch,
+  receivePO,
+  rejectPrescription,
+  restockReturn,
+  updateDrug,
+  updatePOStatus,
+  updateSupplier,
+  verifyPrescription,
+  addSupplier,
+} from "@/server/pharmacy/index";
 
 export type PharmacyLoginResult =
   | { ok: true; operatorId: string; name: string; email: string }
   | { ok: false; error: string };
 
-async function readState(): Promise<PharmacyStateShape> {
-  await ensureRevenueSeeded();
-  const ctx = await getServerContext();
-  return readPharmacyWorkspace(ctx, () => defaultPharmacyState({}));
+export async function getPharmacySnapshotAction(operatorId: string) {
+  const ctx = await requireModule("pharmacy");
+  return getPharmacySnapshot(ctx, operatorId);
 }
 
-async function writeState(next: PharmacyStateShape): Promise<void> {
-  const ctx = await getServerContext();
-  const { operatorId: _drop, ...payload } = next;
-  await writePharmacyWorkspace(ctx, payload);
+export async function verifyPrescriptionAction(operatorId: string, rxId: string, counselingNotes?: string) {
+  const ctx = await requireModule("pharmacy");
+  return verifyPrescription(ctx, operatorId, rxId, counselingNotes);
 }
 
-export async function getPharmacyStateAction(): Promise<PharmacyStateShape> {
-  await requireModule("pharmacy");
-  return readState();
+export async function rejectPrescriptionAction(operatorId: string, rxId: string, reason: string) {
+  const ctx = await requireModule("pharmacy");
+  return rejectPrescription(ctx, operatorId, rxId, reason);
 }
 
+export async function dispensePrescriptionAction(
+  operatorId: string,
+  rxId: string,
+  quantities: Record<string, number>,
+  witnessName?: string,
+) {
+  const ctx = await requireModule("pharmacy");
+  return dispensePrescription(ctx, operatorId, rxId, quantities, witnessName);
+}
+
+export async function markBillPaidAction(operatorId: string, billId: string, mode: PaymentMode) {
+  const ctx = await requireModule("pharmacy");
+  return markBillPaid(ctx, operatorId, billId, mode);
+}
+
+export async function adjustStockAction(operatorId: string, batchId: string, delta: number, reason: string) {
+  const ctx = await requireModule("pharmacy");
+  return adjustStock(ctx, operatorId, batchId, delta, reason);
+}
+
+export async function quarantineBatchAction(operatorId: string, batchId: string, quarantined: boolean) {
+  const ctx = await requireModule("pharmacy");
+  return quarantineBatch(ctx, operatorId, batchId, quarantined);
+}
+
+export async function addDrugAction(operatorId: string, drug: Omit<Drug, "id">) {
+  const ctx = await requireModule("pharmacy");
+  return addDrug(ctx, operatorId, drug);
+}
+
+export async function updateDrugAction(operatorId: string, id: string, patch: Partial<Drug>) {
+  const ctx = await requireModule("pharmacy");
+  return updateDrug(ctx, operatorId, id, patch);
+}
+
+export async function addSupplierAction(operatorId: string, supplier: Omit<Supplier, "id">) {
+  const ctx = await requireModule("pharmacy");
+  return addSupplier(ctx, operatorId, supplier);
+}
+
+export async function updateSupplierAction(operatorId: string, id: string, patch: Partial<Supplier>) {
+  const ctx = await requireModule("pharmacy");
+  return updateSupplier(ctx, operatorId, id, patch);
+}
+
+export async function createPOAction(operatorId: string, supplierId: string, lines: PoLine[], notes?: string) {
+  const ctx = await requireModule("pharmacy");
+  return createPO(ctx, operatorId, supplierId, lines, notes);
+}
+
+export async function updatePOStatusAction(operatorId: string, id: string, status: PurchaseOrder["status"]) {
+  const ctx = await requireModule("pharmacy");
+  return updatePOStatus(ctx, operatorId, id, status);
+}
+
+export async function receivePOAction(
+  operatorId: string,
+  poId: string,
+  received: Record<string, { qty: number; batchNo: string; expiry: string }>,
+) {
+  const ctx = await requireModule("pharmacy");
+  return receivePO(ctx, operatorId, poId, received);
+}
+
+export async function approveReturnAction(operatorId: string, id: string) {
+  const ctx = await requireModule("pharmacy");
+  return approveReturn(ctx, operatorId, id);
+}
+
+export async function restockReturnAction(operatorId: string, id: string) {
+  const ctx = await requireModule("pharmacy");
+  return restockReturn(ctx, operatorId, id);
+}
+
+export async function fulfillIndentAction(operatorId: string, id: string, qty: number) {
+  const ctx = await requireModule("pharmacy");
+  return fulfillIndent(ctx, operatorId, id, qty);
+}
+
+export async function listPharmacyAuditLogsAction(input?: { limit?: number; cursor?: string }) {
+  const ctx = await requireModule("pharmacy");
+  return listPharmacyAuditLogs(ctx, input ?? {});
+}
+
+/** @deprecated Use granular mutation actions — kept for staff credential sync only */
 export async function savePharmacyStateAction(next: PharmacyStateShape): Promise<void> {
   await requireModule("pharmacy");
   await ensureRevenueSeeded();
-  await writeState(next);
   await Promise.all(
     next.staff.map(async (member) =>
       prisma.pharmacyOperatorCredential.upsert({
@@ -102,73 +191,31 @@ export async function upsertPharmacyOperatorAction(input: {
   const passwordHash = await hashPassword(input.password);
   await prisma.pharmacyOperatorCredential.upsert({
     where: { id: input.id },
-    create: {
-      ...input,
-      email: input.email.trim().toLowerCase(),
-      passwordHash,
-    },
-    update: {
-      ...input,
-      email: input.email.trim().toLowerCase(),
-      passwordHash,
-    },
+    create: { ...input, email: input.email.trim().toLowerCase(), passwordHash },
+    update: { ...input, email: input.email.trim().toLowerCase(), passwordHash },
   });
 }
 
-export async function listDrugsAction(): Promise<Drug[]> {
-  await requireModule("pharmacy");
-  return (await readState()).drugs;
+// Legacy list aliases — snapshot includes all data
+export async function getPharmacyStateAction(operatorId: string) {
+  return getPharmacySnapshotAction(operatorId);
 }
 
-export async function listInventoryAction(): Promise<StockBatch[]> {
-  await requireModule("pharmacy");
-  return (await readState()).stock;
+export async function listDrugsAction(operatorId: string) {
+  return (await getPharmacySnapshotAction(operatorId)).drugs;
 }
 
-export async function listPrescriptionsAction(): Promise<Prescription[]> {
-  await requireModule("pharmacy");
-  return (await readState()).prescriptions;
+export async function listPrescriptionsAction(operatorId: string) {
+  return (await getPharmacySnapshotAction(operatorId)).prescriptions;
 }
 
-export async function listBillingAction(): Promise<PharmacyBill[]> {
-  await requireModule("pharmacy");
-  return (await readState()).bills;
+export async function listAuditAction(operatorId: string) {
+  return (await getPharmacySnapshotAction(operatorId)).activities;
 }
 
-export async function listPurchaseOrdersAction(): Promise<PurchaseOrder[]> {
-  await requireModule("pharmacy");
-  return (await readState()).purchaseOrders;
-}
-
-export async function listSuppliersAction(): Promise<Supplier[]> {
-  await requireModule("pharmacy");
-  return (await readState()).suppliers;
-}
-
-export async function listReturnsAction(): Promise<ReturnRecord[]> {
-  await requireModule("pharmacy");
-  return (await readState()).returns;
-}
-
-export async function listIndentsAction(): Promise<WardIndent[]> {
-  await requireModule("pharmacy");
-  return (await readState()).indents;
-}
-
-export async function listAuditAction(): Promise<PharmacyActivity[]> {
-  await requireModule("pharmacy");
-  return (await readState()).activities;
-}
-
-export async function listScheduleHAction(): Promise<ScheduleHEntry[]> {
-  await requireModule("pharmacy");
-  return (await readState()).scheduleH;
-}
-
-export async function listExpiryRiskAction() {
-  await requireModule("pharmacy");
+export async function listExpiryRiskAction(operatorId: string) {
   const now = Date.now();
-  const state = await readState();
+  const state = await getPharmacySnapshotAction(operatorId);
   return state.stock
     .map((batch) => ({
       batch,

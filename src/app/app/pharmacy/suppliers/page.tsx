@@ -59,7 +59,7 @@ export default function PharmacySuppliersPage() {
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <AttioButton variant="secondary" onClick={() => setOpen(false)}>Cancel</AttioButton>
-              <AttioButton variant="primary" onClick={() => { addSupplier(form); setOpen(false); }}>Save</AttioButton>
+              <AttioButton variant="primary" onClick={() => { void addSupplier(form).then(() => setOpen(false)); }}>Save</AttioButton>
             </div>
           </div>
         </div>

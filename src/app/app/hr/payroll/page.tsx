@@ -9,6 +9,12 @@ import { useMemo, useState } from "react";
 export default function HrPayrollPage() {
   const { payroll, employees, processPayroll, markPayrollPaid, generatePayrollRun, isManager } = useHrStore();
   const [period, setPeriod] = useState(hrPeriodYm(0));
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 4000);
+  };
 
   const periodLines = useMemo(() => payroll.filter((p) => p.period === period), [payroll, period]);
   const totals = useMemo(() => {
@@ -40,8 +46,8 @@ export default function HrPayrollPage() {
             variant="secondary"
             onClick={async () => {
               const n = await generatePayrollRun(period);
-              if (n) alert(`Generated ${n} payroll line(s) for ${period}`);
-              else alert(`All employees already have payroll for ${period}`);
+              if (n) showToast(`Generated ${n} payroll line(s) for ${period}`);
+              else showToast(`All employees already have payroll for ${period}`);
             }}
           >
             Generate run
@@ -59,6 +65,9 @@ export default function HrPayrollPage() {
         </div>
       }
     >
+      {toast && (
+        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-[13px] text-emerald-800">{toast}</div>
+      )}
       <div className="mb-4">
         <select className="h-9 rounded-md border px-2 text-[13px]" value={period} onChange={(e) => setPeriod(e.target.value)}>
           {[0, -1, -2].map((o) => {

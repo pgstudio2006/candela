@@ -3,19 +3,34 @@
 import { useDoctorStore } from "@/components/doctor/doctor-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { Panel, StatusBadge } from "@/components/frontdesk/ui";
-import { DOCTOR_SCHEDULE_BLOCKS } from "@/design-system/doctor-data";
-import { formatStageStatus } from "@/lib/frontdesk-workflow";
+import { useDoctorPoll } from "@/hooks/use-doctor-poll";
+import { formatStageStatus, patientDisplayName } from "@/lib/frontdesk-workflow";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
+
+const DEFAULT_SLOTS = [
+  "09:00", "09:20", "09:40", "10:00", "10:20", "10:40",
+  "11:00", "11:20", "11:40", "12:00", "12:20", "12:40",
+  "14:00", "14:20", "14:40", "15:00", "15:20", "15:40",
+  "16:00", "16:20", "16:40", "17:00",
+];
 
 export default function DoctorSchedulePage() {
-  const { activeDoctorId, visits } = useDoctorStore();
-  const block = DOCTOR_SCHEDULE_BLOCKS.find((b) => b.doctorId === activeDoctorId)
-    ?? DOCTOR_SCHEDULE_BLOCKS[0];
+  useDoctorPoll();
+  const { activeDoctorId, visits, getPatient } = useDoctorStore();
+  const today = new Date().toLocaleDateString("en-IN", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 
-  const booked = visits
+  const appointments = visits
     .filter((v) => v.doctorId === activeDoctorId && v.appointment)
-    .map((v) => v.appointmentTime)
-    .filter(Boolean);
+    .sort((a, b) => String(a.appointmentTime).localeCompare(String(b.appointmentTime)));
+
+  const booked = new Set(appointments.map((v) => v.appointmentTime).filter(Boolean));
+  const slots = [...new Set([...DEFAULT_SLOTS, ...booked])].sort();
 
   return (
     <PageChrome
@@ -24,13 +39,13 @@ export default function DoctorSchedulePage() {
         { label: "Schedule" },
       ]}
       title="Today's schedule"
-      meta={`${block.date} · OPD slots`}
+      meta={`${today} · ${appointments.length} appointment(s)`}
     >
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel title="OPD time slots">
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-            {block.slots.map((slot) => {
-              const taken = booked.includes(slot);
+            {slots.map((slot) => {
+              const taken = booked.has(slot);
               return (
                 <div
                   key={slot}
@@ -51,18 +66,25 @@ export default function DoctorSchedulePage() {
 
         <Panel title="Appointments today">
           <ul className="divide-y divide-[var(--attio-border-subtle)]">
-            {visits
-              .filter((v) => v.doctorId === activeDoctorId && v.appointment)
-              .map((v) => (
-                <li key={v.id} className="flex items-center justify-between py-3 text-[13px]">
-                  <span>{v.appointmentTime}</span>
-                  <StatusBadge label={`Token #${v.token}`} variant="info" />
-                  <span className="text-[var(--attio-text-secondary)]">{formatStageStatus(v.stage)}</span>
-                </li>
-              ))}
-            {visits.filter((v) => v.doctorId === activeDoctorId && v.appointment).length === 0 && (
-              <li className="py-6 text-center text-[var(--attio-text-tertiary)]">No appointments</li>
+            {appointments.length === 0 && (
+              <li className="py-6 text-center text-[var(--attio-text-tertiary)]">No appointments booked</li>
             )}
+            {appointments.map((v) => {
+              const p = getPatient(v.patientId);
+              return (
+                <li key={v.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-[13px]">
+                  <span className="font-medium">{v.appointmentTime}</span>
+                  <Link
+                    href={`/app/doctor/patients/${v.patientId}`}
+                    className="text-[var(--attio-text-secondary)] hover:text-[var(--attio-accent)]"
+                  >
+                    {p ? patientDisplayName(p) : v.patientId}
+                  </Link>
+                  <StatusBadge label={`Token #${v.token}`} variant="info" />
+                  <StatusBadge label={formatStageStatus(v.stage)} variant="neutral" />
+                </li>
+              );
+            })}
           </ul>
         </Panel>
       </div>

@@ -1,15 +1,38 @@
-import type { NursingEpisode, NursingHandoffPayload, TreatmentSession, VitalsRecord, ConsentRecord } from "@/design-system/nurse-data";
-import { DEMO_NURSE_ID, DEMO_NURSE_NAME, requiredConsentsComplete, sessionCountForPackage, templatesForHandoff } from "@/design-system/nurse-data";
+import type {
+  ConsentRecord,
+  NursingEpisode,
+  NursingHandoffPayload,
+  TreatmentSession,
+  VitalsRecord,
+} from "@/design-system/nurse-data";
+import {
+  requiredConsentsComplete,
+  sessionCountForPackage,
+  templatesForHandoff,
+} from "@/design-system/nurse-data";
 import type { Patient, Visit } from "@/design-system/frontdesk-data";
+import {
+  validateCompleteEpisode,
+  validateSaveVitals,
+  validateSignConsent,
+  validateStartSession,
+  validateUploadConsent,
+} from "@/lib/nurse-validation";
 import { prisma } from "@/lib/prisma";
 import { getClinicalSnapshot } from "@/server/clinical";
-import { resolveNurseOperator } from "@/server/module-operator";
 import type { ServerContext } from "@/server/context";
+import { ServerActionError } from "@/server/errors";
+import { resolveNurseOperator } from "@/server/module-operator";
+import {
+  assertNurseOwnsEpisode,
+  requireNurseEpisode,
+  requireNurseHandoff,
+  requireNurseVisit,
+} from "@/server/nurse/guards";
+import { writePlatformAudit } from "@/server/platform-audit";
+import { syncVisitFromOpdVisit } from "@/server/visit-sync";
 
-function asRecord(value: unknown): Record<string, string | number | boolean> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  return value as Record<string, string | number | boolean>;
-}
+const NURSING_STAGES = ["nursing_queue", "nursing_active"] as const;
 
 function asNursingHandoff(value: {
   visitId: string;
@@ -47,8 +70,12 @@ function asNursingHandoff(value: {
     balanceDue: value.balanceDue ?? undefined,
     netAmount: value.netAmount,
     commercialConsent: value.commercialConsent,
-    billingHandoff: value.billingHandoff ? (value.billingHandoff as NursingHandoffPayload["billingHandoff"]) : undefined,
-    consultation: value.consultation ? (value.consultation as NursingHandoffPayload["consultation"]) : undefined,
+    billingHandoff: value.billingHandoff
+      ? (value.billingHandoff as NursingHandoffPayload["billingHandoff"])
+      : undefined,
+    consultation: value.consultation
+      ? (value.consultation as NursingHandoffPayload["consultation"])
+      : undefined,
     ipdWard: value.ipdWard ?? undefined,
     ipdBed: value.ipdBed ?? undefined,
     sentAt: value.sentAt,
@@ -117,7 +144,7 @@ function buildConsents(handoff: NursingHandoffPayload): ConsentRecord[] {
   }));
 }
 
-function buildSessions(handoff: NursingHandoffPayload): TreatmentSession[] {
+function buildInitialSessions(handoff: NursingHandoffPayload): TreatmentSession[] {
   const total = sessionCountForPackage(handoff.packageId);
   return [
     {
@@ -131,43 +158,85 @@ function buildSessions(handoff: NursingHandoffPayload): TreatmentSession[] {
   ];
 }
 
+function computePriority(handoff: NursingHandoffPayload, vitals?: VitalsRecord): "normal" | "high" {
+  if (handoff.treatmentPath === "ipd") return "high";
+  if (vitals?.redFlags?.trim()) return "high";
+  return "normal";
+}
+
+async function ensureVisitSynced(ctx: ServerContext, visitId: string) {
+  const opd = await requireNurseVisit(ctx, visitId);
+  await syncVisitFromOpdVisit(ctx, opd);
+  return opd;
+}
+
+async function syncVisitAfterUpdate(ctx: ServerContext, visitId: string) {
+  const updatedOpd = await prisma.opdVisit.findUnique({ where: { id: visitId } });
+  if (updatedOpd) await syncVisitFromOpdVisit(ctx, updatedOpd);
+}
+
 export type NurseSnapshot = {
   patients: Patient[];
   visits: Visit[];
   handoffs: NursingHandoffPayload[];
   episodes: NursingEpisode[];
+  activeNurseId: string;
+  activeNurseName: string;
+  branchId: string;
 };
 
 export async function getNurseSnapshot(ctx: ServerContext): Promise<NurseSnapshot> {
+  const { operatorId, operatorName } = await resolveNurseOperator(ctx);
   const clinical = await getClinicalSnapshot(ctx);
-  const branchVisitIds = clinical.visits.map((v) => v.id);
+  const branchVisitIds = new Set(clinical.visits.map((v) => v.id));
+  const nursingVisits = clinical.visits.filter((v) =>
+    NURSING_STAGES.includes(v.stage as (typeof NURSING_STAGES)[number]),
+  );
+  const nursingVisitIds = nursingVisits.map((v) => v.id);
+
   const [handoffRows, episodeRows] = await Promise.all([
     prisma.nursingHandoff.findMany({
-      where: { visitId: { in: branchVisitIds } },
+      where: { visitId: { in: nursingVisitIds } },
       orderBy: { createdAt: "asc" },
     }),
     prisma.nursingEpisode.findMany({
-      where: { branchId: ctx.branchId },
+      where: { branchId: ctx.branchId, visitId: { in: [...branchVisitIds] } },
       orderBy: { createdAt: "asc" },
     }),
   ]);
+
   return {
     patients: clinical.patients,
     visits: clinical.visits,
     handoffs: handoffRows.map(asNursingHandoff),
     episodes: episodeRows.map(asEpisode),
+    activeNurseId: operatorId,
+    activeNurseName: operatorName,
+    branchId: ctx.branchId,
   };
 }
 
-export async function claimEpisode(visitId: string, ctx: ServerContext) {
+export async function claimEpisode(ctx: ServerContext, visitId: string): Promise<NursingEpisode> {
   const { operatorId, operatorName } = await resolveNurseOperator(ctx);
-  const existing = await prisma.nursingEpisode.findUnique({ where: { visitId } });
-  if (existing) return;
-  const handoffRow = await prisma.nursingHandoff.findUnique({ where: { visitId } });
-  if (!handoffRow) return;
+  const handoffRow = await requireNurseHandoff(ctx, visitId);
+  await ensureVisitSynced(ctx, visitId);
   const handoff = asNursingHandoff(handoffRow);
 
-  await prisma.nursingEpisode.create({
+  const existing = await prisma.nursingEpisode.findUnique({ where: { visitId } });
+  if (existing) {
+    if (existing.status === "completed") {
+      throw new ServerActionError("VALIDATION", "This nursing episode is already completed.");
+    }
+    if (existing.nurseId !== operatorId) {
+      throw new ServerActionError(
+        "FORBIDDEN",
+        `Episode claimed by ${existing.nurseName}. Ask them to release or contact a supervisor.`,
+      );
+    }
+    return asEpisode(existing);
+  }
+
+  const created = await prisma.nursingEpisode.create({
     data: {
       id: `ep_${visitId}`,
       visitId,
@@ -183,166 +252,441 @@ export async function claimEpisode(visitId: string, ctx: ServerContext) {
       billingStatus: handoff.billingStatus,
       balanceDue: handoff.balanceDue ?? null,
       status: "queued",
-      priority: handoff.treatmentPath === "ipd" ? "high" : "normal",
+      priority: computePriority(handoff),
       queuedAt: handoff.sentAt,
       consents: buildConsents(handoff),
-      sessions: buildSessions(handoff),
+      sessions: buildInitialSessions(handoff),
       internalNotes: "",
     },
   });
+
+  await writePlatformAudit({
+    ctx,
+    module: "nurse",
+    action: "episode_claimed",
+    entityType: "visit",
+    entityId: visitId,
+    summary: `Nursing episode claimed for ${handoff.patientName} by ${operatorName}`,
+    payload: { packageLabel: handoff.packageLabel, treatmentPath: handoff.treatmentPath },
+  });
+
+  return asEpisode(created);
 }
 
 export async function saveVitals(
+  ctx: ServerContext,
   visitId: string,
   vitals: Omit<VitalsRecord, "visitId" | "recordedAt" | "recordedBy">,
-  ctx: ServerContext,
 ) {
-  const { operatorName } = await resolveNurseOperator(ctx);
+  const { operatorId, operatorName } = await resolveNurseOperator(ctx);
+  await assertNurseOwnsEpisode(ctx, visitId, operatorId);
+  const validated = validateSaveVitals(vitals);
+
   const record: VitalsRecord = {
-    ...vitals,
+    ...validated,
     visitId,
     recordedAt: new Date().toISOString(),
     recordedBy: operatorName,
   };
-  await prisma.$transaction([
-    prisma.nursingEpisode.update({
+
+  const priority = validated.redFlags.trim() ? "high" : undefined;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.nursingEpisode.update({
       where: { visitId },
       data: {
         vitals: record,
         status: "consent",
+        ...(priority ? { priority } : {}),
       },
-    }),
-    prisma.opdVisit.updateMany({
+    });
+    await tx.opdVisit.updateMany({
       where: { id: visitId, stage: "nursing_queue" },
-      data: { stage: "nursing_active" },
-    }),
-  ]);
-}
+      data: {
+        stage: "nursing_active",
+        routingNote: validated.redFlags.trim()
+          ? `Nursing active · red flags noted: ${validated.redFlags.slice(0, 80)}`
+          : "Nursing intake · vitals captured",
+      },
+    });
+  });
 
-async function patchConsent(visitId: string, consentId: string, patch: Partial<ConsentRecord>) {
-  const episode = await prisma.nursingEpisode.findUnique({ where: { visitId } });
-  if (!episode) return;
-  const consents = (Array.isArray(episode.consents) ? episode.consents : []) as ConsentRecord[];
-  const next = consents.map((c) => (c.id === consentId ? { ...c, ...patch } : c));
-  await prisma.nursingEpisode.update({
-    where: { visitId },
-    data: { consents: next },
+  await syncVisitAfterUpdate(ctx, visitId);
+
+  await writePlatformAudit({
+    ctx,
+    module: "nurse",
+    action: "vitals_recorded",
+    entityType: "visit",
+    entityId: visitId,
+    summary: `Vitals recorded by ${operatorName}`,
+    severity: validated.redFlags.trim() ? "warning" : "info",
+    payload: {
+      bp: `${record.bpSystolic}/${record.bpDiastolic}`,
+      pulse: record.pulse,
+      spo2: record.spo2,
+      redFlags: record.redFlags || undefined,
+    },
   });
 }
 
-export async function presentConsent(visitId: string, consentId: string) {
-  await patchConsent(visitId, consentId, { status: "presented" });
+async function patchConsent(
+  ctx: ServerContext,
+  visitId: string,
+  consentId: string,
+  patch: Partial<ConsentRecord>,
+  audit: { action: string; summary: string; severity?: "info" | "warning" | "critical" },
+) {
+  const { operatorId } = await resolveNurseOperator(ctx);
+  const episode = await assertNurseOwnsEpisode(ctx, visitId, operatorId);
+  const consents = (Array.isArray(episode.consents) ? episode.consents : []) as ConsentRecord[];
+  const consent = consents.find((c) => c.id === consentId);
+  if (!consent) {
+    throw new ServerActionError("NOT_FOUND", "Consent record not found.");
+  }
+
+  const next = consents.map((c) => (c.id === consentId ? { ...c, ...patch } : c));
+  const allVerified = requiredConsentsComplete(next);
+
+  await prisma.nursingEpisode.update({
+    where: { visitId },
+    data: {
+      consents: next,
+      status: allVerified ? "ready" : episode.status === "queued" ? "consent" : episode.status,
+    },
+  });
+
+  await writePlatformAudit({
+    ctx,
+    module: "nurse",
+    action: audit.action,
+    entityType: "consent",
+    entityId: consentId,
+    summary: audit.summary,
+    severity: audit.severity,
+    payload: { visitId, label: consent.label },
+  });
+}
+
+export async function presentConsent(ctx: ServerContext, visitId: string, consentId: string) {
+  const { operatorName } = await resolveNurseOperator(ctx);
+  await patchConsent(ctx, visitId, consentId, { status: "presented" }, {
+    action: "consent_presented",
+    summary: `Consent presented by ${operatorName}`,
+  });
 }
 
 export async function signConsent(
+  ctx: ServerContext,
   visitId: string,
   consentId: string,
-  data: { signatureDataUrl: string; signerName: string; signerRole: ConsentRecord["signerRole"]; witnessName?: string },
+  data: {
+    signatureDataUrl: string;
+    signerName: string;
+    signerRole?: ConsentRecord["signerRole"];
+    witnessName?: string;
+  },
 ) {
-  await patchConsent(visitId, consentId, {
-    status: "signed",
-    captureMode: "canvas",
-    signatureDataUrl: data.signatureDataUrl,
-    signerName: data.signerName,
-    signerRole: data.signerRole ?? "patient",
-    witnessName: data.witnessName,
-    signedAt: new Date().toISOString(),
-  });
+  const { operatorId, operatorName } = await resolveNurseOperator(ctx);
+  const episode = await assertNurseOwnsEpisode(ctx, visitId, operatorId);
+  const validated = validateSignConsent(data, episode.treatmentPath);
+
+  await patchConsent(
+    ctx,
+    visitId,
+    consentId,
+    {
+      status: "signed",
+      captureMode: "canvas",
+      signatureDataUrl: validated.signatureDataUrl,
+      signerName: validated.signerName,
+      signerRole: validated.signerRole ?? "patient",
+      witnessName: validated.witnessName,
+      signedAt: new Date().toISOString(),
+    },
+    {
+      action: "consent_signed",
+      summary: `Consent signed by ${validated.signerName} (verified by ${operatorName})`,
+    },
+  );
 }
 
 export async function uploadConsent(
+  ctx: ServerContext,
   visitId: string,
   consentId: string,
   data: { uploadDataUrl: string; uploadFileName: string; signerName: string },
 ) {
-  await patchConsent(visitId, consentId, {
-    status: "uploaded",
-    captureMode: "upload",
-    uploadDataUrl: data.uploadDataUrl,
-    uploadFileName: data.uploadFileName,
-    signerName: data.signerName,
-    signedAt: new Date().toISOString(),
-  });
+  const { operatorName } = await resolveNurseOperator(ctx);
+  const validated = validateUploadConsent(data);
+
+  await patchConsent(
+    ctx,
+    visitId,
+    consentId,
+    {
+      status: "uploaded",
+      captureMode: "upload",
+      uploadDataUrl: validated.uploadDataUrl,
+      uploadFileName: validated.uploadFileName,
+      signerName: validated.signerName,
+      signedAt: new Date().toISOString(),
+    },
+    {
+      action: "consent_uploaded",
+      summary: `Consent scan uploaded for ${validated.signerName} by ${operatorName}`,
+    },
+  );
 }
 
-export async function verifyConsent(visitId: string, consentId: string) {
-  const episode = await prisma.nursingEpisode.findUnique({ where: { visitId } });
-  if (!episode) return;
-  const consents = ((Array.isArray(episode.consents) ? episode.consents : []) as ConsentRecord[]).map((c) =>
-    c.id === consentId
-      ? {
-          ...c,
-          status: "verified" as const,
-          verifiedAt: new Date().toISOString(),
-          verifiedBy: DEMO_NURSE_NAME,
-        }
-      : c,
+export async function verifyConsent(ctx: ServerContext, visitId: string, consentId: string) {
+  const { operatorId, operatorName } = await resolveNurseOperator(ctx);
+  const episode = await assertNurseOwnsEpisode(ctx, visitId, operatorId);
+  const consents = ((Array.isArray(episode.consents) ? episode.consents : []) as ConsentRecord[]).map(
+    (c) =>
+      c.id === consentId
+        ? {
+            ...c,
+            status: "verified" as const,
+            verifiedAt: new Date().toISOString(),
+            verifiedBy: operatorName,
+          }
+        : c,
   );
+
+  const allVerified = requiredConsentsComplete(consents);
+
   await prisma.nursingEpisode.update({
     where: { visitId },
     data: {
       consents,
-      status: requiredConsentsComplete(consents) ? "ready" : episode.status,
+      status: allVerified ? "ready" : episode.status,
     },
   });
-}
 
-export async function declineConsent(visitId: string, consentId: string, reason: string) {
-  await patchConsent(visitId, consentId, {
-    status: "declined",
-    declinedReason: reason,
+  await writePlatformAudit({
+    ctx,
+    module: "nurse",
+    action: "consent_verified",
+    entityType: "consent",
+    entityId: consentId,
+    summary: `Consent verified by ${operatorName}`,
+    payload: { visitId, allRequiredComplete: allVerified },
   });
 }
 
-export async function startSession(visitId: string, bay: string) {
-  const episode = await prisma.nursingEpisode.findUnique({ where: { visitId } });
-  if (!episode) return;
-  const consents = (Array.isArray(episode.consents) ? episode.consents : []) as ConsentRecord[];
-  if (!requiredConsentsComplete(consents)) return;
-  const sessions = ((Array.isArray(episode.sessions) ? episode.sessions : []) as TreatmentSession[]).map((s, i) =>
-    i === 0 ? { ...s, status: "in_progress" as const, bay, startedAt: new Date().toISOString() } : s,
-  );
-  await prisma.nursingEpisode.update({
-    where: { visitId },
-    data: {
-      sessions,
-      status: "in_treatment",
+export async function declineConsent(ctx: ServerContext, visitId: string, consentId: string, reason: string) {
+  const { operatorName } = await resolveNurseOperator(ctx);
+  if (!reason.trim()) {
+    throw new ServerActionError("VALIDATION", "Decline reason is required.");
+  }
+  await patchConsent(
+    ctx,
+    visitId,
+    consentId,
+    { status: "declined", declinedReason: reason.trim() },
+    {
+      action: "consent_declined",
+      summary: `Consent declined by ${operatorName}`,
+      severity: "warning",
     },
-  });
+  );
 }
 
-export async function completeSession(visitId: string, sessionId: string, notes?: string) {
-  const episode = await prisma.nursingEpisode.findUnique({ where: { visitId } });
-  if (!episode) return;
-  const sessions = ((Array.isArray(episode.sessions) ? episode.sessions : []) as TreatmentSession[]).map((s) =>
-    s.id === sessionId ? { ...s, status: "completed" as const, completedAt: new Date().toISOString(), notes } : s,
+export async function startSession(ctx: ServerContext, visitId: string, bay: string) {
+  const { operatorId, operatorName } = await resolveNurseOperator(ctx);
+  const episodeRow = await assertNurseOwnsEpisode(ctx, visitId, operatorId);
+  const episode = asEpisode(episodeRow);
+  const { session } = validateStartSession(episode, episode.consents, bay);
+
+  const sessions = episode.sessions.map((s) =>
+    s.id === session.id
+      ? { ...s, status: "in_progress" as const, bay, startedAt: new Date().toISOString() }
+      : s,
   );
+
   await prisma.nursingEpisode.update({
     where: { visitId },
-    data: { sessions },
+    data: { sessions, status: "in_treatment" },
+  });
+
+  await writePlatformAudit({
+    ctx,
+    module: "nurse",
+    action: "session_started",
+    entityType: "session",
+    entityId: session.id,
+    summary: `Session ${session.sessionNumber} started in ${bay} by ${operatorName}`,
+    payload: { visitId, bay },
   });
 }
 
-export async function completeEpisode(visitId: string) {
-  await prisma.$transaction([
-    prisma.nursingEpisode.update({
+function buildNextSession(visitId: string, packageId: string, packageLabel: string, nextNumber: number): TreatmentSession {
+  const total = sessionCountForPackage(packageId);
+  return {
+    id: `ts_${visitId}_${nextNumber}`,
+    visitId,
+    sessionNumber: nextNumber,
+    totalSessions: total,
+    procedure: packageLabel,
+    status: "scheduled",
+  };
+}
+
+export async function completeSession(
+  ctx: ServerContext,
+  visitId: string,
+  sessionId: string,
+  notes?: string,
+): Promise<{ episodeComplete: boolean; nextSessionNumber?: number }> {
+  const { operatorId, operatorName } = await resolveNurseOperator(ctx);
+  const episodeRow = await assertNurseOwnsEpisode(ctx, visitId, operatorId);
+  const episode = asEpisode(episodeRow);
+
+  const session = episode.sessions.find((s) => s.id === sessionId);
+  if (!session) {
+    throw new ServerActionError("NOT_FOUND", "Treatment session not found.");
+  }
+  if (session.status !== "in_progress") {
+    throw new ServerActionError("VALIDATION", "Only an in-progress session can be completed.");
+  }
+
+  const sessions = episode.sessions.map((s) =>
+    s.id === sessionId
+      ? { ...s, status: "completed" as const, completedAt: new Date().toISOString(), notes }
+      : s,
+  );
+
+  const total = sessionCountForPackage(episode.packageId);
+  const hasMore = session.sessionNumber < total;
+
+  if (hasMore) {
+    const nextSession = buildNextSession(
+      visitId,
+      episode.packageId,
+      episode.packageLabel,
+      session.sessionNumber + 1,
+    );
+    sessions.push(nextSession);
+
+    await prisma.$transaction(async (tx) => {
+      await tx.nursingEpisode.update({
+        where: { visitId },
+        data: { sessions, status: "ready" },
+      });
+      await tx.opdVisit.update({
+        where: { id: visitId },
+        data: {
+          routingNote: `Session ${session.sessionNumber}/${total} complete · session ${nextSession.sessionNumber} scheduled`,
+        },
+      });
+    });
+
+    await syncVisitAfterUpdate(ctx, visitId);
+
+    await writePlatformAudit({
+      ctx,
+      module: "nurse",
+      action: "session_completed",
+      entityType: "session",
+      entityId: sessionId,
+      summary: `Session ${session.sessionNumber}/${total} completed by ${operatorName} · next session scheduled`,
+      payload: { visitId, notes, nextSession: nextSession.sessionNumber },
+    });
+
+    return { episodeComplete: false, nextSessionNumber: nextSession.sessionNumber };
+  }
+
+  await prisma.nursingEpisode.update({
+    where: { visitId },
+    data: { sessions, status: "ready" },
+  });
+
+  await writePlatformAudit({
+    ctx,
+    module: "nurse",
+    action: "session_completed",
+    entityType: "session",
+    entityId: sessionId,
+    summary: `Final session ${session.sessionNumber}/${total} completed by ${operatorName}`,
+    payload: { visitId, notes },
+  });
+
+  return { episodeComplete: false };
+}
+
+export async function completeEpisode(ctx: ServerContext, visitId: string) {
+  const { operatorId, operatorName } = await resolveNurseOperator(ctx);
+  const episodeRow = await assertNurseOwnsEpisode(ctx, visitId, operatorId);
+  const episode = asEpisode(episodeRow);
+  validateCompleteEpisode(episode);
+
+  const completedCount = episode.sessions.filter((s) => s.status === "completed").length;
+  const total = sessionCountForPackage(episode.packageId);
+  const routingNote =
+    completedCount >= total
+      ? `All ${total} treatment sessions complete`
+      : `Care plan active · ${completedCount}/${total} sessions complete`;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.nursingEpisode.update({
       where: { visitId },
       data: { status: "completed", completedAt: new Date().toISOString() },
-    }),
-    prisma.nursingHandoff.deleteMany({ where: { visitId } }),
-    prisma.opdVisit.update({
+    });
+    await tx.nursingHandoff.deleteMany({ where: { visitId } });
+    await tx.opdVisit.update({
       where: { id: visitId },
-      data: {
-        stage: "completed",
-        routingNote: "Treatment session 1 complete · care plan active",
-      },
-    }),
-  ]);
+      data: { stage: "completed", routingNote },
+    });
+  });
+
+  await syncVisitAfterUpdate(ctx, visitId);
+
+  await writePlatformAudit({
+    ctx,
+    module: "nurse",
+    action: "episode_completed",
+    entityType: "visit",
+    entityId: visitId,
+    summary: `Nursing episode closed by ${operatorName} · ${completedCount}/${total} sessions done`,
+    payload: { packageLabel: episode.packageLabel, completedCount, total },
+  });
 }
 
-export async function updateEpisodeNotes(visitId: string, notes: string) {
+export async function updateEpisodeNotes(ctx: ServerContext, visitId: string, notes: string) {
+  const { operatorId } = await resolveNurseOperator(ctx);
+  await assertNurseOwnsEpisode(ctx, visitId, operatorId);
   await prisma.nursingEpisode.update({
     where: { visitId },
-    data: { internalNotes: notes },
+    data: { internalNotes: notes.slice(0, 4000) },
   });
+}
+
+export async function listNurseAuditLogs(
+  ctx: ServerContext,
+  input: { limit?: number; cursor?: string },
+) {
+  const limit = Math.min(100, Math.max(10, input.limit ?? 50));
+  const rows = await prisma.auditLog.findMany({
+    where: {
+      tenantId: ctx.tenantId,
+      branchId: ctx.branchId,
+      module: "nurse",
+      ...(input.cursor ? { createdAt: { lt: new Date(input.cursor) } } : {}),
+    },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+
+  return rows.map((r) => ({
+    id: r.id,
+    at: r.createdAt.toISOString(),
+    actor: r.actor,
+    actorRole: r.actorRole ?? "",
+    action: r.action,
+    entityType: r.entityType,
+    entityId: r.entityId,
+    summary: r.summary,
+    severity: r.severity,
+  }));
 }

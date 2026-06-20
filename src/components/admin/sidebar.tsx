@@ -4,7 +4,8 @@ import { CandelaBrand, CandelaMark } from "@/components/candela/candela-mark";
 import { CopilotMark } from "@/components/frontdesk/copilot-mark";
 import { SectionLabel } from "@/components/frontdesk/page-chrome";
 import { SidebarIcon } from "@/components/frontdesk/sidebar-icon";
-import { ADMIN_NAV, ADMIN_NAV_GROUPS } from "@/design-system/admin-nav";
+import { ADMIN_NAV, ADMIN_NAV_GROUPS, canAccessAdminNav } from "@/design-system/admin-nav";
+import { useAdminStore } from "@/components/admin/admin-store";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,7 +40,11 @@ export function AdminSidebar({
   onSignOut,
 }: AdminSidebarProps) {
   const pathname = usePathname();
+  const { isViewer, canManageConfig, canManageFinance } = useAdminStore();
   const [collapsed, setCollapsed] = useState(false);
+  const navItems = ADMIN_NAV.filter((n) =>
+    canAccessAdminNav(n, { isViewer, canManageConfig, canManageFinance }),
+  );
 
   useEffect(() => {
     if (localStorage.getItem(SIDEBAR_KEY) === "1") setCollapsed(true);
@@ -88,7 +93,7 @@ export function AdminSidebar({
           <div key={group.id} className="mb-3">
             {!collapsed && <SectionLabel>{group.label}</SectionLabel>}
             <nav className="space-y-0.5">
-              {ADMIN_NAV.filter((n) => n.group === group.id).map((item) => {
+              {navItems.filter((n) => n.group === group.id).map((item) => {
                 const active = item.href === "/app/admin" ? pathname === item.href : pathname.startsWith(item.href);
                 return (
                   <Link

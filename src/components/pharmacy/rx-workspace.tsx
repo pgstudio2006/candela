@@ -95,9 +95,10 @@ export function RxWorkspaceModal({ rx, onClose }: { rx: Prescription; onClose: (
                   <AttioButton
                     variant="primary"
                     onClick={() => {
-                      verifyPrescription(rx.id);
-                      setMsg("Prescription verified — proceed to dispense.");
-                      setTab("dispense");
+                      void verifyPrescription(rx.id).then(() => {
+                        setMsg("Prescription verified — proceed to dispense.");
+                        setTab("dispense");
+                      }).catch((err) => setMsg(err instanceof Error ? err.message : "Verify failed"));
                     }}
                   >
                     Verify Rx
@@ -108,8 +109,7 @@ export function RxWorkspaceModal({ rx, onClose }: { rx: Prescription; onClose: (
                       variant="secondary"
                       onClick={() => {
                         if (!rejectReason.trim()) return;
-                        rejectPrescription(rx.id, rejectReason);
-                        onClose();
+                        void rejectPrescription(rx.id, rejectReason).then(() => onClose());
                       }}
                     >
                       Reject
@@ -158,11 +158,10 @@ export function RxWorkspaceModal({ rx, onClose }: { rx: Prescription; onClose: (
                 variant="primary"
                 disabled={!["verified", "partially_dispensed"].includes(rx.status)}
                 onClick={() => {
-                  const result = dispensePrescription(rx.id, qtys, witness || undefined);
-                  if (!result.ok) setMsg(result.error ?? "Dispense failed");
-                  else {
-                    setMsg(`Dispensed — bill ${result.billId} created. Collect payment in Billing.`);
-                  }
+                  void dispensePrescription(rx.id, qtys, witness || undefined).then((result) => {
+                    if (!result.ok) setMsg(result.error ?? "Dispense failed");
+                    else setMsg(`Dispensed — bill ${result.billId} created. Collect payment in Billing.`);
+                  });
                 }}
               >
                 Dispense & create bill

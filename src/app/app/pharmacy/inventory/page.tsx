@@ -56,7 +56,7 @@ export default function PharmacyInventoryPage() {
             rack: s.rack,
             status: s.quarantined ? <StatusBadge label="Quarantine" variant="danger" /> : <StatusBadge label="Active" variant="success" />,
             actions: (
-              <AttioButton variant="ghost" className="!h-7 !text-[11px]" onClick={() => quarantineBatch(s.id, !s.quarantined)}>
+              <AttioButton variant="ghost" className="!h-7 !text-[11px]" onClick={() => void quarantineBatch(s.id, !s.quarantined)}>
                 {s.quarantined ? "Release" : "Quarantine"}
               </AttioButton>
             ),

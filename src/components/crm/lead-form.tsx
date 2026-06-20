@@ -141,7 +141,7 @@ export function CrmLeadFormModal({ open, onClose, initial, onSaved }: CrmLeadFor
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.fullName.trim() || !form.phone.trim()) {
       setError("Name and phone are required.");
@@ -155,14 +155,18 @@ export function CrmLeadFormModal({ open, onClose, initial, onSaved }: CrmLeadFor
     const payload = formToLeadPayload(form);
     const assigneeId = isManager() ? payload.assigneeId : operatorId;
 
-    if (initial) {
-      updateLead(initial.id, { ...payload, assigneeId: assigneeId || initial.assigneeId });
-      onSaved?.(initial.id);
-    } else {
-      addLead({ ...payload, assigneeId, sourceDetail: "Manual capture" });
-      onSaved?.("");
+    try {
+      if (initial) {
+        await updateLead(initial.id, { ...payload, assigneeId: assigneeId || initial.assigneeId });
+        onSaved?.(initial.id);
+      } else {
+        await addLead({ ...payload, assigneeId, sourceDetail: "Manual capture" });
+        onSaved?.("");
+      }
+      onClose();
+    } catch {
+      setError("Could not save lead. Try again.");
     }
-    onClose();
   };
 
   return (

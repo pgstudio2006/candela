@@ -1,12 +1,13 @@
 "use server";
 
-import { updateAdminSettings } from "@/server/admin/actions";
-import { requireModule } from "@/server/auth";
 import type { AdminPlatformSettings } from "@/design-system/admin-data";
+import { resolveAdminOperator } from "@/server/module-operator";
+import { getAdminSnapshotForContext } from "@/server/admin/index";
+import { updateAdminSettings as updateAdminSettingsCore } from "@/server/admin/index";
 
 export async function updateAdminSettingsAction(patch: Partial<AdminPlatformSettings>) {
-  const ctx = await requireModule("admin");
-  return updateAdminSettings(patch, ctx.userId);
+  const { ctx, operator } = await resolveAdminOperator();
+  return updateAdminSettingsCore(ctx, operator, patch);
 }
 
 export async function createStaffWithLoginAction(input: {
@@ -14,7 +15,13 @@ export async function createStaffWithLoginAction(input: {
   moduleRole?: string;
   password?: string;
 }) {
-  const ctx = await requireModule("admin");
+  const { ctx, operator } = await resolveAdminOperator();
+  const { assertConfigAccess } = await import("@/server/admin/guards");
+  assertConfigAccess(operator);
   const { addStaffWithLogin } = await import("@/server/admin/staff-onboarding");
-  return addStaffWithLogin(ctx, input);
+  const result = await addStaffWithLogin(ctx, input);
+  return {
+    ...result,
+    snapshot: await getAdminSnapshotForContext(ctx, operator),
+  };
 }

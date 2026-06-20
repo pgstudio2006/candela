@@ -6,7 +6,8 @@ import { AdminCommandPalette } from "@/components/admin/command-palette";
 import { useAdminStore } from "@/components/admin/admin-store";
 import { AdminSidebar } from "@/components/admin/sidebar";
 import { CopilotPanel } from "@/components/frontdesk/copilot-panel";
-import { getAdminNavItem } from "@/design-system/admin-nav";
+import { useAdminPoll } from "@/hooks/use-admin-poll";
+import { ADMIN_NAV, getAdminNavItem, canAccessAdminNav } from "@/design-system/admin-nav";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -14,15 +15,27 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { session, authReady, signOut, setCommandOpen, commandOpen } = useSession();
-  const { ready, error, refresh } = useAdminStore();
+  const { ready, error, refresh, isViewer, canManageConfig, canManageFinance } = useAdminStore();
   const [copilotOpen, setCopilotOpen] = useState(false);
   const current = getAdminNavItem(pathname);
+
+  useAdminPoll();
 
   useEffect(() => {
     if (!authReady) return;
     if (!session) router.replace("/login");
     else if (session.role !== "admin") router.replace(`/app/${session.role}`);
   }, [session, authReady, router]);
+
+  useEffect(() => {
+    if (!session || session.role !== "admin" || !ready) return;
+    const blocked = ADMIN_NAV.find(
+      (n) =>
+        (pathname === n.href || pathname.startsWith(`${n.href}/`)) &&
+        !canAccessAdminNav(n, { isViewer, canManageConfig, canManageFinance }),
+    );
+    if (blocked) router.replace("/app/admin");
+  }, [pathname, session, isViewer, canManageConfig, canManageFinance, ready, router]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

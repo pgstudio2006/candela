@@ -58,11 +58,14 @@ async function seedHrData() {
     data: SEED_HR_EMPLOYEES,
     skipDuplicates: true,
   });
+  const { hashPassword } = await import("@/server/revenue/password");
   await prisma.hrCredential.createMany({
-    data: Object.entries(SEED_HR_PASSWORDS).map(([employeeId, password]) => ({
-      employeeId,
-      password,
-    })),
+    data: await Promise.all(
+      Object.entries(SEED_HR_PASSWORDS).map(async ([employeeId, password]) => ({
+        employeeId,
+        password: await hashPassword(password),
+      })),
+    ),
     skipDuplicates: true,
   });
   await prisma.hrShift.createMany({

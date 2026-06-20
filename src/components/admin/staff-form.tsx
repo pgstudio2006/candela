@@ -20,11 +20,12 @@ type StaffFormProps = {
   open: boolean;
   onClose: () => void;
   departments: DepartmentConfig[];
+  branchId: string;
   initial?: StaffMember;
   onSave: (data: Omit<StaffMember, "id">, opts?: { createLogin?: boolean; password?: string }) => void;
 };
 
-export function StaffFormModal({ open, onClose, departments, initial, onSave }: StaffFormProps) {
+export function StaffFormModal({ open, onClose, departments, branchId, initial, onSave }: StaffFormProps) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -33,7 +34,7 @@ export function StaffFormModal({ open, onClose, departments, initial, onSave }: 
   const [licenseNo, setLicenseNo] = useState("");
   const [onDuty, setOnDuty] = useState(true);
   const [createLogin, setCreateLogin] = useState(true);
-  const [password, setPassword] = useState("Welcome2026!");
+  const [password, setPassword] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -45,7 +46,7 @@ export function StaffFormModal({ open, onClose, departments, initial, onSave }: 
     setLicenseNo(initial?.licenseNo ?? "");
     setOnDuty(initial?.onDuty ?? true);
     setCreateLogin(!initial);
-    setPassword("Welcome2026!");
+    setPassword("");
   }, [open, initial]);
 
   if (!open) return null;
@@ -64,7 +65,7 @@ export function StaffFormModal({ open, onClose, departments, initial, onSave }: 
         phone: phone.trim() || "+91",
         role,
         departmentIds,
-        branchId: initial?.branchId ?? "branch_gurgaon",
+        branchId: initial?.branchId ?? branchId,
         licenseNo: licenseNo.trim() || undefined,
         onDuty,
         joinedAt: initial?.joinedAt ?? new Date().toISOString().slice(0, 10),
@@ -127,7 +128,7 @@ export function StaffFormModal({ open, onClose, departments, initial, onSave }: 
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="h-9 text-[13px]"
-                  placeholder="Initial password"
+                  placeholder="Auto-generated if blank"
                 />
               )}
             </div>

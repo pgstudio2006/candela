@@ -23,7 +23,7 @@ export default function PharmacyPurchaseOrdersPage() {
   const quickPo = () => {
     const lowDrug = drugs.find((d) => d.id === "dr_amox");
     if (!lowDrug) return;
-    createPO("sup_1", [{ drugId: lowDrug.id, qtyOrdered: 50, qtyReceived: 0, rate: 72, gstPercent: 12 }], "Auto from low stock");
+    void createPO("sup_1", [{ drugId: lowDrug.id, qtyOrdered: 50, qtyReceived: 0, rate: 72, gstPercent: 12 }], "Auto from low stock");
   };
 
   return (
@@ -55,7 +55,7 @@ export default function PharmacyPurchaseOrdersPage() {
           actions: (
             <div className="flex flex-wrap gap-1">
               {p.status === "draft" && (
-                <AttioButton variant="ghost" className="!h-7 !text-[11px]" onClick={() => updatePOStatus(p.id, "approved")}>
+                <AttioButton variant="ghost" className="!h-7 !text-[11px]" onClick={() => void updatePOStatus(p.id, "approved")}>
                   Approve
                 </AttioButton>
               )}
@@ -86,9 +86,10 @@ export default function PharmacyPurchaseOrdersPage() {
                   if (!po || !batch.batchNo || !batch.expiry) return;
                   const drugId = po.lines[0]?.drugId;
                   if (!drugId) return;
-                  receivePO(receiveId, { [drugId]: { batchNo: batch.batchNo, expiry: batch.expiry, qty: Number(batch.qty) || po.lines[0].qtyOrdered } });
-                  setReceiveId(null);
-                  setBatch({ batchNo: "", expiry: "", qty: "" });
+                  void receivePO(receiveId, { [drugId]: { batchNo: batch.batchNo, expiry: batch.expiry, qty: Number(batch.qty) || po.lines[0].qtyOrdered } }).then(() => {
+                    setReceiveId(null);
+                    setBatch({ batchNo: "", expiry: "", qty: "" });
+                  });
                 }}
               >
                 Confirm GRN

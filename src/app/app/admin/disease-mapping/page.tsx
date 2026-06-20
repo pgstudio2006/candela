@@ -6,10 +6,10 @@ import { useAdminStore } from "@/components/admin/admin-store";
 import { GroupedBarChart, ChartCard } from "@/components/doctor/analytics-charts";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel } from "@/components/frontdesk/ui";
-import { SEED_DISEASE_CLUSTERS, SEED_SEASONAL_PATTERNS } from "@/design-system/admin-data";
+import { SEED_SEASONAL_PATTERNS } from "@/design-system/admin-data";
 import { cn } from "@/lib/utils";
 import { AlertTriangle, Download } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 const SEVERITY_DOT = {
   high: "bg-red-500",
@@ -18,12 +18,17 @@ const SEVERITY_DOT = {
 } as const;
 
 export default function AdminDiseaseMappingPage() {
-  const { diseaseMap, logAdminAction } = useAdminStore();
-  const [selectedId, setSelectedId] = useState(SEED_DISEASE_CLUSTERS[1]?.id);
+  const { diseaseMap, diseaseClusters, settings, logAdminAction } = useAdminStore();
+  const [selectedId, setSelectedId] = useState<string | undefined>();
   const [tab, setTab] = useState<"clusters" | "clinical">("clusters");
 
-  const mapPoints = useMemo(() => diseaseToMapPoints(SEED_DISEASE_CLUSTERS), []);
-  const selected = SEED_DISEASE_CLUSTERS.find((c) => c.id === selectedId);
+  useEffect(() => {
+    if (!selectedId && diseaseClusters[0]?.id) setSelectedId(diseaseClusters[0].id);
+  }, [diseaseClusters, selectedId]);
+
+  const mapPoints = useMemo(() => diseaseToMapPoints(diseaseClusters), [diseaseClusters]);
+  const selected = diseaseClusters.find((c) => c.id === selectedId);
+  const highSurge = diseaseClusters.filter((c) => (c.surgePercent ?? 0) >= 40);
 
   const seasonalGroups = useMemo(
     () =>
@@ -43,7 +48,7 @@ export default function AdminDiseaseMappingPage() {
     <PageChrome
       breadcrumbs={[{ label: "Admin", href: "/app/admin" }, { label: "Disease mapping" }]}
       title="Disease cluster mapping"
-      meta="Geospatial disease prevalence · seasonal patterns · clinical care routing"
+      meta="Live geospatial prevalence · clinical care routing"
       actions={
         <AttioButton variant="secondary" onClick={() => logAdminAction("Exported disease cluster report")}>
           <Download className="size-3.5" />
@@ -59,52 +64,58 @@ export default function AdminDiseaseMappingPage() {
     >
       {tab === "clusters" ? (
         <>
-          <div className="mb-4 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
-            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-600" />
-            <div className="text-[13px] text-red-900">
-              <p className="font-medium">Active outbreak alert</p>
-              <p className="mt-0.5 text-red-800">
-                Dengue cases up 65% in Navrangpura zone. Seasonal surge detected in 3 localities — Satellite, Navrangpura, Vastrapur.
-              </p>
+          {settings.outbreakAlerts && highSurge.length > 0 && (
+            <div className="mb-4 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-red-600" />
+              <div className="text-[13px] text-red-900">
+                <p className="font-medium">Outbreak alert</p>
+                <p className="mt-0.5 text-red-800">
+                  {highSurge.map((c) => `${c.topDisease} surge in ${c.locality} (+${c.surgePercent}%)`).join(" · ")}
+                </p>
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
             <AdminLeafletMap points={mapPoints} selectedId={selectedId} flyToId={selectedId} />
             <Panel title="Select an area">
-              <ul className="divide-y divide-[var(--attio-border-subtle)]">
-                {SEED_DISEASE_CLUSTERS.map((c) => (
-                  <li key={c.id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(c.id)}
-                      className={cn(
-                        "flex w-full items-center justify-between py-3 text-left text-[13px] transition-colors",
-                        selectedId === c.id && "bg-[var(--attio-surface)]",
-                      )}
-                    >
-                      <span className="flex items-center gap-2">
-                        <span className={cn("size-2 rounded-full", SEVERITY_DOT[c.severity])} />
-                        <span className="font-medium">{c.locality}</span>
-                      </span>
-                      <span className="tabular-nums text-[var(--attio-text-secondary)]">{c.caseCount}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              {diseaseClusters.length === 0 ? (
+                <p className="py-6 text-center text-[13px] text-[var(--attio-text-tertiary)]">No clusters yet — data builds from live consultations</p>
+              ) : (
+                <ul className="divide-y divide-[var(--attio-border-subtle)]">
+                  {diseaseClusters.map((c) => (
+                    <li key={c.id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(c.id)}
+                        className={cn(
+                          "flex w-full items-center justify-between py-3 text-left text-[13px] transition-colors",
+                          selectedId === c.id && "bg-[var(--attio-surface)]",
+                        )}
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className={cn("size-2 rounded-full", SEVERITY_DOT[c.severity])} />
+                          <span className="font-medium">{c.locality}</span>
+                        </span>
+                        <span className="tabular-nums text-[var(--attio-text-secondary)]">{c.caseCount}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
               {selected && (
                 <div className="mt-3 rounded-md border border-[var(--attio-border-subtle)] bg-[var(--attio-surface)] p-3 text-[12px]">
                   <p className="font-medium">{selected.locality}</p>
                   <p className="mt-1 text-[var(--attio-text-tertiary)]">Top disease: {selected.topDisease}</p>
-                  {selected.surgePercent && (
-                    <p className="mt-1 text-red-600">+{selected.surgePercent}% vs last month</p>
-                  )}
+                  {selected.surgePercent ? (
+                    <p className="mt-1 text-red-600">+{selected.surgePercent}% vs baseline</p>
+                  ) : null}
                 </div>
               )}
             </Panel>
           </div>
 
-          <ChartCard title="Seasonal disease pattern" subtitle="Cases per month · anonymized aggregate" className="mt-4">
+          <ChartCard title="Seasonal disease pattern" subtitle="Reference baseline · anonymized aggregate" className="mt-4">
             <GroupedBarChart
               groups={seasonalGroups}
               legend={[
@@ -118,14 +129,6 @@ export default function AdminDiseaseMappingPage() {
         </>
       ) : (
         <>
-          <div className="mb-4 flex gap-2">
-            <AttioButton variant="secondary" onClick={() => logAdminAction("Exported disease mapping graph")}>
-              Export mapping
-            </AttioButton>
-            <AttioButton variant="primary" onClick={() => logAdminAction("Synced disease map to doctor templates")}>
-              Sync to clinical
-            </AttioButton>
-          </div>
           <DiseaseMappingGraph nodes={diseaseMap} />
           <Panel title="Mapping rules" className="mt-4">
             <p className="text-[13px] text-[var(--attio-text-secondary)]">

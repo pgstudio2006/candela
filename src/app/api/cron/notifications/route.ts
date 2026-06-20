@@ -1,25 +1,13 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
-import { getServerContext } from "@/server/context";
-import { processAllTenantNotifications, processNotificationQueue } from "@/server/notifications";
+import { verifyCronSecret } from "@/server/scheduled-jobs";
+import { runAllScheduledJobs } from "@/server/scheduled-jobs";
 
-/** Manual/cron trigger: GET /api/cron/notifications?secret=... */
+/** @deprecated Use /api/cron/scheduled-jobs — kept for backward compatibility */
 export async function GET(request: Request) {
-  const url = new URL(request.url);
-  const secret = url.searchParams.get("secret");
-  const expected = process.env.CRON_SECRET ?? "candela-cron-demo";
-
-  if (secret !== expected) {
+  if (!verifyCronSecret(request)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  const session = await auth();
-  if (session?.user?.tenantId && session.user.branchId) {
-    const ctx = await getServerContext();
-    const result = await processNotificationQueue(ctx);
-    return NextResponse.json({ ok: true, mode: "session", ...result });
-  }
-
-  const result = await processAllTenantNotifications();
-  return NextResponse.json({ ok: true, mode: "system", ...result });
+  const result = await runAllScheduledJobs();
+  return NextResponse.json({ ok: true, mode: "system", legacy: true, ...result });
 }

@@ -4,8 +4,12 @@ import { useCounsellorStore } from "@/components/counsellor/counsellor-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel } from "@/components/frontdesk/ui";
 import { formatConsultDate } from "@/lib/doctor-records";
+import { useCounsellorPoll } from "@/hooks/use-counsellor-poll";
+import { useToast } from "@/components/ui/toast-provider";
 
 export default function CounsellorApprovalsPage() {
+  useCounsellorPoll();
+  const { toast } = useToast();
   const { approvals, resolveApproval } = useCounsellorStore();
 
   return (
@@ -23,8 +27,22 @@ export default function CounsellorApprovalsPage() {
                   <p className="mt-1 text-[12px] text-[var(--attio-accent)]">Net: ₹{a.quoteSnapshot.netAmount.toLocaleString("en-IN")} · {a.quoteSnapshot.packageLabel}</p>
                 </div>
                 <div className="flex gap-2">
-                  <AttioButton variant="primary" onClick={() => resolveApproval(a.id, true)}>Approve</AttioButton>
-                  <AttioButton variant="secondary" onClick={() => resolveApproval(a.id, false)}>Reject</AttioButton>
+                  <AttioButton
+                    variant="primary"
+                    onClick={() =>
+                      void resolveApproval(a.id, true).then(() => toast("Discount approved", "success"))
+                    }
+                  >
+                    Approve
+                  </AttioButton>
+                  <AttioButton
+                    variant="secondary"
+                    onClick={() =>
+                      void resolveApproval(a.id, false).then(() => toast("Discount rejected", "success"))
+                    }
+                  >
+                    Reject
+                  </AttioButton>
                 </div>
               </div>
             </li>

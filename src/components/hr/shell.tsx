@@ -3,7 +3,7 @@
 import { StoreGate } from "@/components/candela/store-gate";
 import { HrCommandPalette } from "@/components/hr/command-palette";
 import { HrSidebar } from "@/components/hr/sidebar";
-import { HR_MANAGER_ID } from "@/components/hr/hr-store";
+import { useHrPoll } from "@/hooks/use-hr-poll";
 import { useHrStore } from "@/components/hr/hr-store";
 import { useSession } from "@/components/candela/session-provider";
 import { CopilotPanel } from "@/components/frontdesk/copilot-panel";
@@ -19,6 +19,8 @@ export function HrShell({ children }: { children: ReactNode }) {
   const [copilotOpen, setCopilotOpen] = useState(false);
   const current = getHrNavItem(pathname);
 
+  useHrPoll();
+
   useEffect(() => {
     if (!authReady) return;
     if (!session) {
@@ -33,13 +35,12 @@ export function HrShell({ children }: { children: ReactNode }) {
   }, [session, authReady, router]);
 
   useEffect(() => {
-    if (!session?.hrOperatorId) return;
-    const manager = session.hrOperatorId === HR_MANAGER_ID;
-    if (!manager) {
+    if (!session?.hrOperatorId || !ready) return;
+    if (!isManager()) {
       const blocked = HR_NAV.find((n) => n.managerOnly && pathname.startsWith(n.href));
       if (blocked) router.replace("/app/hr");
     }
-  }, [pathname, session?.hrOperatorId, router]);
+  }, [pathname, session?.hrOperatorId, isManager, ready, router]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

@@ -2,6 +2,7 @@ import {
   BarChart3,
   BedDouble,
   Calendar,
+  ClipboardList,
   FileStack,
   LayoutDashboard,
   ListOrdered,
@@ -26,6 +27,7 @@ export const DOCTOR_NAV: DoctorNavItem[] = [
   { id: "templates", label: "My templates", href: "/app/doctor/templates", icon: ScrollText },
   { id: "documents", label: "Print templates", href: "/app/doctor/documents", icon: FileStack },
   { id: "analytics", label: "Analytics", href: "/app/doctor/analytics", icon: BarChart3 },
+  { id: "audit", label: "Audit log", href: "/app/doctor/audit", icon: ClipboardList },
 ];
 
 export function getDoctorNavItem(pathname: string) {

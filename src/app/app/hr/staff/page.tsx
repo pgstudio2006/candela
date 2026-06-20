@@ -11,12 +11,18 @@ import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 
 export default function HrStaffPage() {
-  const { employees, departments, leaveRequests, addEmployee, updateEmployee, isManager } = useHrStore();
+  const { employees, departments, leaveRequests, crmAgents, addEmployee, updateEmployee, isManager } = useHrStore();
   const [showForm, setShowForm] = useState(false);
   const [editEmp, setEditEmp] = useState<HrEmployee | null>(null);
   const [detail, setDetail] = useState<HrEmployee | null>(null);
   const [q, setQ] = useState("");
   const [deptFilter, setDeptFilter] = useState("all");
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 8000);
+  };
 
   const filtered = useMemo(() => {
     return employees
@@ -32,6 +38,9 @@ export default function HrStaffPage() {
       meta={`${filtered.length} employees · departments · CRM linkage`}
       actions={isManager() ? <AttioButton variant="primary" onClick={() => { setEditEmp(null); setShowForm(true); }}><Plus className="size-3.5" /> Add employee</AttioButton> : undefined}
     >
+      {toast && (
+        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-[13px] text-emerald-800">{toast}</div>
+      )}
       <div className="mb-4 flex flex-wrap gap-3">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-2.5 top-2.5 size-3.5 text-[var(--attio-text-tertiary)]" />
@@ -73,11 +82,19 @@ export default function HrStaffPage() {
         <EmployeeFormModal
           departments={departments}
           employees={employees}
+          crmAgents={crmAgents}
           initial={editEmp ?? undefined}
           onClose={() => { setShowForm(false); setEditEmp(null); }}
-          onSave={(data) => {
-            if (editEmp) updateEmployee(editEmp.id, data);
-            else addEmployee(data as Omit<HrEmployee, "id">);
+          onSave={async (data, password) => {
+            if (editEmp) {
+              await updateEmployee(editEmp.id, data);
+            } else {
+              const initialPassword = await addEmployee(data as Omit<HrEmployee, "id">, password);
+              const email = "email" in data && data.email ? data.email : "";
+              if (initialPassword && email) {
+                showToast(`Employee created · login: ${email} / ${initialPassword}`);
+              }
+            }
           }}
         />
       )}

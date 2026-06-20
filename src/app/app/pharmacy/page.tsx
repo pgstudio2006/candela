@@ -8,9 +8,9 @@ import { daysToExpiry } from "@/lib/pharmacy-platform";
 import Link from "next/link";
 
 export default function PharmacyDashboardPage() {
-  const { getKpis, prescriptions, stock, drugs, activities, purchaseOrders, getDrug } = usePharmacyStore();
+  const { getKpis, getActivePrescriptions, stock, drugs, activities, purchaseOrders, getDrug } = usePharmacyStore();
   const kpis = getKpis();
-  const urgent = prescriptions.filter((r) => ["pending", "verified"].includes(r.status)).slice(0, 6);
+  const urgent = getActivePrescriptions().slice(0, 6);
   const alerts = stock
     .filter((s) => {
       const d = daysToExpiry(s.expiry);

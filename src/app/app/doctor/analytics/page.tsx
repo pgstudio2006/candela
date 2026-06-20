@@ -10,9 +10,11 @@ import {
 import { useDoctorStore } from "@/components/doctor/doctor-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { MetricStrip, Panel } from "@/components/frontdesk/ui";
+import { useDoctorPoll } from "@/hooks/use-doctor-poll";
 import { useMemo, useState } from "react";
 
 export default function DoctorAnalyticsPage() {
+  useDoctorPoll();
   const [tab, setTab] = useState("visuals");
   const { getAnalytics, getChartAnalytics, getDashboardKpis, counsellorQueue } = useDoctorStore();
   const analytics = getAnalytics();

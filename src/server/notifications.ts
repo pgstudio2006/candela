@@ -176,3 +176,48 @@ export async function notifyLowStock(
     module: "pharmacy",
   });
 }
+
+export async function notifyPrescriptionWhatsapp(
+  ctx: ServerContext,
+  input: { patientName: string; phone: string; visitId: string; lineCount: number },
+) {
+  if (!input.phone?.trim()) return null;
+  return queueNotification(ctx, {
+    channel: "whatsapp",
+    recipient: input.phone,
+    subject: "Prescription ready",
+    body: `Hi ${input.patientName}, your prescription (${input.lineCount} item(s)) from Navayu is ready. Collect at pharmacy or view at reception.`,
+    module: "doctor",
+    entityId: input.visitId,
+  });
+}
+
+export async function notifyPharmacyDispenseWhatsapp(
+  ctx: ServerContext,
+  input: { patientName: string; phone: string; visitId: string; billId: string; total: number },
+) {
+  if (!input.phone?.trim()) return null;
+  return queueNotification(ctx, {
+    channel: "whatsapp",
+    recipient: input.phone,
+    subject: "Medicines ready for collection",
+    body: `Hi ${input.patientName}, your medicines are ready at Navayu pharmacy. Bill ${input.billId} — ₹${input.total.toLocaleString("en-IN")}. Please collect at the counter.`,
+    module: "pharmacy",
+    entityId: input.visitId,
+  });
+}
+
+export async function notifyCounsellorQuoteWhatsapp(
+  ctx: ServerContext,
+  input: { patientName: string; phone: string; visitId: string; netAmount: number; packageLabel: string },
+) {
+  if (!input.phone?.trim()) return null;
+  return queueNotification(ctx, {
+    channel: "whatsapp",
+    recipient: input.phone,
+    subject: "Package quote",
+    body: `Hi ${input.patientName}, your Navayu package quote for ${input.packageLabel} is ₹${input.netAmount.toLocaleString("en-IN")}. Visit reception to confirm enrollment.`,
+    module: "counsellor",
+    entityId: input.visitId,
+  });
+}

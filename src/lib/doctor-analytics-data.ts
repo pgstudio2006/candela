@@ -92,11 +92,7 @@ export function computeDoctorChartAnalytics(
     dxMap.set(dx, (dxMap.get(dx) ?? 0) + 1);
   }
   if (dxMap.size === 0) {
-    for (const v of doctorVisits.filter((x) => x.stage === "with_doctor" || x.stage === "awaiting_counsellor")) {
-      const p = patients.find((pt) => pt.id === v.patientId);
-      const label = p?.department.includes("Wellness") ? "Metabolic syndrome" : "MSK / spine disorder";
-      dxMap.set(label, (dxMap.get(label) ?? 0) + 1);
-    }
+    dxMap.set("No data yet", 0);
   }
   const diagnosisMix = [...dxMap.entries()]
     .sort((a, b) => b[1] - a[1])
@@ -109,15 +105,9 @@ export function computeDoctorChartAnalytics(
 
   // Daily consultations (current week)
   const dayCounts = Array(7).fill(0);
-  const sources = completed.length ? completed : doctorConsults;
-  for (const c of sources) {
+  for (const c of completed) {
     const iso = c.completedAt ?? c.startedAt;
     if (iso) dayCounts[dayIndex(iso)] += 1;
-  }
-  if (sources.length === 0) {
-    for (const v of doctorVisits) {
-      if (v.checkInAt) dayCounts[dayIndex(`2026-06-18T${v.checkInAt}`)] += 1;
-    }
   }
   const dayMax = Math.max(...dayCounts, 1);
   const dailyConsultations = DAYS.map((label, i) => ({
@@ -151,10 +141,6 @@ export function computeDoctorChartAnalytics(
       procMap.set(proc, (procMap.get(proc) ?? 0) + 1);
     }
   }
-  if (procMap.size === 0) {
-    const seed = ["X-Ray lumbar spine", "MRI screening", "Physio assessment", "Blood panel"];
-    seed.forEach((p, i) => procMap.set(p, 4 - i));
-  }
   const procMax = Math.max(...procMap.values(), 1);
   const topProcedures = [...procMap.entries()]
     .sort((a, b) => b[1] - a[1])
@@ -164,20 +150,13 @@ export function computeDoctorChartAnalytics(
   // Monthly OPD vs IPD
   const monthOpd = Array(6).fill(0);
   const monthIpd = Array(6).fill(0);
-  const volumeSources = completed.length ? completed : doctorConsults;
-  for (const c of volumeSources) {
+  for (const c of completed) {
     const iso = c.completedAt ?? c.startedAt;
     if (!iso) continue;
     const mi = monthIndex(iso);
     if (mi > 5) continue;
     if (c.treatmentMode === "ipd") monthIpd[mi] += 1;
     else monthOpd[mi] += 1;
-  }
-  if (volumeSources.length === 0) {
-    monthOpd[2] = doctorVisits.filter((v) => v.stage !== "completed").length || 3;
-    monthIpd[2] = 1;
-    monthOpd[5] = 2;
-    monthOpd[0] = 1;
   }
   const volMax = Math.max(...monthOpd, ...monthIpd, 1);
   const patientVolume = MONTHS.map((label, i) => ({

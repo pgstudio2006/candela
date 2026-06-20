@@ -1,13 +1,15 @@
 "use client";
 
+import { getIpdRoundHistoryAction } from "@/app/actions/doctor-actions";
 import { SchemaForm } from "@/components/candela/schema-form";
 import { useDoctorStore } from "@/components/doctor/doctor-store";
 import { useDoctorFormSchema } from "@/components/doctor/use-doctor-form-schema";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { Panel, StatusBadge } from "@/components/frontdesk/ui";
+import { useDoctorPoll } from "@/hooks/use-doctor-poll";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 const WARD_BEDS: Record<string, string[]> = {
   "MSK Ward A": ["A-12", "A-13", "A-14", "A-15"],
@@ -15,16 +17,28 @@ const WARD_BEDS: Record<string, string[]> = {
   "Daycare Bay": ["D-01", "D-02"],
 };
 
+type RoundRecord = Awaited<ReturnType<typeof getIpdRoundHistoryAction>>[number];
+
 export default function DoctorIpdPage() {
+  useDoctorPoll();
   const { ipdPatients, getPatient, activeDoctorId, saveIpdRound } = useDoctorStore();
   const schema = useDoctorFormSchema("doctor-ipd-round");
   const [activeIpd, setActiveIpd] = useState<string | null>(null);
+  const [roundHistory, setRoundHistory] = useState<RoundRecord[]>([]);
 
-  const myPatients = ipdPatients.filter(
-    (ip) => ip.attendingDoctorId === activeDoctorId || activeDoctorId === "dr_1",
-  );
+  const myPatients = ipdPatients.filter((ip) => ip.attendingDoctorId === activeDoctorId);
 
   const selected = myPatients.find((ip) => ip.id === activeIpd);
+
+  const loadHistory = useCallback(async (ipdId: string) => {
+    const rows = await getIpdRoundHistoryAction(ipdId);
+    setRoundHistory(rows);
+  }, []);
+
+  useEffect(() => {
+    if (activeIpd) void loadHistory(activeIpd);
+    else setRoundHistory([]);
+  }, [activeIpd, loadHistory]);
 
   return (
     <PageChrome
@@ -33,7 +47,7 @@ export default function DoctorIpdPage() {
         { label: "IPD rounds" },
       ]}
       title="IPD ward rounds"
-      meta="Bed allocation · nursing consent · pharmacy indents · doctor rounds"
+      meta="Bed allocation · round history · live sync"
       actions={
         <div className="flex gap-2">
           <Link href="/app/nurse/queue" className="inline-flex h-9 items-center rounded-md border px-3 text-[13px] hover:bg-[var(--attio-hover)]">Nursing queue</Link>
@@ -118,10 +132,27 @@ export default function DoctorIpdPage() {
                 submitLabel="Save round note"
                 onSubmit={(data) => {
                   saveIpdRound(selected.id, data);
-                  setActiveIpd(null);
+                  void loadHistory(selected.id);
                 }}
               />
             </Panel>
+
+            {roundHistory.length > 0 && (
+              <Panel title="Round history">
+                <ul className="divide-y divide-[var(--attio-border-subtle)]">
+                  {roundHistory.map((round) => (
+                    <li key={round.id} className="py-3">
+                      <p className="text-[11px] text-[var(--attio-text-tertiary)]">
+                        {new Date(round.at).toLocaleString("en-IN")}
+                      </p>
+                      <pre className="mt-1 whitespace-pre-wrap font-sans text-[12px] text-[var(--attio-text-secondary)]">
+                        {round.note}
+                      </pre>
+                    </li>
+                  ))}
+                </ul>
+              </Panel>
+            )}
           </div>
         ) : (
           <Panel title="Select a patient">

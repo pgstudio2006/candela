@@ -53,6 +53,7 @@ export type CounsellorQueueItem = {
 
 export type IpdPatient = {
   id: string;
+  visitId?: string;
   patientId: string;
   ward: string;
   bed: string;

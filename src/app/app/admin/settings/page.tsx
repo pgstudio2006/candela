@@ -3,19 +3,29 @@
 import { useAdminStore } from "@/components/admin/admin-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel } from "@/components/frontdesk/ui";
-import { updateAdminSettingsAction } from "@/server/admin/settings-actions";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function AdminSettingsPage() {
-  const { settings, refresh } = useAdminStore();
+  const { settings, updateSettings, canManageConfig } = useAdminStore();
   const [saving, setSaving] = useState(false);
   const [local, setLocal] = useState(settings);
+
+  useEffect(() => {
+    setLocal(settings);
+  }, [settings]);
+
+  if (!canManageConfig) {
+    return (
+      <PageChrome breadcrumbs={[{ label: "Admin", href: "/app/admin" }, { label: "Settings" }]} title="Admin settings" meta="Configuration access required">
+        <p className="text-[13px]">Settings are managed by admin configuration roles.</p>
+      </PageChrome>
+    );
+  }
 
   const save = async () => {
     setSaving(true);
     try {
-      await updateAdminSettingsAction(local);
-      await refresh();
+      await updateSettings(local);
     } finally {
       setSaving(false);
     }
@@ -64,8 +74,7 @@ export default function AdminSettingsPage() {
           </label>
         </div>
       </Panel>
-
-      <Panel title="Integrations & automation" className="mt-4">
+      <Panel title="Alerts & automation" className="mt-4">
         <div className="space-y-3 text-[13px]">
           <label className="flex items-center gap-2">
             <input
@@ -73,7 +82,7 @@ export default function AdminSettingsPage() {
               checked={local.outbreakAlerts}
               onChange={(e) => setLocal({ ...local, outbreakAlerts: e.target.checked })}
             />
-            Outbreak / surge alerts
+            Disease outbreak alerts
           </label>
           <label className="flex items-center gap-2">
             <input
@@ -81,7 +90,7 @@ export default function AdminSettingsPage() {
               checked={local.autoMisDaily}
               onChange={(e) => setLocal({ ...local, autoMisDaily: e.target.checked })}
             />
-            Auto-run daily MIS (trigger via /api/cron/notifications)
+            Auto-run daily MIS (via cron)
           </label>
           <label className="flex items-center gap-2">
             <input
@@ -89,7 +98,7 @@ export default function AdminSettingsPage() {
               checked={local.whatsappConsentFlag}
               onChange={(e) => setLocal({ ...local, whatsappConsentFlag: e.target.checked })}
             />
-            WhatsApp / SMS consent remote sign
+            Require WhatsApp consent flag on outreach
           </label>
         </div>
       </Panel>

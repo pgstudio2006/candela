@@ -1,10 +1,9 @@
 import {
   Activity,
-  ClipboardList,
   FileCheck,
-  HeartPulse,
   LayoutDashboard,
   ListOrdered,
+  ScrollText,
   Settings,
   Users,
   type LucideIcon,
@@ -23,6 +22,7 @@ export const NURSE_NAV: NurseNavItem[] = [
   { id: "patients", label: "Patients", href: "/app/nurse/patients", icon: Users },
   { id: "consent", label: "Consent registry", href: "/app/nurse/consent", icon: FileCheck },
   { id: "analytics", label: "Analytics", href: "/app/nurse/analytics", icon: Activity },
+  { id: "audit", label: "Audit log", href: "/app/nurse/audit", icon: ScrollText },
   { id: "settings", label: "Settings", href: "/app/nurse/settings", icon: Settings },
 ];
 

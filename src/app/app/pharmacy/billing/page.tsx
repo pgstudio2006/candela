@@ -31,7 +31,7 @@ export default function PharmacyBillingPage() {
           gst: `₹${b.gstTotal.toFixed(0)}`,
           status: <StatusBadge label={b.paid ? "Paid" : "Pending"} variant={b.paid ? "success" : "danger"} />,
           actions: !b.paid ? (
-            <AttioButton variant="primary" className="!h-7 !text-[11px]" onClick={() => markBillPaid(b.id, "upi")}>
+            <AttioButton variant="primary" className="!h-7 !text-[11px]" onClick={() => void markBillPaid(b.id, "upi")}>
               Mark paid
             </AttioButton>
           ) : (

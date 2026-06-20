@@ -111,6 +111,7 @@ export default function HrLeavePage() {
         <LeaveRequestModal
           employees={employees}
           operatorId={operatorId}
+          isManager={isManager()}
           onClose={() => setFormOpen(false)}
           onSave={(data) => addLeaveRequest(data)}
         />

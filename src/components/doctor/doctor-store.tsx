@@ -28,6 +28,7 @@ import {
 } from "@/app/actions/doctor-actions";
 import type { ScribeDraft } from "@/lib/ai/scribe-types";
 import { computeDoctorChartAnalytics } from "@/lib/doctor-analytics-data";
+import { filterDoctorOpdQueue } from "@/lib/doctor-queue";
 import { patientDisplayName } from "@/lib/frontdesk-workflow";
 import { parseActionError } from "@/lib/action-errors";
 import { isTransientSessionError, sleep } from "@/lib/session-retry";
@@ -37,6 +38,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -52,6 +54,7 @@ type DoctorState = {
   templates: DoctorTemplate[];
   documentTemplates: DocumentTemplate[];
   packages: typeof CARE_PACKAGES;
+  juniorSubmissions: Record<string, Record<string, string | number | boolean>>;
 };
 
 type DoctorStoreValue = {
@@ -67,6 +70,7 @@ type DoctorStoreValue = {
   templates: DoctorTemplate[];
   packages: typeof CARE_PACKAGES;
   documentTemplates: DocumentTemplate[];
+  getJuniorSubmission: (visitId: string) => Record<string, string | number | boolean> | undefined;
   addDocumentTemplate: (kind: DocumentTemplate["kind"], label: string, description: string) => void;
   saveDocumentTemplate: (template: DocumentTemplate) => void;
   getPatientConsultations: (patientId: string) => ConsultationRecord[];
@@ -75,9 +79,9 @@ type DoctorStoreValue = {
   deleteDoctorTemplate: (id: string) => void;
   getPatient: (id: string) => Patient | undefined;
   getVisit: (id: string) => Visit | undefined;
-  getOpdQueue: (doctorId?: string) => Visit[];
+  getOpdQueue: (doctorId?: string, includeDept?: boolean) => Visit[];
   getConsultation: (visitId: string) => ConsultationRecord | undefined;
-  startConsultation: (visitId: string) => ConsultationRecord;
+  startConsultation: (visitId: string) => Promise<ConsultationRecord | undefined>;
   updateConsultation: (visitId: string, patch: Partial<ConsultationRecord>) => void;
   saveConsultSection: (
     visitId: string,
@@ -123,25 +127,30 @@ function initialDoctorState(): DoctorState {
     templates: [],
     documentTemplates: [],
     packages: CARE_PACKAGES,
+    juniorSubmissions: {},
   };
 }
 
-function emptyConsultation(visit: Visit, patientId: string, doctorId: string): ConsultationRecord {
+function mapJuniorSubmissions(
+  rows: { visitId: string; data: Record<string, string | number | boolean> }[],
+): Record<string, Record<string, string | number | boolean>> {
+  const out: Record<string, Record<string, string | number | boolean>> = {};
+  for (const row of rows) out[row.visitId] = row.data;
+  return out;
+}
+
+function applySnapshot(snapshot: Awaited<ReturnType<typeof getDoctorSnapshotAction>>): DoctorState {
   return {
-    visitId: visit.id,
-    patientId,
-    doctorId,
-    startedAt: new Date().toISOString(),
-    status: "in_progress",
-    treatmentMode: "opd",
-    recommendCounsellor: true,
-    skipCounsellor: false,
-    whatsappRxSent: false,
-    examination: {},
-    diagnosis: {},
-    treatment: {},
-    prescription: [],
-    notes: "",
+    patients: snapshot.patients,
+    visits: snapshot.visits,
+    consultations: snapshot.consultations,
+    counsellorQueue: snapshot.counsellorQueue,
+    ipdPatients: snapshot.ipdPatients,
+    activeDoctorId: snapshot.activeDoctorId,
+    templates: snapshot.templates,
+    documentTemplates: snapshot.documentTemplates,
+    packages: snapshot.packages,
+    juniorSubmissions: mapJuniorSubmissions(snapshot.juniorSubmissions),
   };
 }
 
@@ -150,23 +159,14 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
   const [doctor, setDoctor] = useState<DoctorState>(initialDoctorState);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent ?? false;
     if (!silent) setReady(false);
     try {
       const snapshot = await getDoctorSnapshotAction();
-      setDoctor({
-        patients: snapshot.patients,
-        visits: snapshot.visits,
-        consultations: snapshot.consultations,
-        counsellorQueue: snapshot.counsellorQueue,
-        ipdPatients: snapshot.ipdPatients,
-        activeDoctorId: snapshot.activeDoctorId,
-        templates: snapshot.templates,
-        documentTemplates: snapshot.documentTemplates,
-        packages: snapshot.packages,
-      });
+      setDoctor(applySnapshot(snapshot));
       setError(null);
     } catch (err) {
       setError(parseActionError(err).message);
@@ -174,6 +174,13 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
       setReady(true);
     }
   }, []);
+
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => {
+      void refresh({ silent: true });
+    }, 800);
+  }, [refresh]);
 
   useEffect(() => {
     if (!authReady || !session?.branchId) return;
@@ -190,17 +197,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
       try {
         const snapshot = await getDoctorSnapshotAction();
         if (cancelled) return;
-        setDoctor({
-          patients: snapshot.patients,
-          visits: snapshot.visits,
-          consultations: snapshot.consultations,
-          counsellorQueue: snapshot.counsellorQueue,
-          ipdPatients: snapshot.ipdPatients,
-          activeDoctorId: snapshot.activeDoctorId,
-          templates: snapshot.templates,
-          documentTemplates: snapshot.documentTemplates,
-          packages: snapshot.packages,
-        });
+        setDoctor(applySnapshot(snapshot));
         setError(null);
         setReady(true);
       } catch (err) {
@@ -234,27 +231,36 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
     const getPatient = (id: string) => patients.find((p) => p.id === id);
     const getVisit = (id: string) => visits.find((v) => v.id === id);
 
-    const getOpdQueue = (id = doctorId) =>
-      visits
-        .filter((v) => v.doctorId === id && v.stage === "with_doctor")
-        .sort((a, b) => (a.token ?? 99) - (b.token ?? 99));
+    const getOpdQueue = (id = doctorId, includeDept = false) =>
+      filterDoctorOpdQueue(visits, includeDept ? undefined : id, includeDept);
+
+    const getJuniorSubmission = (visitId: string) => doctor.juniorSubmissions[visitId];
 
     const getConsultation = (visitId: string) =>
       doctor.consultations.find((c) => c.visitId === visitId);
 
-    const startConsultation = (visitId: string) => {
+    const startConsultation = async (visitId: string) => {
       const visit = getVisit(visitId);
       if (!visit) throw new Error("Visit not found");
       const existing = getConsultation(visitId);
-      if (existing) return existing;
+      if (existing?.status === "completed") return existing;
 
-      const record = emptyConsultation(visit, visit.patientId, doctorId);
-      syncDoctor((prev) => ({
-        ...prev,
-        consultations: [...prev.consultations, record],
-      }));
-      void startConsultationAction(visitId, doctorId).then(() => refresh({ silent: true }));
-      return record;
+      try {
+        const record = await startConsultationAction(visitId);
+        if (record) {
+          syncDoctor((prev) => {
+            const idx = prev.consultations.findIndex((c) => c.visitId === visitId);
+            const next = [...prev.consultations];
+            if (idx >= 0) next[idx] = record;
+            else next.push(record);
+            return { ...prev, consultations: next };
+          });
+        }
+        return record ?? getConsultation(visitId);
+      } catch (err) {
+        setError(parseActionError(err).message);
+        throw err;
+      }
     };
 
     const updateConsultation = (visitId: string, patch: Partial<ConsultationRecord>) => {
@@ -265,7 +271,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
         ),
       }));
       void updateConsultationAction(visitId, patch as Record<string, unknown>).then(() =>
-        refresh({ silent: true }),
+        scheduleRefresh(),
       );
     };
 
@@ -280,7 +286,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
           c.visitId === visitId ? { ...c, [section]: { ...c[section], ...data } } : c,
         ),
       }));
-      void saveConsultSectionAction(visitId, section, data).then(() => refresh({ silent: true }));
+      void saveConsultSectionAction(visitId, section, data).then(() => scheduleRefresh());
     };
 
     const setPrescription = (visitId: string, lines: PrescriptionLine[]) => {
@@ -290,7 +296,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
           c.visitId === visitId ? { ...c, prescription: lines } : c,
         ),
       }));
-      void setPrescriptionAction(visitId, lines).then(() => refresh({ silent: true }));
+      void setPrescriptionAction(visitId, lines).then(() => scheduleRefresh());
     };
 
     const applyTemplate = (visitId: string, templateId: string) => {
@@ -317,7 +323,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
     const persistScribeTranscript = (visitId: string, transcript: string, language: string) => {
       setScribeTranscript(visitId, transcript, language);
       void updateConsultationAction(visitId, { scribeTranscript: transcript, scribeLanguage: language }).then(
-        () => refresh({ silent: true }),
+        () => scheduleRefresh(),
       );
     };
 
@@ -386,6 +392,13 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
     };
 
     const completed = doctor.consultations.filter((c) => c.status === "completed");
+    const avgMinutes = (() => {
+      const durations = completed
+        .filter((c) => c.completedAt && c.startedAt)
+        .map((c) => (new Date(c.completedAt!).getTime() - new Date(c.startedAt).getTime()) / 60_000);
+      if (!durations.length) return 0;
+      return Math.round(durations.reduce((a, b) => a + b, 0) / durations.length);
+    })();
 
     const allTemplates = doctor.templates;
 
@@ -439,6 +452,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
       templates: allTemplates,
       packages: doctor.packages,
       documentTemplates: doctor.documentTemplates,
+      getJuniorSubmission,
       addDocumentTemplate: (kind, label, description) => {
         syncDoctor((prev) => ({
           ...prev,
@@ -495,7 +509,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
           { label: "Consults today", value: String(done), delta: `${done} completed`, trend: "up" as const },
           { label: "IPD rounds due", value: String(ipdDue), delta: "Ward rounds", trend: ipdDue ? "down" as const : "neutral" as const },
           { label: "Counsellor queue", value: String(pendingHandoff), delta: "Awaiting counsel", trend: "neutral" as const },
-          { label: "Avg consult", value: "14m", delta: "Target 15m", trend: "neutral" as const },
+          { label: "Avg consult", value: avgMinutes ? `${avgMinutes}m` : "—", delta: "Target 15m", trend: avgMinutes > 15 ? "down" as const : "neutral" as const },
           { label: "Templates used", value: String(completed.filter((c) => c.templateId).length), delta: "This session", trend: "neutral" as const },
         ];
       },
@@ -514,7 +528,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
         const sent = completed.filter((c) => c.recommendCounsellor && !c.skipCounsellor).length;
         return {
           consultsToday: completed.length,
-          avgMinutes: 14,
+          avgMinutes: avgMinutes || 0,
           counsellorRate: completed.length ? Math.round((sent / completed.length) * 100) : 0,
           topDiagnoses: [...dxMap.entries()].map(([label, count]) => ({ label, count })).slice(0, 5),
           templateUsage: [...tplMap.entries()].map(([label, count]) => ({ label, count })),
@@ -532,7 +546,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
         );
       },
     };
-  }, [doctor, ready, error, refresh, syncDoctor]);
+  }, [doctor, ready, error, refresh, scheduleRefresh, syncDoctor]);
 
   return <DoctorContext.Provider value={value}>{children}</DoctorContext.Provider>;
 }

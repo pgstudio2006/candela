@@ -1,16 +1,29 @@
-import type { ConsultationRecord, CounsellorQueueItem, DoctorTemplate, IpdPatient, PrescriptionLine, TreatmentMode } from "@/design-system/doctor-data";
+import type {
+  ConsultationRecord,
+  CounsellorQueueItem,
+  DoctorTemplate,
+  IpdPatient,
+  PrescriptionLine,
+  TreatmentMode,
+} from "@/design-system/doctor-data";
 import { CARE_PACKAGES, DEMO_DOCTOR_ID } from "@/design-system/doctor-data";
 import type { Patient, Visit } from "@/design-system/frontdesk-data";
 import type { DocumentTemplate } from "@/design-system/document-templates";
+import { validateCompleteConsultation } from "@/lib/doctor-validation";
+import { isRedFlagVisit } from "@/lib/frontdesk-workflow";
 import { prisma } from "@/lib/prisma";
 import { getClinicalSnapshot } from "@/server/clinical";
 import { resolveDoctorIdForContext } from "@/server/clinical/roster";
+import type { ServerContext } from "@/server/context";
+import {
+  assertDoctorOwnsVisit,
+  requireDoctorConsult,
+  requireDoctorVisit,
+} from "@/server/doctor/guards";
 import { ServerActionError } from "@/server/errors";
-
-function asStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.map((item) => String(item));
-}
+import { notifyPrescriptionWhatsapp } from "@/server/notifications";
+import { writePlatformAudit } from "@/server/platform-audit";
+import { syncVisitFromOpdVisit } from "@/server/visit-sync";
 
 function asRecord(value: unknown): Record<string, string | number | boolean> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
@@ -69,6 +82,19 @@ function mapConsultation(row: {
   };
 }
 
+export type JuniorExamSubmission = {
+  visitId: string;
+  data: Record<string, string | number | boolean>;
+  submittedAt: string;
+};
+
+export type IpdRoundRecord = {
+  id: string;
+  at: string;
+  note: string;
+  data: Record<string, string | number | boolean>;
+};
+
 export type DoctorSnapshot = {
   patients: Patient[];
   visits: Visit[];
@@ -79,6 +105,7 @@ export type DoctorSnapshot = {
   templates: DoctorTemplate[];
   packages: typeof CARE_PACKAGES;
   documentTemplates: DocumentTemplate[];
+  juniorSubmissions: JuniorExamSubmission[];
 };
 
 async function loadCarePackages() {
@@ -88,58 +115,77 @@ async function loadCarePackages() {
   return fromSeed.length ? fromSeed : CARE_PACKAGES;
 }
 
-export async function getDoctorSnapshot(activeDoctorId = DEMO_DOCTOR_ID, ctx?: import("@/server/context").ServerContext): Promise<DoctorSnapshot> {
-  const [clinical, consultRows, queueRows, ipdRows, templateRows, docRows, packages] = await Promise.all([
-    ctx ? getClinicalSnapshot(ctx) : getClinicalSnapshot(await (async () => {
-      const { getServerContext } = await import("@/server/context");
-      return getServerContext();
-    })()),
-    prisma.consultation.findMany({ orderBy: { createdAt: "asc" } }),
-    prisma.counsellorQueueItem.findMany({ orderBy: { createdAt: "asc" } }),
-    prisma.ipdAdmission.findMany({ orderBy: { createdAt: "asc" } }),
-    prisma.doctorTemplate.findMany({ orderBy: { createdAt: "asc" } }),
-    prisma.documentTemplate.findMany({ orderBy: { createdAt: "asc" } }),
-    loadCarePackages(),
-  ]);
+export async function getDoctorSnapshot(
+  ctx: ServerContext,
+  activeDoctorId?: string,
+): Promise<DoctorSnapshot> {
+  const doctorId = activeDoctorId ?? (await resolveDoctorIdForContext(ctx));
+  const [clinical, consultRows, queueRows, ipdRows, templateRows, docRows, packages, juniorRows] =
+    await Promise.all([
+      getClinicalSnapshot(ctx),
+      prisma.consultation.findMany({ orderBy: { createdAt: "asc" } }),
+      prisma.counsellorQueueItem.findMany({ orderBy: { createdAt: "asc" } }),
+      prisma.ipdAdmission.findMany({ orderBy: { createdAt: "asc" } }),
+      prisma.doctorTemplate.findMany({ orderBy: { createdAt: "asc" } }),
+      prisma.documentTemplate.findMany({ orderBy: { createdAt: "asc" } }),
+      loadCarePackages(),
+      prisma.formSubmission.findMany({
+        where: { formId: "junior-exam" },
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
 
   const branchVisitIds = new Set(clinical.visits.map((v) => v.id));
+  const branchPatientIds = new Set(clinical.patients.map((p) => p.id));
+
+  const juniorByVisit = new Map<string, JuniorExamSubmission>();
+  for (const row of juniorRows) {
+    if (!row.visitId || !branchVisitIds.has(row.visitId)) continue;
+    if (juniorByVisit.has(row.visitId)) continue;
+    juniorByVisit.set(row.visitId, {
+      visitId: row.visitId,
+      data: asRecord(row.data),
+      submittedAt: row.submittedAt,
+    });
+  }
 
   return {
     patients: clinical.patients,
     visits: clinical.visits,
-    activeDoctorId,
+    activeDoctorId: doctorId,
     consultations: consultRows
       .filter((row) => branchVisitIds.has(row.visitId))
       .map(mapConsultation),
     counsellorQueue: queueRows
       .filter((row) => branchVisitIds.has(row.visitId))
       .map((row) => ({
-      id: row.id,
-      visitId: row.visitId,
-      patientId: row.patientId,
-      doctorId: row.doctorId,
-      doctorName: row.doctorName,
-      sentAt: String(row.sentAt),
-      treatmentMode: row.treatmentMode as TreatmentMode,
-      packageId: row.packageId ?? undefined,
-      packageLabel: row.packageLabel ?? undefined,
-      priority: row.priority as "normal" | "high",
-      payload: asRecord(row.payload) as unknown as ConsultationRecord,
-    })),
+        id: row.id,
+        visitId: row.visitId,
+        patientId: row.patientId,
+        doctorId: row.doctorId,
+        doctorName: row.doctorName,
+        sentAt: String(row.sentAt),
+        treatmentMode: row.treatmentMode as TreatmentMode,
+        packageId: row.packageId ?? undefined,
+        packageLabel: row.packageLabel ?? undefined,
+        priority: row.priority as "normal" | "high",
+        payload: asRecord(row.payload) as unknown as ConsultationRecord,
+      })),
     ipdPatients: ipdRows
-      .filter((row) => branchVisitIds.has(row.visitId))
+      .filter((row) => branchPatientIds.has(row.patientId))
       .map((row) => ({
-      id: row.id,
-      patientId: row.patientId,
-      ward: row.ward,
-      bed: row.bed,
-      admittedAt: row.admittedAt,
-      diagnosis: row.diagnosis,
-      attendingDoctorId: row.attendingDoctorId,
-      lastRoundAt: row.lastRoundAt ?? undefined,
-      lastRoundNote: row.lastRoundNote ?? undefined,
-      status: row.status as IpdPatient["status"],
-    })),
+        id: row.id,
+        visitId: row.visitId,
+        patientId: row.patientId,
+        ward: row.ward,
+        bed: row.bed,
+        admittedAt: row.admittedAt,
+        diagnosis: row.diagnosis,
+        attendingDoctorId: row.attendingDoctorId,
+        lastRoundAt: row.lastRoundAt ?? undefined,
+        lastRoundNote: row.lastRoundNote ?? undefined,
+        status: row.status as IpdPatient["status"],
+      })),
     templates: templateRows.map((row) => ({
       id: row.id,
       label: row.label,
@@ -159,6 +205,7 @@ export async function getDoctorSnapshot(activeDoctorId = DEMO_DOCTOR_ID, ctx?: i
       enabled: row.enabled,
       isSystem: row.isSystem,
     })),
+    juniorSubmissions: [...juniorByVisit.values()],
   };
 }
 
@@ -190,20 +237,9 @@ function juniorExamToConsultFields(junior: Record<string, string | number | bool
   };
 }
 
-export async function startConsultation(visitId: string, doctorId: string, ctx?: import("@/server/context").ServerContext) {
-  const visit = await prisma.opdVisit.findUnique({ where: { id: visitId } });
-  if (!visit) return null;
-
-  if (ctx) {
-    const resolved = await resolveDoctorIdForContext(ctx);
-    doctorId = resolved;
-  }
-  if (visit.doctorId && visit.doctorId !== doctorId) {
-    throw new ServerActionError(
-      "FORBIDDEN",
-      "This visit is assigned to another doctor.",
-    );
-  }
+export async function startConsultation(ctx: ServerContext, visitId: string) {
+  const doctorId = await resolveDoctorIdForContext(ctx);
+  const visit = await assertDoctorOwnsVisit(ctx, visitId, doctorId);
 
   const existing = await prisma.consultation.findUnique({ where: { visitId } });
   if (existing) {
@@ -223,6 +259,14 @@ export async function startConsultation(visitId: string, doctorId: string, ctx?:
           treatment: fromJunior.treatment,
           notes: fromJunior.notes || existing.notes,
         },
+      });
+      await writePlatformAudit({
+        ctx,
+        module: "doctor",
+        action: "consult_started",
+        entityType: "visit",
+        entityId: visitId,
+        summary: `Consultation resumed with junior handoff for visit ${visitId}`,
       });
       return mapConsultation(updated);
     }
@@ -256,12 +300,25 @@ export async function startConsultation(visitId: string, doctorId: string, ctx?:
     },
   });
 
+  await writePlatformAudit({
+    ctx,
+    module: "doctor",
+    action: "consult_started",
+    entityType: "visit",
+    entityId: visitId,
+    summary: `Consultation started for visit ${visitId}`,
+  });
+
   return mapConsultation(created);
 }
 
-export async function updateConsultation(visitId: string, patch: Partial<ConsultationRecord>) {
-  const visit = await prisma.opdVisit.findUnique({ where: { id: visitId } });
-  if (!visit) throw new ServerActionError("NOT_FOUND", "Visit not found.");
+export async function updateConsultation(
+  ctx: ServerContext,
+  visitId: string,
+  patch: Partial<ConsultationRecord>,
+) {
+  const doctorId = await resolveDoctorIdForContext(ctx);
+  const visit = await assertDoctorOwnsVisit(ctx, visitId, doctorId);
 
   const data: Record<string, unknown> = {};
   if (patch.completedAt !== undefined) data.completedAt = patch.completedAt;
@@ -292,7 +349,7 @@ export async function updateConsultation(visitId: string, patch: Partial<Consult
       id: `consult_${visitId}`,
       visitId,
       patientId: visit.patientId,
-      doctorId: visit.doctorId ?? DEMO_DOCTOR_ID,
+      doctorId,
       startedAt: new Date().toISOString(),
       status: "in_progress",
       treatmentMode: "opd",
@@ -311,12 +368,17 @@ export async function updateConsultation(visitId: string, patch: Partial<Consult
 }
 
 export async function saveConsultSection(
+  ctx: ServerContext,
   visitId: string,
   section: "examination" | "diagnosis" | "treatment",
   data: Record<string, string | number | boolean>,
 ) {
+  const doctorId = await resolveDoctorIdForContext(ctx);
+  await requireDoctorConsult(ctx, visitId, doctorId);
   const existing = await prisma.consultation.findUnique({ where: { visitId } });
-  if (!existing) return;
+  if (!existing) {
+    throw new ServerActionError("NOT_FOUND", "Consultation not started — open the consult first.");
+  }
   const nextSection = {
     ...asRecord(existing[section]),
     ...data,
@@ -327,14 +389,28 @@ export async function saveConsultSection(
   });
 }
 
-export async function setPrescription(visitId: string, lines: PrescriptionLine[]) {
+export async function setPrescription(ctx: ServerContext, visitId: string, lines: PrescriptionLine[]) {
+  const doctorId = await resolveDoctorIdForContext(ctx);
+  await requireDoctorConsult(ctx, visitId, doctorId);
   await prisma.consultation.update({
     where: { visitId },
     data: { prescription: lines },
   });
 }
 
+function resolveCounsellorPriority(
+  visit: { routingNote?: string | null; notes?: string | null },
+  consult: ConsultationRecord,
+  handoff: Record<string, string | number | boolean>,
+): "normal" | "high" {
+  const exam = consult.examination;
+  if (isRedFlagVisit({ routingNote: visit.routingNote ?? undefined, notes: visit.notes ?? undefined }) || Boolean(exam.redFlags)) return "high";
+  if (String(handoff.conversionPriority ?? "") === "high") return "high";
+  return "normal";
+}
+
 export async function completeConsultation(
+  ctx: ServerContext,
   visitId: string,
   opts: {
     treatmentMode: TreatmentMode;
@@ -343,20 +419,21 @@ export async function completeConsultation(
     handoff: Record<string, string | number | boolean>;
     sendWhatsapp: boolean;
   },
-  ctx?: import("@/server/context").ServerContext,
 ) {
-  const consult = await prisma.consultation.findUnique({ where: { visitId } });
-  const visit = await prisma.opdVisit.findUnique({ where: { id: visitId } });
-  if (!consult || !visit) {
-    throw new ServerActionError("NOT_FOUND", "Consultation or visit not found.");
-  }
+  const doctorId = await resolveDoctorIdForContext(ctx);
+  const visit = await assertDoctorOwnsVisit(ctx, visitId, doctorId);
+  const consultRow = await requireDoctorConsult(ctx, visitId, doctorId);
+  const consult = mapConsultation(consultRow);
+
+  validateCompleteConsultation(consult, opts);
 
   const packageId = String(opts.handoff.packageId ?? "");
   const pkg = CARE_PACKAGES.find((p) => p.id === packageId);
-  const updatedConsult = {
-    ...mapConsultation(consult),
-    status: "completed" as const,
-    completedAt: new Date().toISOString(),
+  const completedAt = new Date().toISOString();
+  const updatedConsult: ConsultationRecord = {
+    ...consult,
+    status: "completed",
+    completedAt,
     treatmentMode: opts.treatmentMode,
     recommendCounsellor: opts.recommendCounsellor,
     skipCounsellor: opts.skipCounsellor,
@@ -368,13 +445,28 @@ export async function completeConsultation(
   };
 
   const needsCounsellor = opts.recommendCounsellor && !opts.skipCounsellor;
+  const priority = resolveCounsellorPriority(visit, updatedConsult, opts.handoff);
+  const diagnosisSummary = String(
+    consult.diagnosis.primaryDiagnosis ?? consult.diagnosis.clinicalImpression ?? "Consult complete",
+  );
+
+  let nextStage = needsCounsellor ? "awaiting_counsellor" : "completed";
+  let routingNote = visit.routingNote;
+  let ipdAdmissionId = visit.ipdAdmissionId;
+
+  if (opts.treatmentMode === "ipd" && !needsCounsellor) {
+    nextStage = "ipd_admitted";
+    routingNote =
+      routingNote ??
+      "Doctor recommended IPD admission — nursing intake, vitals, and consent required.";
+  }
 
   await prisma.$transaction(async (tx) => {
     await tx.consultation.update({
       where: { visitId },
       data: {
         status: "completed",
-        completedAt: updatedConsult.completedAt,
+        completedAt,
         treatmentMode: opts.treatmentMode,
         recommendCounsellor: opts.recommendCounsellor,
         skipCounsellor: opts.skipCounsellor,
@@ -386,27 +478,52 @@ export async function completeConsultation(
       },
     });
 
+    if (opts.treatmentMode === "ipd") {
+      ipdAdmissionId = `ipd_${visitId}`;
+      await tx.ipdAdmission.upsert({
+        where: { visitId },
+        update: {
+          diagnosis: diagnosisSummary,
+          attendingDoctorId: doctorId,
+          status: "admitted",
+        },
+        create: {
+          id: ipdAdmissionId,
+          visitId,
+          patientId: visit.patientId,
+          ward: String(opts.handoff.ward ?? "MSK Ward A"),
+          bed: String(opts.handoff.bed ?? "A-14"),
+          admittedAt: new Date().toISOString().slice(0, 10),
+          diagnosis: diagnosisSummary,
+          attendingDoctorId: doctorId,
+          status: "admitted",
+        },
+      });
+    }
+
     await tx.opdVisit.update({
       where: { id: visitId },
       data: {
-        stage: needsCounsellor ? "awaiting_counsellor" : "completed",
+        stage: nextStage,
+        treatmentPath: opts.treatmentMode === "ipd" ? "ipd" : visit.treatmentPath,
+        ipdAdmissionId: ipdAdmissionId ?? undefined,
+        routingNote,
       },
     });
 
     if (needsCounsellor) {
-      const doctorId = visit.doctorId ?? consult.doctorId;
-      const doctorName = visit.doctorName ?? consult.doctorId;
+      const doctorName = visit.doctorName ?? doctorId;
       await tx.counsellorQueueItem.upsert({
         where: { visitId },
         update: {
           patientId: visit.patientId,
           doctorId,
           doctorName: String(doctorName),
-          sentAt: updatedConsult.completedAt,
+          sentAt: completedAt,
           treatmentMode: opts.treatmentMode,
           packageId,
           packageLabel: pkg?.label ?? null,
-          priority: String(opts.handoff.conversionPriority ?? "") === "high" ? "high" : "normal",
+          priority,
           payload: updatedConsult,
         },
         create: {
@@ -415,18 +532,21 @@ export async function completeConsultation(
           patientId: visit.patientId,
           doctorId,
           doctorName: String(doctorName),
-          sentAt: updatedConsult.completedAt,
+          sentAt: completedAt,
           treatmentMode: opts.treatmentMode,
           packageId,
           packageLabel: pkg?.label ?? null,
-          priority: String(opts.handoff.conversionPriority ?? "") === "high" ? "high" : "normal",
+          priority,
           payload: updatedConsult,
         },
       });
     }
   });
 
-  if (ctx && consult.prescription && Array.isArray(consult.prescription) && consult.prescription.length) {
+  const updatedOpd = await prisma.opdVisit.findUnique({ where: { id: visitId } });
+  if (updatedOpd) await syncVisitFromOpdVisit(ctx, updatedOpd);
+
+  if (consult.prescription?.length) {
     const patient = await prisma.patient.findUnique({ where: { id: visit.patientId } });
     const { pushPrescriptionToPharmacy } = await import("@/server/pharmacy-rx-bridge");
     await pushPrescriptionToPharmacy(ctx, {
@@ -434,14 +554,44 @@ export async function completeConsultation(
       patientId: visit.patientId,
       patientName: patient?.name ?? patient?.fullName ?? "Patient",
       uhid: patient?.uhid ?? "",
-      doctorId: visit.doctorId ?? consult.doctorId,
-      doctorName: visit.doctorName ?? consult.doctorId,
+      doctorId,
+      doctorName: visit.doctorName ?? doctorId,
       lines: consult.prescription as PrescriptionLine[],
     });
   }
+
+  if (opts.sendWhatsapp && consult.prescription?.length) {
+    const patient = await prisma.patient.findUnique({ where: { id: visit.patientId } });
+    if (patient?.phone) {
+      await notifyPrescriptionWhatsapp(ctx, {
+        patientName: patient.name ?? patient.fullName ?? "Patient",
+        phone: patient.phone,
+        visitId,
+        lineCount: consult.prescription.length,
+      });
+    }
+  }
+
+  await writePlatformAudit({
+    ctx,
+    module: "doctor",
+    action: "consult_completed",
+    entityType: "visit",
+    entityId: visitId,
+    summary: needsCounsellor
+      ? `Consult completed — sent to counsellor (${opts.treatmentMode})`
+      : `Consult completed (${opts.treatmentMode})`,
+    severity: priority === "high" ? "warning" : "info",
+    payload: { treatmentMode: opts.treatmentMode, priority },
+  });
 }
 
-export async function createDoctorTemplate(doctorId: string, tpl: Omit<DoctorTemplate, "id" | "doctorId">) {
+export async function createDoctorTemplate(
+  ctx: ServerContext,
+  doctorId: string,
+  tpl: Omit<DoctorTemplate, "id" | "doctorId">,
+) {
+  await resolveDoctorIdForContext(ctx);
   const id = `tpl_custom_${Date.now()}`;
   await prisma.doctorTemplate.create({
     data: {
@@ -455,10 +605,19 @@ export async function createDoctorTemplate(doctorId: string, tpl: Omit<DoctorTem
       isSystem: false,
     },
   });
+  await writePlatformAudit({
+    ctx,
+    module: "doctor",
+    action: "template_created",
+    entityType: "doctor_template",
+    entityId: id,
+    summary: `Template created: ${tpl.label}`,
+  });
   return id;
 }
 
-export async function updateDoctorTemplate(id: string, patch: Partial<DoctorTemplate>) {
+export async function updateDoctorTemplate(ctx: ServerContext, id: string, patch: Partial<DoctorTemplate>) {
+  await resolveDoctorIdForContext(ctx);
   await prisma.doctorTemplate.update({
     where: { id },
     data: {
@@ -471,22 +630,119 @@ export async function updateDoctorTemplate(id: string, patch: Partial<DoctorTemp
   });
 }
 
-export async function deleteDoctorTemplate(id: string) {
+export async function deleteDoctorTemplate(ctx: ServerContext, id: string) {
+  await resolveDoctorIdForContext(ctx);
   await prisma.doctorTemplate.deleteMany({ where: { id, isSystem: false } });
-}
-
-export async function saveIpdRound(ipdId: string, note: Record<string, string | number | boolean>) {
-  const text = `S: ${note.subjective}\nO: ${note.objective}\nA: ${note.assessment}\nP: ${note.plan}`;
-  await prisma.ipdAdmission.update({
-    where: { id: ipdId },
-    data: {
-      lastRoundAt: new Date().toISOString(),
-      lastRoundNote: text,
-    },
+  await writePlatformAudit({
+    ctx,
+    module: "doctor",
+    action: "template_deleted",
+    entityType: "doctor_template",
+    entityId: id,
+    summary: `Template deleted: ${id}`,
   });
 }
 
-export async function addDocumentTemplate(kind: DocumentTemplate["kind"], label: string, description: string) {
+export async function saveIpdRound(
+  ctx: ServerContext,
+  ipdId: string,
+  note: Record<string, string | number | boolean>,
+) {
+  const doctorId = await resolveDoctorIdForContext(ctx);
+  const ipd = await prisma.ipdAdmission.findUnique({ where: { id: ipdId } });
+  if (!ipd) throw new ServerActionError("NOT_FOUND", "IPD admission not found.");
+  await requireDoctorVisit(ctx, ipd.visitId);
+  if (ipd.attendingDoctorId !== doctorId && doctorId !== DEMO_DOCTOR_ID) {
+    throw new ServerActionError("FORBIDDEN", "You are not the attending doctor for this admission.");
+  }
+
+  const text = `S: ${note.subjective}\nO: ${note.objective}\nA: ${note.assessment}\nP: ${note.plan}`;
+  const now = new Date().toISOString();
+
+  await prisma.$transaction([
+    prisma.ipdAdmission.update({
+      where: { id: ipdId },
+      data: { lastRoundAt: now, lastRoundNote: text },
+    }),
+    prisma.formSubmission.create({
+      data: {
+        id: `ipd_round_${ipdId}_${Date.now()}`,
+        formId: "doctor-ipd-round",
+        patientId: ipd.patientId,
+        visitId: ipd.visitId,
+        data: note,
+        submittedAt: now,
+      },
+    }),
+  ]);
+
+  await writePlatformAudit({
+    ctx,
+    module: "doctor",
+    action: "ipd_round_saved",
+    entityType: "ipd_admission",
+    entityId: ipdId,
+    summary: `Ward round recorded for ${ipd.ward} bed ${ipd.bed}`,
+  });
+}
+
+export async function getIpdRoundHistory(ctx: ServerContext, ipdId: string): Promise<IpdRoundRecord[]> {
+  const ipd = await prisma.ipdAdmission.findUnique({ where: { id: ipdId } });
+  if (!ipd) return [];
+  await requireDoctorVisit(ctx, ipd.visitId);
+
+  const rows = await prisma.formSubmission.findMany({
+    where: { formId: "doctor-ipd-round", visitId: ipd.visitId },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return rows.map((row) => {
+    const data = asRecord(row.data);
+    return {
+      id: row.id,
+      at: row.submittedAt,
+      data,
+      note: `S: ${data.subjective ?? ""}\nO: ${data.objective ?? ""}\nA: ${data.assessment ?? ""}\nP: ${data.plan ?? ""}`,
+    };
+  });
+}
+
+export async function listDoctorAuditLogs(
+  ctx: ServerContext,
+  input: { limit?: number; cursor?: string },
+) {
+  const limit = Math.min(100, Math.max(10, input.limit ?? 50));
+  const rows = await prisma.auditLog.findMany({
+    where: {
+      tenantId: ctx.tenantId,
+      branchId: ctx.branchId,
+      module: "doctor",
+      ...(input.cursor ? { createdAt: { lt: new Date(input.cursor) } } : {}),
+    },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+
+  return rows.map((r) => ({
+    id: r.id,
+    at: r.createdAt.toISOString(),
+    actor: r.actor,
+    actorRole: r.actorRole ?? "",
+    action: r.action,
+    entityType: r.entityType,
+    entityId: r.entityId,
+    summary: r.summary,
+    severity: r.severity,
+  }));
+}
+
+export async function addDocumentTemplate(
+  ctx: ServerContext,
+  kind: DocumentTemplate["kind"],
+  label: string,
+  description: string,
+) {
+  await resolveDoctorIdForContext(ctx);
   await prisma.documentTemplate.create({
     data: {
       id: `doc_custom_${Date.now()}`,
@@ -500,7 +756,8 @@ export async function addDocumentTemplate(kind: DocumentTemplate["kind"], label:
   });
 }
 
-export async function saveDocumentTemplate(template: DocumentTemplate) {
+export async function saveDocumentTemplate(ctx: ServerContext, template: DocumentTemplate) {
+  await resolveDoctorIdForContext(ctx);
   await prisma.documentTemplate.upsert({
     where: { id: template.id },
     update: {

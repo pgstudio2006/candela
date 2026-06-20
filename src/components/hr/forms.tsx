@@ -2,7 +2,6 @@
 
 import { AttioButton } from "@/components/frontdesk/ui";
 import {
-  CRM_AGENT_OPTIONS,
   LEAVE_TYPE_LABELS,
   type HrDepartment,
   type HrEmployee,
@@ -25,15 +24,17 @@ function ModalShell({ title, children, onClose }: { title: string; children: Rea
 export function EmployeeFormModal({
   departments,
   employees,
+  crmAgents,
   initial,
   onClose,
   onSave,
 }: {
   departments: HrDepartment[];
   employees: HrEmployee[];
+  crmAgents: { id: string; label: string }[];
   initial?: HrEmployee;
   onClose: () => void;
-  onSave: (data: Omit<HrEmployee, "id"> | Partial<HrEmployee>) => void;
+  onSave: (data: Omit<HrEmployee, "id"> | Partial<HrEmployee>, password?: string) => void;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
   const [email, setEmail] = useState(initial?.email ?? "");
@@ -45,6 +46,7 @@ export function EmployeeFormModal({
   const [employmentType, setEmploymentType] = useState<HrEmployee["employmentType"]>(initial?.employmentType ?? "full_time");
   const [crmAgentId, setCrmAgentId] = useState(initial?.crmAgentId ?? "");
   const [active, setActive] = useState(initial?.active ?? true);
+  const [password, setPassword] = useState("");
 
   return (
     <ModalShell title={initial ? "Edit employee" : "Add employee"} onClose={onClose}>
@@ -52,21 +54,24 @@ export function EmployeeFormModal({
         className="space-y-3"
         onSubmit={(e) => {
           e.preventDefault();
-          onSave({
-            name,
-            email,
-            phone,
-            departmentId,
-            designation,
-            managerId: managerId || undefined,
-            joinDate: initial?.joinDate ?? new Date().toISOString().slice(0, 10),
-            employmentType,
-            branchId: initial?.branchId ?? "branch_gurgaon",
-            active,
-            role: initial?.role ?? "employee",
-            crmAgentId: crmAgentId || undefined,
-            salaryMonthly: Number(salaryMonthly) || 40000,
-          });
+          onSave(
+            {
+              name,
+              email,
+              phone,
+              departmentId,
+              designation,
+              managerId: managerId || undefined,
+              joinDate: initial?.joinDate ?? new Date().toISOString().slice(0, 10),
+              employmentType,
+              branchId: initial?.branchId ?? "branch_gurgaon",
+              active,
+              role: initial?.role ?? "employee",
+              crmAgentId: crmAgentId || undefined,
+              salaryMonthly: Number(salaryMonthly) || 40000,
+            },
+            initial ? undefined : password || undefined,
+          );
           onClose();
         }}
       >
@@ -93,10 +98,20 @@ export function EmployeeFormModal({
           </select>
           <select className="h-9 rounded-md border px-2 text-[13px] sm:col-span-2" value={crmAgentId} onChange={(e) => setCrmAgentId(e.target.value)}>
             <option value="">No CRM link</option>
-            {CRM_AGENT_OPTIONS.map((a) => (
+            {crmAgents.map((a) => (
               <option key={a.id} value={a.id}>{a.label}</option>
             ))}
           </select>
+          {!initial && (
+            <Input
+              className="sm:col-span-2"
+              placeholder="Initial password (optional — auto-generated if blank)"
+              type="text"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
+            />
+          )}
         </div>
         <label className="flex items-center gap-2 text-[13px]">
           <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
@@ -188,21 +203,26 @@ export function ShiftFormModal({
 export function LeaveRequestModal({
   employees,
   operatorId,
+  isManager,
   onClose,
   onSave,
 }: {
   employees: HrEmployee[];
   operatorId: string;
+  isManager: boolean;
   onClose: () => void;
   onSave: (data: { employeeId: string; type: LeaveType; fromDate: string; toDate: string; reason: string; syncCrmAbsence: boolean }) => void;
 }) {
-  const employeeId = operatorId;
+  const [employeeId, setEmployeeId] = useState(operatorId);
   const [type, setType] = useState<LeaveType>("casual");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [reason, setReason] = useState("");
   const [syncCrm, setSyncCrm] = useState(true);
   const emp = employees.find((e) => e.id === employeeId);
+  const selectable = isManager
+    ? employees.filter((e) => e.active)
+    : employees.filter((e) => e.id === operatorId);
 
   return (
     <ModalShell title="Request leave" onClose={onClose}>
@@ -214,9 +234,22 @@ export function LeaveRequestModal({
           onClose();
         }}
       >
-        <p className="rounded-md bg-[var(--attio-surface)] px-3 py-2 text-[13px]">
-          Requesting as <strong>{emp?.name ?? "you"}</strong>
-        </p>
+        {isManager ? (
+          <select
+            className="h-9 w-full rounded-md border px-2 text-[13px]"
+            value={employeeId}
+            onChange={(e) => setEmployeeId(e.target.value)}
+            required
+          >
+            {selectable.map((e) => (
+              <option key={e.id} value={e.id}>{e.name} · {e.designation}</option>
+            ))}
+          </select>
+        ) : (
+          <p className="rounded-md bg-[var(--attio-surface)] px-3 py-2 text-[13px]">
+            Requesting as <strong>{emp?.name ?? "you"}</strong>
+          </p>
+        )}
         <select className="h-9 w-full rounded-md border px-2 text-[13px]" value={type} onChange={(e) => setType(e.target.value as LeaveType)}>
           {Object.entries(LEAVE_TYPE_LABELS).map(([k, v]) => (
             <option key={k} value={k}>{v}</option>

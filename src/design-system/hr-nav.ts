@@ -4,6 +4,7 @@ import {
   ClipboardList,
   LayoutDashboard,
   Network,
+  ScrollText,
   Settings,
   Users,
   Wallet,
@@ -27,6 +28,7 @@ export const HR_NAV: HrNavItem[] = [
   { id: "leave", label: "Leave", href: "/app/hr/leave", icon: Calendar, group: "ops" },
   { id: "attendance", label: "Attendance", href: "/app/hr/attendance", icon: ClipboardList, group: "ops" },
   { id: "payroll", label: "Payroll", href: "/app/hr/payroll", icon: Wallet, group: "insights", managerOnly: true },
+  { id: "audit", label: "Audit", href: "/app/hr/audit", icon: ScrollText, group: "insights", managerOnly: true },
   { id: "settings", label: "Settings", href: "/app/hr/settings", icon: Settings, group: "insights" },
 ];
 

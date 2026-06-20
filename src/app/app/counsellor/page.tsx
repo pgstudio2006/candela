@@ -4,11 +4,13 @@ import { useCounsellorStore } from "@/components/counsellor/counsellor-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, MetricStrip, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { queueWaitMinutes } from "@/design-system/counsellor-data";
+import { useCounsellorPoll } from "@/hooks/use-counsellor-poll";
 import { Zap } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 export default function CounsellorDashboardPage() {
+  useCounsellorPoll();
   const router = useRouter();
   const { getDashboardKpis, getFilteredQueue, getPatient, approvals } = useCounsellorStore();
   const kpis = getDashboardKpis();

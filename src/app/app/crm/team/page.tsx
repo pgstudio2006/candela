@@ -233,13 +233,13 @@ export default function CrmTeamPage() {
         onClose={() => setFormOpen(false)}
         initial={editing}
         agents={agents.filter((a) => a.role !== "manager")}
-        onSave={(data, password) => {
+        onSave={async (data, password) => {
           if (editing) {
-            updateAgent(editing.id, data);
-            if (password) setAgentPassword(editing.id, password);
+            await updateAgent(editing.id, data);
+            if (password) await setAgentPassword(editing.id, password);
             setCredentialToast(password ? `Password updated for ${data.name}.` : `Saved ${data.name}.`);
           } else {
-            const pwd = addAgent(data, password);
+            const pwd = await addAgent(data, password);
             setCredentialToast(`Added ${data.name}. Share login: ${data.email} / ${pwd}`);
           }
           setTimeout(() => setCredentialToast(null), 8000);
@@ -251,8 +251,7 @@ export default function CrmTeamPage() {
         initial={editingRule}
         agents={agents}
         onSave={(rule) => {
-          if (editingRule) updateRule(editingRule.id, rule);
-          else addRule(rule);
+          void (editingRule ? updateRule(editingRule.id, rule) : addRule(rule));
         }}
       />
       {absenceAgent && (
@@ -262,10 +261,11 @@ export default function CrmTeamPage() {
           agent={absenceAgent}
           agents={agents}
           onConfirm={(until, reason, transfer) => {
-            markAgentUnavailable(absenceAgent.id, until, reason, transfer);
-            setAbsenceAgent(undefined);
-            setCredentialToast(`${absenceAgent.name} marked unavailable${transfer ? " — leads transferred" : ""}.`);
-            setTimeout(() => setCredentialToast(null), 6000);
+            void markAgentUnavailable(absenceAgent.id, until, reason, transfer).then(() => {
+              setAbsenceAgent(undefined);
+              setCredentialToast(`${absenceAgent.name} marked unavailable${transfer ? " — leads transferred" : ""}.`);
+              setTimeout(() => setCredentialToast(null), 6000);
+            });
           }}
         />
       )}

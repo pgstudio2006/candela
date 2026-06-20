@@ -43,7 +43,7 @@ export default function PharmacyExpiryPage() {
                 qty: s.qtyOnHand,
                 status: <StatusBadge label={s.quarantined ? "Quarantine" : "Active"} variant={s.quarantined ? "danger" : "neutral"} />,
                 actions: (
-                  <AttioButton variant="ghost" className="!h-7 !text-[11px]" onClick={() => quarantineBatch(s.id, true)}>
+                  <AttioButton variant="ghost" className="!h-7 !text-[11px]" onClick={() => void quarantineBatch(s.id, true)}>
                     Quarantine
                   </AttioButton>
                 ),

@@ -2,23 +2,36 @@
 
 import { useAdminStore } from "@/components/admin/admin-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
-import { Panel, StatusBadge } from "@/components/frontdesk/ui";
+import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { exportAuditCsv } from "@/lib/admin-utils";
-import { useState } from "react";
+import { listAdminAuditLogsAction } from "@/server/admin/actions";
+import { useCallback, useEffect, useState } from "react";
+
+type PlatformRow = Awaited<ReturnType<typeof listAdminAuditLogsAction>>[number];
 
 export default function AdminAuditPage() {
   const { getAuditLog } = useAdminStore();
   const [filter, setFilter] = useState("all");
+  const [platformLogs, setPlatformLogs] = useState<PlatformRow[]>([]);
   const events = getAuditLog().filter((e) => filter === "all" || e.module === filter);
+
+  const loadPlatform = useCallback(async () => {
+    const rows = await listAdminAuditLogsAction({ limit: 60 });
+    setPlatformLogs(rows);
+  }, []);
+
+  useEffect(() => {
+    void loadPlatform();
+  }, [loadPlatform]);
 
   return (
     <PageChrome
       breadcrumbs={[{ label: "Admin", href: "/app/admin" }, { label: "Audit" }]}
       title="Audit & compliance"
-      meta="Immutable event log · accreditation-ready export"
+      meta="Admin audit log · platform audit trail"
     >
       <div className="mb-4 flex flex-wrap gap-2">
-        {["all", "frontdesk", "doctor", "counsellor", "nurse", "admin"].map((m) => (
+        {["all", "admin", "finance", "mrd", "mis", "rcm", "forms", "frontdesk", "doctor"].map((m) => (
           <button
             key={m}
             type="button"
@@ -30,13 +43,9 @@ export default function AdminAuditPage() {
         ))}
       </div>
       <Panel
-        title={`${events.length} events`}
+        title={`${events.length} admin events`}
         action={
-          <button
-            type="button"
-            className="text-[11px] text-[var(--attio-accent)]"
-            onClick={() => exportAuditCsv(events)}
-          >
+          <button type="button" className="text-[11px] text-[var(--attio-accent)]" onClick={() => exportAuditCsv(events)}>
             Export CSV
           </button>
         }
@@ -52,6 +61,40 @@ export default function AdminAuditPage() {
               </div>
             </li>
           ))}
+        </ul>
+      </Panel>
+      <Panel
+        title="Platform audit (tenant immutable)"
+        className="mt-4"
+        action={
+          <AttioButton variant="secondary" className="!h-8 !text-[11px]" onClick={() => void loadPlatform()}>
+            Refresh
+          </AttioButton>
+        }
+      >
+        <ul className="divide-y divide-[var(--attio-border-subtle)]">
+          {platformLogs.length === 0 ? (
+            <li className="py-6 text-center text-[13px] text-[var(--attio-text-tertiary)]">No platform audit entries yet</li>
+          ) : (
+            platformLogs.map((log) => (
+              <li key={log.id} className="py-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-[13px] font-medium">{log.summary}</p>
+                    <p className="mt-0.5 text-[11px] text-[var(--attio-text-tertiary)]">
+                      {log.actor} · {log.action} · {log.entityType} {log.entityId}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <StatusBadge label={log.severity} variant={log.severity === "warning" ? "warning" : "neutral"} />
+                    <p className="mt-1 text-[10px] text-[var(--attio-text-tertiary)]">
+                      {new Date(log.at).toLocaleString("en-IN")}
+                    </p>
+                  </div>
+                </div>
+              </li>
+            ))
+          )}
         </ul>
       </Panel>
     </PageChrome>

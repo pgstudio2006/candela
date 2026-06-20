@@ -7,14 +7,15 @@ import { PrintPreviewModal } from "@/components/doctor/print/print-preview-modal
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import {
-  CARE_PACKAGES,
   OBJECTION_TAGS,
   PACKAGE_ADDONS,
   PACKAGE_TIERS,
   type CounselQuote,
 } from "@/design-system/counsellor-data";
+import { useCounsellorPoll } from "@/hooks/use-counsellor-poll";
 import { useToast } from "@/components/ui/toast-provider";
 import { cn } from "@/lib/utils";
+import { isRedFlagVisit } from "@/lib/frontdesk-workflow";
 import { ArrowLeft, MessageCircle, Printer, Send, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -29,6 +30,7 @@ const AI_SCRIPTS: Record<string, string> = {
 type SessionWorkspaceProps = { visitId: string };
 
 export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
+  useCounsellorPoll();
   const router = useRouter();
   const { toast } = useToast();
   const {
@@ -41,6 +43,10 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
     completeSession,
     maxDiscountPercent,
     discountPolicy,
+    packages,
+    activeCounsellorName,
+    approvals,
+    approvedDiscounts,
   } = useCounsellorStore();
 
   const item = getQueueItem(visitId);
@@ -64,14 +70,16 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
   const [corporateRef, setCorporateRef] = useState("");
   const [paymentExpectation, setPaymentExpectation] = useState<"pay_now" | "desk" | "corporate">("desk");
   const [printOpen, setPrintOpen] = useState(false);
-  const [talkTrackOpen, setTalkTrackOpen] = useState(true);
+  const [claiming, setClaiming] = useState(false);
 
   useEffect(() => {
-    if (item) {
-      claimSession(visitId);
-      setPackageId(String(item.packageId ?? item.payload.handoff?.packageId ?? "pkg_basic"));
-    }
-  }, [item, visitId, claimSession]);
+    if (!item) return;
+    setClaiming(true);
+    void claimSession(visitId)
+      .catch((err) => toast(String(err), "error"))
+      .finally(() => setClaiming(false));
+    setPackageId(String(item.packageId ?? item.payload.handoff?.packageId ?? "pkg_basic"));
+  }, [item, visitId, claimSession, toast]);
 
   const quote = useMemo(
     () => buildQuote(visitId, packageId, addonIds, discountPercent, discountReason, tier),
@@ -79,7 +87,11 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
   );
 
   const limit = maxDiscountPercent();
-  const needsApproval = discountPercent > limit || discountPercent > discountPolicy.managerApprovalAbove;
+  const hasApprovedDiscount = [...approvals, ...approvedDiscounts].some(
+    (a) => a.visitId === visitId && a.status === "approved" && a.requestedPercent >= discountPercent,
+  );
+  const needsApproval =
+    (discountPercent > limit || discountPercent > discountPolicy.managerApprovalAbove) && !hasApprovedDiscount;
   const needsReason = discountPercent > discountPolicy.requireReasonAbove && !discountReason.trim();
 
   if (!item || !patient || !visit) {
@@ -110,23 +122,26 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
     setAiScript(`${base}\n\n(Diagnosis context: ${dx})`);
   };
 
-  const finish = (outcome: "converted" | "deferred" | "lost" | "callback", sendBilling = false) => {
+  const finish = async (outcome: "converted" | "deferred" | "lost" | "callback", sendBilling = false) => {
     if (sendBilling && !consent) {
       toast("Capture patient consent before sending to billing.", "error");
       return;
     }
-    if (sendBilling && needsApproval) {
-      toast("Discount needs manager approval before billing handoff.", "error");
-      return;
-    }
-    if (needsReason && sendBilling) {
+    if (sendBilling && needsReason) {
       toast("Enter a discount reason before sending to billing.", "error");
       return;
     }
-    if (needsApproval && sendBilling) {
-      requestDiscountApproval(visitId, quote, discountReason || "Manager approval requested");
+    if (sendBilling && needsApproval) {
+      toast("Request manager approval first, then retry after approval.", "error");
+      await requestDiscountApproval(visitId, quote, discountReason || "Manager approval requested");
+      return;
     }
-    completeSession(visitId, outcome, {
+    if (outcome === "callback" && !callbackAt.trim()) {
+      toast("Set a callback date/time.", "error");
+      return;
+    }
+
+    const result = await completeSession(visitId, outcome, {
       quote: outcome === "converted" ? { ...quote, emiMonths: emiMonths || undefined, corporateRef: corporateRef || undefined, consentCaptured: consent, whatsappSent: whatsapp } : undefined,
       internalNotes,
       objections,
@@ -138,7 +153,13 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
       voiceNote,
       aiScript,
     });
-    router.push(outcome === "converted" && sendBilling ? "/app/counsellor/queue" : "/app/counsellor/queue");
+
+    if (!result.ok) {
+      toast(result.error ?? "Could not complete session", "error");
+      return;
+    }
+    toast(outcome === "converted" && sendBilling ? "Sent to reception billing" : "Session saved", "success");
+    router.push("/app/counsellor/queue");
   };
 
   return (
@@ -150,7 +171,7 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
         { label: "Session" },
       ]}
       title={`Counsel · ${patient.name}`}
-      meta={`${item.doctorName} · ${patient.uhid} · full handoff visible`}
+      meta={`${item.doctorName} · ${patient.uhid} · ${activeCounsellorName}${claiming ? " · claiming…" : ""}`}
       actions={
         <AttioButton variant="secondary" className="gap-1.5" onClick={() => setPrintOpen(true)}>
           <Printer className="size-3.5" />
@@ -163,32 +184,37 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
         Queue
       </Link>
 
+      <div className="mb-4 flex flex-wrap gap-2">
+        {isRedFlagVisit(visit) && <StatusBadge label="RED FLAG" variant="danger" />}
+        {item.priority === "high" && <StatusBadge label="High priority" variant="warning" />}
+        {visit.routingNote && (
+          <span className="rounded-lg bg-amber-50 px-3 py-1 text-[12px] text-amber-900">{visit.routingNote}</span>
+        )}
+      </div>
+
       <div className="grid gap-6 xl:grid-cols-[1fr_400px]">
         <div>
           <HandoffPayloadView item={item} patient={patient} visit={visit} />
         </div>
 
         <div className="space-y-4">
-          {talkTrackOpen && (
-            <Panel title="AI counsel assistant" action={<Sparkles className="size-4 text-[var(--attio-accent)]" />}>
-              <div className="mb-2 flex flex-wrap gap-1">
-                {["en", "hi", "hinglish"].map((l) => (
-                  <button key={l} type="button" onClick={() => setAiLang(l)} className={cn("rounded-full border px-2 py-0.5 text-[11px] capitalize", aiLang === l ? "border-[var(--attio-accent)] bg-[var(--attio-accent)]/10 text-[var(--attio-accent)]" : "border-[var(--attio-border)]")}>{l}</button>
-                ))}
-              </div>
-              <AttioButton variant="secondary" className="mb-2 w-full gap-1.5" onClick={generateAiScript}>
-                <Sparkles className="size-3.5" />
-                Generate patient talk track
-              </AttioButton>
-              <textarea value={aiScript} onChange={(e) => setAiScript(e.target.value)} rows={4} placeholder="Patient-friendly explanation…" className="w-full resize-none rounded-lg border border-[var(--attio-border)] px-3 py-2 text-[12px]" />
-              <p className="mt-2 text-[11px] text-[var(--attio-text-tertiary)]">Compliance: verify promises match doctor treatment plan before patient conversation.</p>
-            </Panel>
-          )}
+          <Panel title="AI counsel assistant" action={<Sparkles className="size-4 text-[var(--attio-accent)]" />}>
+            <div className="mb-2 flex flex-wrap gap-1">
+              {["en", "hi", "hinglish"].map((l) => (
+                <button key={l} type="button" onClick={() => setAiLang(l)} className={cn("rounded-full border px-2 py-0.5 text-[11px] capitalize", aiLang === l ? "border-[var(--attio-accent)] bg-[var(--attio-accent)]/10 text-[var(--attio-accent)]" : "border-[var(--attio-border)]")}>{l}</button>
+              ))}
+            </div>
+            <AttioButton variant="secondary" className="mb-2 w-full gap-1.5" onClick={generateAiScript}>
+              <Sparkles className="size-3.5" />
+              Generate patient talk track
+            </AttioButton>
+            <textarea value={aiScript} onChange={(e) => setAiScript(e.target.value)} rows={4} placeholder="Patient-friendly explanation…" className="w-full resize-none rounded-lg border border-[var(--attio-border)] px-3 py-2 text-[12px]" />
+          </Panel>
 
           <Panel title="Package proposal">
             <div className="mb-3 grid grid-cols-3 gap-2">
               {PACKAGE_TIERS.map((t) => {
-                const pkg = CARE_PACKAGES.find((p) => p.id === t.packageId)!;
+                const pkg = packages.find((p) => p.id === t.packageId)!;
                 return (
                   <button key={t.id} type="button" onClick={() => applyTier(t.id)} className={cn("rounded-lg border p-2 text-left text-[11px]", tier === t.id ? "border-[var(--attio-accent)] bg-[var(--attio-accent)]/5" : "border-[var(--attio-border)]")}>
                     <p className="font-semibold">{t.label}</p>
@@ -198,13 +224,11 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
                 );
               })}
             </div>
-            <label className="mb-2 block text-[11px] text-[var(--attio-text-tertiary)]">Or select package</label>
             <select value={packageId} onChange={(e) => setPackageId(e.target.value)} className="mb-3 w-full rounded-md border border-[var(--attio-border)] px-2 py-2 text-[13px]">
-              {CARE_PACKAGES.map((p) => (
+              {packages.map((p) => (
                 <option key={p.id} value={p.id}>{p.label} — ₹{p.amount.toLocaleString("en-IN")}</option>
               ))}
             </select>
-            <p className="mb-2 text-[11px] font-medium text-[var(--attio-text-tertiary)] uppercase">Add-ons</p>
             <div className="space-y-1">
               {PACKAGE_ADDONS.map((a) => (
                 <label key={a.id} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[12px] hover:bg-[var(--attio-surface)]">
@@ -227,25 +251,15 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
                 <input value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} placeholder="Discount reason (required above 3%)" className="w-full rounded-md border border-[var(--attio-border)] px-2 py-1.5 text-[12px]" />
               )}
               {needsApproval && <StatusBadge label="Manager approval required" variant="warning" />}
+              {hasApprovedDiscount && <StatusBadge label="Discount approved" variant="success" />}
               <div className="flex justify-between border-t pt-2 text-[15px] font-semibold">
                 <span>Net payable</span>
                 <span className="tabular-nums text-[var(--attio-accent)]">₹{quote.netAmount.toLocaleString("en-IN")}</span>
               </div>
-              <label className="flex items-center gap-2 text-[12px]">
-                <span>EMI months</span>
-                <select value={emiMonths} onChange={(e) => setEmiMonths(Number(e.target.value))} className="rounded border px-2 py-1">
-                  <option value={0}>None</option>
-                  <option value={3}>3</option>
-                  <option value={6}>6</option>
-                  <option value={12}>12</option>
-                </select>
-              </label>
-              <input value={corporateRef} onChange={(e) => setCorporateRef(e.target.value)} placeholder="Corporate / TPA reference (optional)" className="w-full rounded-md border px-2 py-1.5 text-[12px]" />
             </div>
           </Panel>
 
           <Panel title="Session wrap-up">
-            <p className="mb-2 text-[11px] font-medium text-[var(--attio-text-tertiary)] uppercase">Objections</p>
             <div className="mb-3 flex flex-wrap gap-1">
               {OBJECTION_TAGS.map((tag) => (
                 <button key={tag} type="button" onClick={() => toggleObjection(tag)} className={cn("rounded-full border px-2 py-0.5 text-[10px]", objections.includes(tag) ? "border-[var(--attio-accent)] bg-[var(--attio-accent)]/10" : "border-[var(--attio-border)]")}>{tag}</button>
@@ -256,29 +270,28 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
             <input type="datetime-local" value={callbackAt} onChange={(e) => setCallbackAt(e.target.value)} className="mb-3 w-full rounded-md border px-2 py-1.5 text-[12px]" />
             <div className="mb-3 space-y-2 text-[12px]">
               <label className="flex items-center gap-2"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />Package consent captured</label>
-              <label className="flex items-center gap-2"><input type="checkbox" checked={whatsapp} onChange={(e) => setWhatsapp(e.target.checked)} /><MessageCircle className="size-3.5" />Send WhatsApp quote</label>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={whatsapp} onChange={(e) => setWhatsapp(e.target.checked)} /><MessageCircle className="size-3.5" />Send WhatsApp quote on convert</label>
             </div>
-            <p className="mb-2 text-[11px] text-[var(--attio-text-tertiary)]">Payment expectation</p>
             <div className="mb-3 flex flex-wrap gap-1">
               {(["desk", "pay_now", "corporate"] as const).map((p) => (
                 <button key={p} type="button" onClick={() => setPaymentExpectation(p)} className={cn("rounded-full border px-2.5 py-1 text-[11px] capitalize", paymentExpectation === p ? "border-[var(--attio-accent)] bg-[var(--attio-accent)]/10" : "border-[var(--attio-border)]")}>{p.replace("_", " ")}</button>
               ))}
             </div>
             <div className="grid gap-2">
-              <AttioButton variant="primary" className="gap-1.5" disabled={!consent || needsReason} onClick={() => finish("converted", true)}>
+              <AttioButton variant="primary" className="gap-1.5" disabled={!consent || needsReason} onClick={() => void finish("converted", true)}>
                 <Send className="size-3.5" />
                 Convert & send to reception
               </AttioButton>
-              <AttioButton variant="secondary" onClick={() => finish("callback")}>Schedule callback</AttioButton>
-              <AttioButton variant="secondary" onClick={() => finish("deferred")}>Deferred — needs time</AttioButton>
-              <AttioButton variant="secondary" onClick={() => finish("lost")}>Lost</AttioButton>
+              <AttioButton variant="secondary" onClick={() => void finish("callback")}>Schedule callback</AttioButton>
+              <AttioButton variant="secondary" onClick={() => void finish("deferred")}>Deferred — needs time</AttioButton>
+              <AttioButton variant="secondary" onClick={() => void finish("lost")}>Lost</AttioButton>
             </div>
           </Panel>
         </div>
       </div>
 
       <PrintPreviewModal open={printOpen} onClose={() => setPrintOpen(false)} title="Package quote" printId="counsel-quote-print">
-        <PrintableQuote patient={patient} visit={visit} quote={quote} doctorName={item.doctorName} counsellorName="Priya Sharma" />
+        <PrintableQuote patient={patient} visit={visit} quote={quote} doctorName={item.doctorName} counsellorName={activeCounsellorName} />
       </PrintPreviewModal>
     </PageChrome>
   );

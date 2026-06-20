@@ -6,23 +6,23 @@ import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { DataTable, StatusBadge } from "@/components/frontdesk/ui";
 import type { Prescription } from "@/design-system/pharmacy-data";
 import { RX_STATUS_LABELS } from "@/design-system/pharmacy-data";
+import { usePharmacyPoll } from "@/hooks/use-pharmacy-poll";
 import { useState } from "react";
 
 export default function PharmacyPrescriptionsPage() {
-  const { prescriptions } = usePharmacyStore();
+  usePharmacyPoll();
+  const { getActivePrescriptions, prescriptions } = usePharmacyStore();
   const [selected, setSelected] = useState<Prescription | null>(null);
   const [filter, setFilter] = useState<string>("active");
 
   const rows =
-    filter === "active"
-      ? prescriptions.filter((r) => !["dispensed", "cancelled", "rejected"].includes(r.status))
-      : prescriptions;
+    filter === "active" ? getActivePrescriptions() : prescriptions;
 
   return (
     <PageChrome
       breadcrumbs={[{ label: "Pharmacy", href: "/app/pharmacy" }, { label: "Prescriptions" }]}
       title="Prescriptions queue"
-      meta="Verify · dispense · FEFO batch pick · Schedule H register"
+      meta="Verify · dispense · FEFO batch pick · Schedule H register · live refresh"
       actions={
         <select value={filter} onChange={(e) => setFilter(e.target.value)} className="h-8 rounded-md border px-2 text-[12px]">
           <option value="active">Active queue</option>
@@ -50,7 +50,7 @@ export default function PharmacyPrescriptionsPage() {
           uhid: r.uhid,
           doctor: r.doctorName,
           source: r.source.toUpperCase(),
-          priority: <StatusBadge label={r.priority} variant={r.priority === "stat" ? "danger" : "neutral"} />,
+          priority: <StatusBadge label={r.priority} variant={r.priority === "stat" ? "danger" : r.priority === "urgent" ? "warning" : "neutral"} />,
           items: r.lines.length,
           status: <StatusBadge label={RX_STATUS_LABELS[r.status]} variant="info" />,
           time: new Date(r.createdAt).toLocaleString("en-IN"),

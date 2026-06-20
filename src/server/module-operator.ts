@@ -80,3 +80,40 @@ export async function resolveCounsellorOperator() {
   }
   return { ctx, operatorId: ctx.userId, operatorName: user.name ?? "Counsellor" };
 }
+
+export async function resolveAdminOperator() {
+  const ctx = await requireModule("admin");
+  const user = await db.user.findUnique({
+    where: { id: ctx.userId },
+    select: { email: true, name: true },
+  });
+  if (!user?.email) {
+    throw new ServerActionError("UNAUTHORIZED", "Admin account is not linked to this login.");
+  }
+  const email = user.email.toLowerCase();
+  const staff = await prisma.adminStaff.findFirst({
+    where: { email, branchId: ctx.branchId },
+  });
+  if (staff) {
+    const { buildAdminOperator } = await import("@/server/admin/guards");
+    return {
+      ctx,
+      operator: buildAdminOperator({
+        operatorId: staff.id,
+        name: staff.name,
+        email: staff.email,
+        staffRole: staff.role,
+      }),
+    };
+  }
+  const { buildAdminOperator } = await import("@/server/admin/guards");
+  return {
+    ctx,
+    operator: buildAdminOperator({
+      operatorId: ctx.userId,
+      name: user.name ?? "Admin",
+      email,
+      staffRole: "super_admin",
+    }),
+  };
+}

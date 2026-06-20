@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  ClipboardList,
   Inbox,
   Kanban,
   LayoutDashboard,
@@ -29,6 +30,7 @@ export const CRM_NAV: CrmNavItem[] = [
   { id: "team", label: "Team & routing", href: "/app/crm/team", icon: Users, group: "ops", managerOnly: true },
   { id: "workflows", label: "Workflows", href: "/app/crm/workflows", icon: Workflow, group: "ops", managerOnly: true },
   { id: "analytics", label: "Team KPIs", href: "/app/crm/analytics", icon: BarChart3, group: "insights", managerOnly: true },
+  { id: "audit", label: "Audit", href: "/app/crm/audit", icon: ClipboardList, group: "insights", managerOnly: true },
   { id: "settings", label: "Settings", href: "/app/crm/settings", icon: Settings, group: "insights" },
 ];
 

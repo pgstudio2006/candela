@@ -7,10 +7,11 @@ import { PrintablePrescription } from "@/components/doctor/print/printable-presc
 import { PrintPreviewModal } from "@/components/doctor/print/print-preview-modal";
 import { PrescriptionEditor } from "@/components/doctor/prescription-editor";
 import { useDoctorFormSchema } from "@/components/doctor/use-doctor-form-schema";
-import { useFormSchema } from "@/components/frontdesk/use-form-schema";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import type { TreatmentMode } from "@/design-system/doctor-data";
+import { useDoctorPoll } from "@/hooks/use-doctor-poll";
+import { isRedFlagVisit } from "@/lib/frontdesk-workflow";
 import { cn } from "@/lib/utils";
 import { validateFormValues } from "@/lib/schema-registry";
 import { useToast } from "@/components/ui/toast-provider";
@@ -42,12 +43,14 @@ type ConsultationWorkspaceProps = {
 };
 
 export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
+  useDoctorPoll();
   const router = useRouter();
   const { toast } = useToast();
   const {
     getVisit,
     getPatient,
     getConsultation,
+    getJuniorSubmission,
     startConsultation,
     saveConsultSection,
     setPrescription,
@@ -75,15 +78,15 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
 
   const visit = getVisit(visitId);
   const patient = visit ? getPatient(visit.patientId) : undefined;
+  const junior = getJuniorSubmission(visitId);
 
-  const juniorExamSchema = useFormSchema("junior-exam");
-  const examSchema = juniorExamSchema;
+  const examSchema = useDoctorFormSchema("doctor-examination");
   const dxSchema = useDoctorFormSchema("doctor-diagnosis");
   const txSchema = useDoctorFormSchema("doctor-treatment");
   const handoffSchema = useDoctorFormSchema("doctor-handoff");
 
   useEffect(() => {
-    if (visit) startConsultation(visitId);
+    if (visit) void startConsultation(visitId);
   }, [visit, visitId, startConsultation]);
 
   const consult = getConsultation(visitId);
@@ -174,8 +177,41 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
         <StatusBadge label={visit.billing} variant={visit.billing === "paid" ? "success" : "warning"} />
         <StatusBadge label={`Exam: ${visit.exam}`} variant={visit.exam === "done" ? "success" : "info"} />
         <StatusBadge label={patient.department} variant="neutral" />
+        {isRedFlagVisit(visit) && <StatusBadge label="RED FLAG" variant="danger" />}
+        {visit.routingNote && (
+          <span className="text-[12px] text-amber-800">{visit.routingNote}</span>
+        )}
         {visit.deferredReason && <StatusBadge label="Deferred billing" variant="warning" />}
       </div>
+
+      {junior && (
+        <div className="mb-4">
+        <Panel title="Junior doctor handoff (read-only)">
+          <div className="grid gap-2 text-[13px] text-[var(--attio-text-secondary)] sm:grid-cols-2">
+            {Boolean(junior.redFlags) && (
+              <p className="col-span-full rounded-lg bg-red-50 px-3 py-2 text-red-800">
+                Red flags noted: {String(junior.redFlagNotes ?? "Review immediately")}
+              </p>
+            )}
+            {junior.chiefComplaint && (
+              <p><span className="font-medium">Complaint:</span> {String(junior.chiefComplaint)}</p>
+            )}
+            {junior.juniorImpression && (
+              <p><span className="font-medium">Junior impression:</span> {String(junior.juniorImpression)}</p>
+            )}
+            {junior.seniorHandoff && (
+              <p className="col-span-full"><span className="font-medium">Handoff note:</span> {String(junior.seniorHandoff)}</p>
+            )}
+            {junior.rom && (
+              <p><span className="font-medium">ROM:</span> {String(junior.rom)}</p>
+            )}
+            {junior.specialTests && (
+              <p><span className="font-medium">Special tests:</span> {String(junior.specialTests)}</p>
+            )}
+          </div>
+        </Panel>
+        </div>
+      )}
 
       <div className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-[var(--attio-border)] bg-white px-4 py-3">
         <span className="text-[12px] font-medium text-[var(--attio-text-secondary)]">Treatment mode</span>
@@ -235,7 +271,7 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
 
       {tab === "examination" && (
         <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
-          <Panel title="Examination (same as junior doctor intake)">
+          <Panel title="Examination">
             <SchemaForm
               schema={examSchema}
               formKey={`exam-${visitId}-${consult?.startedAt ?? ""}`}

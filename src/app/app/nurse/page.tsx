@@ -4,27 +4,29 @@ import { useNurseStore } from "@/components/nurse/nurse-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, MetricStrip, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { queueWaitMinutes } from "@/design-system/nurse-data";
+import { useNursePoll } from "@/hooks/use-nurse-poll";
 import { Zap } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 export default function NurseDashboardPage() {
+  useNursePoll();
   const router = useRouter();
-  const { getDashboardKpis, getQueue, getPatient, getEpisode } = useNurseStore();
+  const { getDashboardKpis, getFilteredQueue, getPatient, getEpisode } = useNurseStore();
   const kpis = getDashboardKpis();
-  const queue = getQueue();
+  const queue = getFilteredQueue();
   const next = queue[0];
 
   return (
     <PageChrome
       breadcrumbs={[{ label: "Nursing", href: "/app/nurse" }, { label: "Dashboard" }]}
       title="Treatment execution command"
-      meta="Vitals · clinical consent · session 1 · full care handoff"
+      meta="Vitals · clinical consent · multi-session care · live queue"
       actions={
         <AttioButton
           variant="primary"
           className="gap-1.5"
-          onClick={() => next && router.push(`/app/nurse/episode/${next.visitId}`)}
+          onClick={() => (next ? router.push(`/app/nurse/episode/${next.visitId}`) : router.push("/app/nurse/queue"))}
         >
           <Zap className="size-3.5" />
           {next ? "Start next intake" : "View queue"}
@@ -43,6 +45,8 @@ export default function NurseDashboardPage() {
             {queue.slice(0, 6).map((h) => {
               const ep = getEpisode(h.visitId);
               const p = getPatient(h.patientId);
+              const highPriority =
+                ep?.priority === "high" || h.treatmentPath === "ipd" || Boolean(ep?.vitals?.redFlags?.trim());
               return (
                 <li key={h.visitId}>
                   <Link
@@ -53,9 +57,11 @@ export default function NurseDashboardPage() {
                       <p className="text-[13px] font-medium">{p?.name ?? h.patientName}</p>
                       <p className="text-[11px] text-[var(--attio-text-tertiary)]">
                         {h.packageLabel} · {queueWaitMinutes(h.sentAt)}m wait
+                        {ep ? ` · ${ep.nurseName}` : ""}
                       </p>
                     </div>
                     <div className="flex gap-1">
+                      {highPriority && <StatusBadge label="Priority" variant="warning" />}
                       <StatusBadge label={h.treatmentPath} variant="info" />
                       {ep && <StatusBadge label={ep.status} variant="neutral" />}
                     </div>
@@ -73,7 +79,7 @@ export default function NurseDashboardPage() {
             </li>
             <li className="flex gap-2">
               <span className="font-medium text-[var(--attio-text)]">2.</span>
-              Capture vitals & nursing assessment
+              Capture vitals & nursing assessment (red flags → priority queue)
             </li>
             <li className="flex gap-2">
               <span className="font-medium text-[var(--attio-text)]">3.</span>
@@ -81,12 +87,17 @@ export default function NurseDashboardPage() {
             </li>
             <li className="flex gap-2">
               <span className="font-medium text-[var(--attio-text)]">4.</span>
-              Verify consents → start session 1 in treatment bay
+              Verify consents → execute sessions · multi-session care plans supported
             </li>
           </ol>
-          <Link href="/app/nurse/consent" className="mt-4 inline-block text-[13px] font-medium text-[var(--attio-accent)] hover:underline">
-            View consent registry →
-          </Link>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <Link href="/app/nurse/consent" className="text-[13px] font-medium text-[var(--attio-accent)] hover:underline">
+              Consent registry →
+            </Link>
+            <Link href="/app/nurse/audit" className="text-[13px] font-medium text-[var(--attio-accent)] hover:underline">
+              Audit log →
+            </Link>
+          </div>
         </Panel>
       </div>
     </PageChrome>

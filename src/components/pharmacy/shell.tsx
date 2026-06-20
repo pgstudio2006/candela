@@ -5,6 +5,7 @@ import { usePharmacyStore } from "@/components/pharmacy/pharmacy-store";
 import { PharmacyCommandPalette } from "@/components/pharmacy/command-palette";
 import { PharmacySidebar } from "@/components/pharmacy/sidebar";
 import { PHARMACY_MANAGER_ID } from "@/components/pharmacy/pharmacy-store";
+import { usePharmacyPoll } from "@/hooks/use-pharmacy-poll";
 import { useSession } from "@/components/candela/session-provider";
 import { CopilotPanel } from "@/components/frontdesk/copilot-panel";
 import { getPharmacyNavItem } from "@/design-system/pharmacy-nav";
@@ -17,6 +18,7 @@ export function PharmacyShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { session, authReady, signOut, setCommandOpen, commandOpen } = useSession();
   const { ready, error, refresh } = usePharmacyStore();
+  usePharmacyPoll();
   const [copilotOpen, setCopilotOpen] = useState(false);
   const current = getPharmacyNavItem(pathname);
 

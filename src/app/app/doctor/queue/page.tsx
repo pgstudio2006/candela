@@ -3,20 +3,24 @@
 import { useDoctorStore } from "@/components/doctor/doctor-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
-import { patientDisplayName } from "@/lib/frontdesk-workflow";
+import { useDoctorPoll } from "@/hooks/use-doctor-poll";
+import { isRedFlagVisit, patientDisplayName } from "@/lib/frontdesk-workflow";
 import { cn } from "@/lib/utils";
-import { Clock, Stethoscope } from "lucide-react";
+import { Clock, Stethoscope, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 
 export default function DoctorQueuePage() {
+  useDoctorPoll();
   const router = useRouter();
   const { getOpdQueue, getPatient, startConsultation } = useDoctorStore();
-  const queue = getOpdQueue();
+  const [deptView, setDeptView] = useState(false);
+  const queue = getOpdQueue(undefined, deptView);
 
-  const callNext = () => {
+  const callNext = async () => {
     const next = queue[0];
     if (next) {
-      startConsultation(next.id);
+      await startConsultation(next.id);
       router.push(`/app/doctor/consult/${next.id}`);
     }
   };
@@ -28,12 +32,22 @@ export default function DoctorQueuePage() {
         { label: "OPD queue" },
       ]}
       title="OPD queue"
-      meta="Patients with completed junior exam · FIFO"
+      meta="Red flags & appointments first · live sync"
       actions={
-        <AttioButton variant="primary" className="gap-1.5" onClick={callNext} disabled={!queue.length}>
-          <Stethoscope className="size-3.5" />
-          Start next consult
-        </AttioButton>
+        <div className="flex items-center gap-2">
+          <AttioButton
+            variant={deptView ? "primary" : "secondary"}
+            className="gap-1.5"
+            onClick={() => setDeptView((v) => !v)}
+          >
+            <Users className="size-3.5" />
+            {deptView ? "My queue" : "Dept queue"}
+          </AttioButton>
+          <AttioButton variant="primary" className="gap-1.5" onClick={() => void callNext()} disabled={!queue.length}>
+            <Stethoscope className="size-3.5" />
+            Start next consult
+          </AttioButton>
+        </div>
       }
     >
       <Panel title="Waiting for consultant" action={<span className="text-[11px] text-[var(--attio-text-tertiary)]">{queue.length} in queue</span>}>
@@ -46,10 +60,15 @@ export default function DoctorQueuePage() {
           {queue.map((v) => {
             const p = getPatient(v.patientId);
             if (!p) return null;
+            const redFlag = isRedFlagVisit(v);
             return (
               <li
                 key={v.id}
-                className={cn("flex items-center justify-between gap-4 py-4", v.appointment && "bg-blue-50/40 -mx-4 px-4")}
+                className={cn(
+                  "flex items-center justify-between gap-4 py-4",
+                  (v.appointment || redFlag) && "bg-blue-50/40 -mx-4 px-4",
+                  redFlag && "bg-red-50/50",
+                )}
               >
                 <div>
                   <p className="text-[14px] font-medium">
@@ -59,8 +78,15 @@ export default function DoctorQueuePage() {
                   <div className="mt-2 flex flex-wrap gap-1">
                     <StatusBadge label={v.billing} variant={v.billing === "paid" ? "success" : "warning"} />
                     <StatusBadge label={`Exam ${v.exam}`} variant="success" />
+                    {redFlag && <StatusBadge label="RED FLAG" variant="danger" />}
                     {v.appointment && <StatusBadge label={`Appt ${v.appointmentTime}`} variant="info" />}
+                    {deptView && v.doctorName && (
+                      <StatusBadge label={v.doctorName} variant="neutral" />
+                    )}
                   </div>
+                  {v.routingNote && (
+                    <p className="mt-1 text-[11px] text-amber-800">{v.routingNote}</p>
+                  )}
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="flex items-center gap-1 text-[12px] text-[var(--attio-text-tertiary)]">
@@ -70,8 +96,9 @@ export default function DoctorQueuePage() {
                   <AttioButton
                     variant="secondary"
                     onClick={() => {
-                      startConsultation(v.id);
-                      router.push(`/app/doctor/consult/${v.id}`);
+                      void startConsultation(v.id).then(() =>
+                        router.push(`/app/doctor/consult/${v.id}`),
+                      );
                     }}
                   >
                     Consult

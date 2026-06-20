@@ -27,12 +27,12 @@ export default function PharmacyReturnsPage() {
           actions: (
             <div className="flex gap-1">
               {r.status === "pending" && (
-                <AttioButton variant="ghost" className="!h-7 !text-[11px]" onClick={() => approveReturn(r.id)}>
+                <AttioButton variant="ghost" className="!h-7 !text-[11px]" onClick={() => void approveReturn(r.id)}>
                   Approve
                 </AttioButton>
               )}
               {r.status === "approved" && (
-                <AttioButton variant="primary" className="!h-7 !text-[11px]" onClick={() => restockReturn(r.id)}>
+                <AttioButton variant="primary" className="!h-7 !text-[11px]" onClick={() => void restockReturn(r.id)}>
                   Restock
                 </AttioButton>
               )}

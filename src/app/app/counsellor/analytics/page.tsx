@@ -4,9 +4,11 @@ import { useCounsellorStore } from "@/components/counsellor/counsellor-store";
 import { ChartCard, DonutChart, HorizontalBarList } from "@/components/doctor/analytics-charts";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { MetricStrip, Panel } from "@/components/frontdesk/ui";
+import { useCounsellorPoll } from "@/hooks/use-counsellor-poll";
 import { useMemo, useState } from "react";
 
 export default function CounsellorAnalyticsPage() {
+  useCounsellorPoll();
   const [tab, setTab] = useState("performance");
   const { getAnalytics, getDashboardKpis } = useCounsellorStore();
   const a = getAnalytics();

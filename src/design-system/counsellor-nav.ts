@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  ClipboardList,
   ClipboardCheck,
   LayoutDashboard,
   ListOrdered,
@@ -23,6 +24,7 @@ export const COUNSELLOR_NAV: CounsellorNavItem[] = [
   { id: "packages", label: "Packages", href: "/app/counsellor/packages", icon: Package },
   { id: "approvals", label: "Approvals", href: "/app/counsellor/approvals", icon: ClipboardCheck },
   { id: "analytics", label: "Analytics", href: "/app/counsellor/analytics", icon: BarChart3 },
+  { id: "audit", label: "Audit log", href: "/app/counsellor/audit", icon: ClipboardList },
   { id: "settings", label: "Settings", href: "/app/counsellor/settings", icon: Settings },
 ];
 

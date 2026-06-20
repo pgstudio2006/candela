@@ -10,9 +10,23 @@ import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 export default function AdminStaffPage() {
-  const { staff, departments, updateStaff, addStaff, removeStaff, logAdminAction, refresh } = useAdminStore();
+  const { staff, departments, branchId, canManageConfig, updateStaff, addStaff, removeStaff, logAdminAction, refresh } = useAdminStore();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<StaffMember | undefined>();
+  const [toast, setToast] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 8000);
+  };
+
+  if (!canManageConfig) {
+    return (
+      <PageChrome breadcrumbs={[{ label: "Admin", href: "/app/admin" }, { label: "Staff" }]} title="Staff & access" meta="Configuration access required">
+        <p className="text-[13px]">Staff management requires configuration access.</p>
+      </PageChrome>
+    );
+  }
 
   const deptLabel = (ids: string[]) =>
     ids.map((id) => departments.find((d) => d.id === id)?.label ?? id).join(", ") || "—";
@@ -35,6 +49,9 @@ export default function AdminStaffPage() {
         </AttioButton>
       }
     >
+      {toast && (
+        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-[13px] text-emerald-800">{toast}</div>
+      )}
       <Panel title={`${staff.length} staff members`}>
         <DataTable
           columns={[
@@ -90,7 +107,10 @@ export default function AdminStaffPage() {
         />
       </Panel>
 
-      <Panel title="RBAC matrix" className="mt-4">
+      <Panel title="Role permissions" className="mt-4">
+        <p className="mb-3 text-[12px] text-[var(--attio-text-secondary)]">
+          Permissions are enforced server-side. Super admin and branch admin can manage configuration; finance roles can access billing modules; viewers have read-only command center access.
+        </p>
         <div className="overflow-x-auto text-[12px]">
           <table className="w-full">
             <thead>
@@ -131,20 +151,24 @@ export default function AdminStaffPage() {
         initial={editing}
         onSave={async (data, opts) => {
           if (editing) {
-            updateStaff(editing.id, data);
+            await updateStaff(editing.id, data);
             logAdminAction(`Updated staff: ${data.name}`);
           } else if (opts?.createLogin) {
-            await createStaffWithLoginAction({
+            const result = await createStaffWithLoginAction({
               staff: data,
-              password: opts.password,
+              password: opts.password || undefined,
             });
             await refresh();
+            if (result.initialPassword) {
+              showToast(`Staff onboarded · login: ${data.email} / ${result.initialPassword}`);
+            }
             logAdminAction(`Added staff with login: ${data.name}`);
           } else {
-            addStaff(data);
+            await addStaff(data);
             logAdminAction(`Added staff: ${data.name}`);
           }
         }}
+        branchId={branchId}
       />
     </PageChrome>
   );

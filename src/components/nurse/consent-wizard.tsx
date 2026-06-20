@@ -34,14 +34,14 @@ export function ConsentWizard({ visitId }: ConsentWizardProps) {
 
   const openConsent = (id: string) => {
     setActiveId(id);
-    presentConsent(visitId, id);
+    void presentConsent(visitId, id);
   };
 
   const handleUpload = (file: File) => {
     if (!active) return;
     const reader = new FileReader();
     reader.onload = () => {
-      uploadConsent(visitId, active.id, {
+      void uploadConsent(visitId, active.id, {
         uploadDataUrl: String(reader.result),
         uploadFileName: file.name,
         signerName: signerName || "Patient",
@@ -169,7 +169,7 @@ export function ConsentWizard({ visitId }: ConsentWizardProps) {
                 className="gap-1.5"
                 disabled={!signature || !signerName}
                 onClick={() => {
-                  signConsent(visitId, active.id, {
+                  void signConsent(visitId, active.id, {
                     signatureDataUrl: signature,
                     signerName,
                     signerRole: "patient",
@@ -182,7 +182,7 @@ export function ConsentWizard({ visitId }: ConsentWizardProps) {
               </AttioButton>
             )}
             {(active.status === "signed" || active.status === "uploaded") && (
-              <AttioButton variant="primary" className="gap-1.5" onClick={() => verifyConsent(visitId, active.id)}>
+              <AttioButton variant="primary" className="gap-1.5" onClick={() => void verifyConsent(visitId, active.id)}>
                 <ShieldCheck className="size-3.5" /> Verify & lock
               </AttioButton>
             )}

@@ -19,6 +19,8 @@ import {
   simulateRevenueShare,
 } from "@/lib/admin-platform";
 import type { DataMiningSnapshot } from "@/lib/admin-analytics";
+import { parseActionError } from "@/lib/action-errors";
+import { isTransientSessionError, sleep } from "@/lib/session-retry";
 import {
   addDepartment as addDepartmentAction,
   addDiseaseNode as addDiseaseNodeAction,
@@ -27,6 +29,7 @@ import {
   addRevenuePolicy as addRevenuePolicyAction,
   addStaff as addStaffAction,
   approveExpense as approveExpenseAction,
+  exportRevenueShareCsvAction,
   getAdminSnapshot,
   logAdminAction as logAdminActionMutation,
   removeDepartment as removeDepartmentAction,
@@ -40,8 +43,9 @@ import {
   updateMrdStatus as updateMrdStatusAction,
   updateRevenuePolicy as updateRevenuePolicyAction,
   updateStaff as updateStaffAction,
+  type AdminSnapshot,
 } from "@/server/admin/actions";
-import { parseActionError } from "@/lib/action-errors";
+import { useSession } from "@/components/candela/session-provider";
 import {
   createContext,
   useCallback,
@@ -52,60 +56,22 @@ import {
   type ReactNode,
 } from "react";
 
-type AdminState = {
-  staff: StaffMember[];
-  departments: DepartmentConfig[];
-  diseaseMap: DiseaseMapNode[];
-  diseaseClusters: DiseaseCluster[];
-  geo: {
-    id: string;
-    pincode: string;
-    city: string;
-    lat: number;
-    lng: number;
-    patientCount: number;
-    opdCount: number;
-    ipdCount: number;
-    revenue: number;
-    topDiagnosis: string;
-    severity?: "high" | "medium" | "low";
-  }[];
-  expenses: ExpenseEntry[];
-  revenuePolicies: RevenueSharePolicy[];
-  mrdRequests: MrdRequest[];
-  misReports: MisReport[];
-  settings: AdminPlatformSettings;
-  resolvedLeakageIds: string[];
-  dataMining: DataMiningSnapshot;
-  auditEvents: {
-    id: string;
-    at: string;
-    actor: string;
-    actorRole: string;
-    module: string;
-    action: string;
-    entityType: string;
-    entityId: string;
-    summary: string;
-    severity: "info" | "warning" | "critical";
-  }[];
-};
-
-type AdminStoreValue = AdminState & {
+type AdminStoreValue = Omit<
+  AdminSnapshot,
+  "patients" | "visits"
+> & {
   ready: boolean;
   error: string | null;
   patients: Patient[];
   visits: Visit[];
-  refresh: () => Promise<void>;
-  getAuditLog: () => AdminState["auditEvents"];
+  refresh: (opts?: { silent?: boolean }) => Promise<void>;
+  getAuditLog: () => AdminSnapshot["auditEvents"];
   getCommandKpis: () => ReturnType<typeof computeCommandKpis>;
   getHawkEye: () => ReturnType<typeof computeHawkEye>;
   getLeakageFlags: () => ReturnType<typeof computeLeakageFlags>;
   getActiveLeakageFlags: () => ReturnType<typeof computeLeakageFlags>;
   getPrevalence: () => DataMiningSnapshot["livePrevalence"];
   simulateShare: (policyId: string) => ReturnType<typeof simulateRevenueShare>;
-  updateSettings: (patch: Partial<AdminPlatformSettings>) => Promise<void>;
-  resolveLeakageFlag: (id: string) => Promise<void>;
   updateStaff: (id: string, patch: Partial<StaffMember>) => Promise<void>;
   addStaff: (member: Omit<StaffMember, "id">) => Promise<void>;
   removeStaff: (id: string) => Promise<void>;
@@ -115,83 +81,39 @@ type AdminStoreValue = AdminState & {
   updateDiseaseNode: (id: string, patch: Partial<DiseaseMapNode>) => Promise<void>;
   addDiseaseNode: (node: Omit<DiseaseMapNode, "id">) => Promise<void>;
   removeDiseaseNode: (id: string) => Promise<void>;
+  updateSettings: (patch: Partial<AdminPlatformSettings>) => Promise<void>;
+  resolveLeakageFlag: (id: string) => Promise<void>;
   addExpense: (entry: Omit<ExpenseEntry, "id">) => Promise<void>;
   approveExpense: (id: string, approved: boolean) => Promise<void>;
   updateRevenuePolicy: (id: string, patch: Partial<RevenueSharePolicy>) => Promise<void>;
   addRevenuePolicy: (policy: Omit<RevenueSharePolicy, "id">) => Promise<void>;
   updateMrdStatus: (id: string, status: MrdRequest["status"]) => Promise<void>;
   addMrdRequest: (req: Omit<MrdRequest, "id" | "requestedAt" | "status">) => Promise<void>;
-  runMisReport: (id: string) => Promise<void>;
-  resetAdminData: () => Promise<void>;
+  runMisReport: (id: string) => Promise<{ csv: string; filename: string }>;
+  exportRevenueShare: (
+    policyId: string,
+    doctorName: string,
+    gross: number,
+    share: number,
+    packagesClosed: number,
+  ) => Promise<{ csv: string; filename: string }>;
   logAdminAction: (summary: string) => Promise<void>;
 };
 
 const AdminContext = createContext<AdminStoreValue | null>(null);
 
-function emptyAdminState(): AdminState {
-  return {
-    staff: [],
-    departments: [],
-    diseaseMap: [],
-    diseaseClusters: [],
-    geo: [],
-    expenses: [],
-    revenuePolicies: [],
-    mrdRequests: [],
-    misReports: [],
-    settings: {
-      kAnonymityMin: 5,
-      geoAggregateOnly: true,
-      auditRetentionYears: 7,
-      outbreakAlerts: true,
-      autoMisDaily: true,
-      whatsappConsentFlag: false,
-    },
-    resolvedLeakageIds: [],
-    dataMining: {
-      kpis: [],
-      prevalenceBars: [],
-      ageGender: [],
-      treatmentOutcomes: [],
-      livePrevalence: [],
-      dataSources: [],
-    },
-    auditEvents: [],
-  };
-}
-
 export function AdminStoreProvider({ children }: { children: ReactNode }) {
-  const [admin, setAdmin] = useState<AdminState>(emptyAdminState);
-  const [core, setCore] = useState<{ patients: Patient[]; visits: Visit[] }>({
-    patients: [],
-    visits: [],
-  });
+  const { authReady, session } = useSession();
+  const [state, setState] = useState<AdminSnapshot | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    setReady(false);
+  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent ?? false;
+    if (!silent) setReady(false);
     try {
       const snapshot = await getAdminSnapshot();
-      setAdmin({
-        staff: snapshot.staff,
-        departments: snapshot.departments,
-        diseaseMap: snapshot.diseaseMap,
-        diseaseClusters: snapshot.diseaseClusters,
-        geo: snapshot.geo,
-        expenses: snapshot.expenses,
-        revenuePolicies: snapshot.revenuePolicies,
-        mrdRequests: snapshot.mrdRequests,
-        misReports: snapshot.misReports,
-        settings: snapshot.settings,
-        resolvedLeakageIds: snapshot.resolvedLeakageIds,
-        dataMining: snapshot.dataMining,
-        auditEvents: snapshot.auditEvents,
-      });
-      setCore({
-        patients: snapshot.patients,
-        visits: snapshot.visits,
-      });
+      setState(snapshot);
       setError(null);
     } catch (err) {
       setError(parseActionError(err).message);
@@ -201,35 +123,92 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (!authReady || session?.role !== "admin") return;
+    let cancelled = false;
 
-  const sync = useCallback(async (action: Promise<Awaited<ReturnType<typeof getAdminSnapshot>>>) => {
-    const snapshot = await action;
-    setAdmin({
-      staff: snapshot.staff,
-      departments: snapshot.departments,
-      diseaseMap: snapshot.diseaseMap,
-      diseaseClusters: snapshot.diseaseClusters,
-      geo: snapshot.geo,
-      expenses: snapshot.expenses,
-      revenuePolicies: snapshot.revenuePolicies,
-      mrdRequests: snapshot.mrdRequests,
-      misReports: snapshot.misReports,
-      settings: snapshot.settings,
-      resolvedLeakageIds: snapshot.resolvedLeakageIds,
-      dataMining: snapshot.dataMining,
-      auditEvents: snapshot.auditEvents,
-    });
-    setCore({
-      patients: snapshot.patients,
-      visits: snapshot.visits,
-    });
-  }, []);
+    const load = async (attempt = 0) => {
+      if (cancelled) return;
+      try {
+        const snapshot = await getAdminSnapshot();
+        if (cancelled) return;
+        setState(snapshot);
+        setError(null);
+        setReady(true);
+      } catch (err) {
+        if (cancelled) return;
+        if (attempt < 2 && isTransientSessionError(err)) {
+          await sleep(400 * (attempt + 1));
+          await load(attempt + 1);
+          return;
+        }
+        setError(parseActionError(err).message);
+        setReady(true);
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, session?.role]);
+
+  const run = useCallback(
+    async (fn: () => Promise<AdminSnapshot>) => {
+      try {
+        const snapshot = await fn();
+        setState(snapshot);
+        setError(null);
+      } catch (err) {
+        setError(parseActionError(err).message);
+        throw err;
+      }
+    },
+    [],
+  );
 
   const value = useMemo<AdminStoreValue>(() => {
-    const visits = core.visits;
-    const patients = core.patients;
+    const data = state ?? {
+      staff: [] as StaffMember[],
+      departments: [] as DepartmentConfig[],
+      diseaseMap: [] as DiseaseMapNode[],
+      diseaseClusters: [] as DiseaseCluster[],
+      geo: [],
+      expenses: [],
+      revenuePolicies: [],
+      mrdRequests: [],
+      misReports: [],
+      settings: {
+        kAnonymityMin: 5,
+        geoAggregateOnly: true,
+        auditRetentionYears: 7,
+        outbreakAlerts: true,
+        autoMisDaily: true,
+        whatsappConsentFlag: false,
+      },
+      resolvedLeakageIds: [],
+      auditEvents: [],
+      patients: [],
+      visits: [],
+      dataMining: {
+        kpis: [],
+        prevalenceBars: [],
+        ageGender: [],
+        treatmentOutcomes: [],
+        livePrevalence: [],
+        dataSources: [],
+      },
+      documentTemplates: [],
+      activeOperatorId: "",
+      activeOperatorName: "Admin",
+      activeOperatorRole: "super_admin",
+      isSuperAdmin: true,
+      canManageConfig: true,
+      canManageFinance: true,
+      isViewer: false,
+      branchId: session?.branchId ?? "",
+    };
+
+    const { patients, visits, ...admin } = data;
 
     return {
       ...admin,
@@ -238,41 +217,58 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
       patients,
       visits,
       refresh,
-      getAuditLog: () => admin.auditEvents,
-      getCommandKpis: () => computeCommandKpis(visits, admin.staff, admin.mrdRequests, patients, admin.auditEvents.length),
+      getAuditLog: () => data.auditEvents,
+      getCommandKpis: () =>
+        computeCommandKpis(visits, data.staff, data.mrdRequests, patients, data.auditEvents.length),
       getHawkEye: () => computeHawkEye(visits),
       getLeakageFlags: () => computeLeakageFlags(visits, patients),
       getActiveLeakageFlags: () =>
-        computeLeakageFlags(visits, patients).filter((f) => !admin.resolvedLeakageIds.includes(f.id)),
-      getPrevalence: () => admin.dataMining.livePrevalence,
+        computeLeakageFlags(visits, patients).filter((f) => !data.resolvedLeakageIds.includes(f.id)),
+      getPrevalence: () => data.dataMining.livePrevalence,
       simulateShare: (policyId) => {
-        const policy = admin.revenuePolicies.find((p) => p.id === policyId)!;
+        const policy = data.revenuePolicies.find((p) => p.id === policyId)!;
         const doctorId = policy.doctorId ?? "dr_1";
-        const name = doctorId === "dr_1" ? "Dr. Rajesh Mehta" : doctorId === "dr_2" ? "Dr. Priya Nair" : "Dr. Anil Verma";
+        const name =
+          doctorId === "dr_1"
+            ? "Dr. Rajesh Mehta"
+            : doctorId === "dr_2"
+              ? "Dr. Priya Nair"
+              : "Dr. Anil Verma";
         return simulateRevenueShare(doctorId, name, policy, visits);
       },
-      updateStaff: async (id, patch) => sync(updateStaffAction(id, patch)),
-      addStaff: async (member) => sync(addStaffAction(member)),
-      removeStaff: async (id) => sync(removeStaffAction(id)),
-      updateDepartment: async (id, patch) => sync(updateDepartmentAction(id, patch)),
-      addDepartment: async (dept) => sync(addDepartmentAction(dept)),
-      removeDepartment: async (id) => sync(removeDepartmentAction(id)),
-      updateDiseaseNode: async (id, patch) => sync(updateDiseaseNodeAction(id, patch)),
-      addDiseaseNode: async (node) => sync(addDiseaseNodeAction(node)),
-      removeDiseaseNode: async (id) => sync(removeDiseaseNodeAction(id)),
-      updateSettings: async (patch) => sync(updateAdminSettingsAction(patch)),
-      resolveLeakageFlag: async (id) => sync(resolveLeakageFlagAction(id)),
-      addExpense: async (entry) => sync(addExpenseAction(entry)),
-      approveExpense: async (id, approved) => sync(approveExpenseAction(id, approved)),
-      updateRevenuePolicy: async (id, patch) => sync(updateRevenuePolicyAction(id, patch)),
-      addRevenuePolicy: async (policy) => sync(addRevenuePolicyAction(policy)),
-      updateMrdStatus: async (id, status) => sync(updateMrdStatusAction(id, status)),
-      addMrdRequest: async (req) => sync(addMrdRequestAction(req)),
-      runMisReport: async (id) => sync(runMisReportAction(id)),
-      resetAdminData: async () => refresh(),
-      logAdminAction: async (summary) => sync(logAdminActionMutation(summary)),
+      updateStaff: (id, patch) => run(() => updateStaffAction(id, patch)),
+      addStaff: (member) => run(() => addStaffAction(member)),
+      removeStaff: (id) => run(() => removeStaffAction(id)),
+      updateDepartment: (id, patch) => run(() => updateDepartmentAction(id, patch)),
+      addDepartment: (dept) => run(() => addDepartmentAction(dept)),
+      removeDepartment: (id) => run(() => removeDepartmentAction(id)),
+      updateDiseaseNode: (id, patch) => run(() => updateDiseaseNodeAction(id, patch)),
+      addDiseaseNode: (node) => run(() => addDiseaseNodeAction(node)),
+      removeDiseaseNode: (id) => run(() => removeDiseaseNodeAction(id)),
+      updateSettings: (patch) => run(() => updateAdminSettingsAction(patch)),
+      resolveLeakageFlag: (id) => run(() => resolveLeakageFlagAction(id)),
+      addExpense: (entry) => run(() => addExpenseAction(entry)),
+      approveExpense: (id, approved) => run(() => approveExpenseAction(id, approved)),
+      updateRevenuePolicy: (id, patch) => run(() => updateRevenuePolicyAction(id, patch)),
+      addRevenuePolicy: (policy) => run(() => addRevenuePolicyAction(policy)),
+      updateMrdStatus: (id, status) => run(() => updateMrdStatusAction(id, status)),
+      addMrdRequest: (req) => run(() => addMrdRequestAction(req)),
+      runMisReport: async (id) => {
+        try {
+          const { snapshot, csv, filename } = await runMisReportAction(id);
+          setState(snapshot);
+          setError(null);
+          return { csv, filename };
+        } catch (err) {
+          setError(parseActionError(err).message);
+          throw err;
+        }
+      },
+      exportRevenueShare: (policyId, doctorName, gross, share, packagesClosed) =>
+        exportRevenueShareCsvAction(policyId, doctorName, gross, share, packagesClosed),
+      logAdminAction: (summary) => run(() => logAdminActionMutation(summary)),
     };
-  }, [admin, core, ready, error, refresh, sync]);
+  }, [state, ready, error, refresh, run, session?.branchId]);
 
   return <AdminContext.Provider value={value}>{children}</AdminContext.Provider>;
 }
