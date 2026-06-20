@@ -4,7 +4,6 @@ import {
   DEFAULT_CRM_STAGES,
   SEED_ASSIGNMENT_RULES,
   SEED_CRM_AGENTS,
-  SEED_CRM_FOLLOWUPS,
   SEED_CRM_ACTIVITIES,
   SEED_CRM_INTEGRATIONS,
   SEED_CRM_LEADS,
@@ -28,6 +27,7 @@ import {
   type AgentKpi,
 } from "@/lib/crm-platform";
 import { SEED_AGENT_PASSWORDS } from "@/lib/crm-auth";
+import { channelLabel, syncLeadNextFollowUpAt } from "@/lib/crm-follow-ups";
 import { parseActionError } from "@/lib/action-errors";
 import { getCrmStateAction, saveCrmStateAction } from "@/server/crm/actions";
 import { useSession } from "@/components/candela/session-provider";
@@ -92,8 +92,10 @@ type CrmStoreValue = CrmState & {
   removeStage: (id: string) => void;
   reorderStage: (id: string, dir: -1 | 1) => void;
   updateStages: (stages: CrmPipelineStage[]) => void;
-  addFollowUp: (fu: Omit<CrmFollowUp, "id">) => void;
+  addFollowUp: (fu: Omit<CrmFollowUp, "id" | "status"> & { status?: CrmFollowUp["status"] }) => void;
   completeFollowUp: (id: string, outcome: string) => void;
+  rescheduleFollowUp: (id: string, scheduledAt: string, notes?: string) => void;
+  markMissedFollowUp: (id: string, reason?: string) => void;
   setViewAsAgent: (agentId: string | null) => void;
   logActivity: (leadId: string, summary: string, type?: string) => void;
   getLeadDistribution: () => AgentDistributionStat[];
@@ -120,7 +122,7 @@ function operatorFromSession(): string {
 function loadCrmState(): CrmState {
   return {
     leads: structuredClone(SEED_CRM_LEADS),
-    followUps: structuredClone(SEED_CRM_FOLLOWUPS),
+    followUps: [],
     agents: structuredClone(SEED_CRM_AGENTS),
     agentPasswords: { ...SEED_AGENT_PASSWORDS },
     integrations: structuredClone(SEED_CRM_INTEGRATIONS),
@@ -462,13 +464,115 @@ export function CrmStoreProvider({ children }: { children: ReactNode }) {
           return { ...prev, stages: next };
         }),
       updateStages: (stages) => sync((prev) => ({ ...prev, stages: stages.sort((a, b) => a.order - b.order) })),
-      addFollowUp: (fu) =>
-        sync((prev) => ({ ...prev, followUps: [...prev.followUps, { ...fu, id: `fu_${Date.now()}` }] })),
-      completeFollowUp: (id, outcome) =>
-        sync((prev) => ({
-          ...prev,
-          followUps: prev.followUps.map((f) => (f.id === id ? { ...f, status: "done" as const, outcome } : f)),
-        })),
+      addFollowUp: (fu) => {
+        const now = new Date().toISOString();
+        const actor = getOperator()?.name ?? "User";
+        sync((prev) => {
+          const entry: CrmFollowUp = { ...fu, status: fu.status ?? "pending", id: `fu_${Date.now()}` };
+          const followUps = [...prev.followUps, entry];
+          const leads = syncLeadNextFollowUpAt(prev.leads, followUps, fu.leadId);
+          const when = new Date(entry.scheduledAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+          return {
+            ...prev,
+            followUps,
+            leads,
+            activities: [
+              {
+                id: `act_${Date.now()}`,
+                leadId: fu.leadId,
+                at: now,
+                actor,
+                type: "follow_up",
+                summary: `Follow-up scheduled (${channelLabel(entry.channel)}) · ${when}${entry.notes ? ` — ${entry.notes}` : ""}`,
+              },
+              ...prev.activities,
+            ].slice(0, 100),
+          };
+        });
+      },
+      completeFollowUp: (id, outcome) => {
+        const now = new Date().toISOString();
+        const actor = getOperator()?.name ?? "User";
+        sync((prev) => {
+          const target = prev.followUps.find((f) => f.id === id);
+          if (!target) return prev;
+          const followUps = prev.followUps.map((f) => (f.id === id ? { ...f, status: "done" as const, outcome } : f));
+          const leads = syncLeadNextFollowUpAt(prev.leads, followUps, target.leadId);
+          return {
+            ...prev,
+            followUps,
+            leads,
+            activities: [
+              {
+                id: `act_${Date.now()}`,
+                leadId: target.leadId,
+                at: now,
+                actor,
+                type: "follow_up",
+                summary: `Follow-up completed — ${outcome}`,
+              },
+              ...prev.activities,
+            ].slice(0, 100),
+          };
+        });
+      },
+      rescheduleFollowUp: (id, scheduledAt, notes) => {
+        const now = new Date().toISOString();
+        const actor = getOperator()?.name ?? "User";
+        sync((prev) => {
+          const target = prev.followUps.find((f) => f.id === id);
+          if (!target) return prev;
+          const followUps = prev.followUps.map((f) =>
+            f.id === id ? { ...f, scheduledAt, status: "pending" as const, notes: notes ?? f.notes, outcome: undefined } : f,
+          );
+          const leads = syncLeadNextFollowUpAt(prev.leads, followUps, target.leadId);
+          const when = new Date(scheduledAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+          return {
+            ...prev,
+            followUps,
+            leads,
+            activities: [
+              {
+                id: `act_${Date.now()}`,
+                leadId: target.leadId,
+                at: now,
+                actor,
+                type: "follow_up",
+                summary: `Follow-up rescheduled to ${when}`,
+              },
+              ...prev.activities,
+            ].slice(0, 100),
+          };
+        });
+      },
+      markMissedFollowUp: (id, reason) => {
+        const now = new Date().toISOString();
+        const actor = getOperator()?.name ?? "User";
+        sync((prev) => {
+          const target = prev.followUps.find((f) => f.id === id);
+          if (!target) return prev;
+          const followUps = prev.followUps.map((f) =>
+            f.id === id ? { ...f, status: "missed" as const, outcome: reason ?? "No contact" } : f,
+          );
+          const leads = syncLeadNextFollowUpAt(prev.leads, followUps, target.leadId);
+          return {
+            ...prev,
+            followUps,
+            leads,
+            activities: [
+              {
+                id: `act_${Date.now()}`,
+                leadId: target.leadId,
+                at: now,
+                actor,
+                type: "follow_up",
+                summary: `Follow-up marked missed${reason ? ` — ${reason}` : ""}`,
+              },
+              ...prev.activities,
+            ].slice(0, 100),
+          };
+        });
+      },
       setViewAsAgent: (agentId) => sync((prev) => ({ ...prev, viewAsAgentId: agentId })),
       getLeadDistribution: () => {
         const pctRule = crm.rules.find((r) => r.active && r.strategy === "percentage") ?? crm.rules.find((r) => r.strategy === "percentage");

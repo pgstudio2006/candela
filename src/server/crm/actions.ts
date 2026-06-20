@@ -14,6 +14,7 @@ import {
   defaultPharmacyState,
   type CrmStateShape,
 } from "@/server/revenue/state-seeds";
+import { stripDemoFollowUps } from "@/lib/crm-follow-ups";
 import type { CrmIntegration, CrmLead } from "@/design-system/crm-data";
 import type { CounselSession } from "@/design-system/counsellor-data";
 import type { PharmacyBill, Prescription } from "@/design-system/pharmacy-data";
@@ -77,6 +78,12 @@ async function readState(): Promise<CrmStateShape> {
   await ensureRevenueSeeded();
   const ctx = await getServerContext();
   const state = await readCrmWorkspace(ctx, () => defaultCrmState({}));
+  const cleanedFollowUps = stripDemoFollowUps(state.followUps);
+  if (cleanedFollowUps.length !== state.followUps.length) {
+    state.followUps = cleanedFollowUps;
+    const { operatorId: _drop, ...payload } = state;
+    await writeCrmWorkspace(ctx, payload);
+  }
   const configs = await prisma.crmWebhookConfig.findMany();
   state.integrations = configs.map((c) => ({
     id: c.id as CrmIntegration["id"],

@@ -1,11 +1,14 @@
 "use client";
 
 import { LeadPipelineBoard } from "@/components/crm/lead-pipeline";
+import { FollowUpScheduleModal } from "@/components/crm/follow-up-form";
+import { useCrmStore } from "@/components/crm/crm-store";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { CrmActivity, CrmAgent, CrmFollowUp, CrmLead } from "@/design-system/crm-data";
 import { SOURCE_LABELS } from "@/design-system/crm-data";
 import { AttioButton, StatusBadge } from "@/components/frontdesk/ui";
 import { formatStageStatus } from "@/lib/frontdesk-workflow";
+import { channelLabel, followUpDisplayStatus } from "@/lib/crm-follow-ups";
 import { cn } from "@/lib/utils";
 import { getCrmLeadClinicalHistoryAction, type CrmPatientHistory } from "@/server/crm/actions";
 import { useEffect, useState } from "react";
@@ -116,6 +119,8 @@ export function LeadDetailPanel({
   activities: CrmActivity[];
   followUps: CrmFollowUp[];
 }) {
+  const { addFollowUp, agents: storeAgents, getOperator } = useCrmStore();
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [tab, setTab] = useState("overview");
   const [historyTick, setHistoryTick] = useState(0);
   const [history, setHistory] = useState<CrmPatientHistory>({
@@ -166,6 +171,9 @@ export function LeadDetailPanel({
     lead.gender === "prefer_not" ? "Prefer not to say" : lead.gender ? lead.gender.charAt(0).toUpperCase() + lead.gender.slice(1) : undefined;
 
   const { billing, patient, timeline, visits, pharmacyRx, pharmacyBills, counselSessions } = history;
+  const leadFollowUps = followUps
+    .filter((f) => f.leadId === lead.id)
+    .sort((a, b) => a.scheduledAt.localeCompare(b.scheduledAt));
 
   return (
     <div className="fixed inset-y-0 right-0 z-40 flex w-full max-w-xl flex-col border-l border-[var(--attio-border)] bg-white shadow-xl">
@@ -250,18 +258,41 @@ export function LeadDetailPanel({
               <p className="rounded-lg bg-[var(--attio-surface)] p-3 text-[12px] leading-relaxed">{lead.notes}</p>
             )}
 
-            {history.followUps.length > 0 && (
+            {leadFollowUps.length > 0 && (
               <>
-                <p className="text-[11px] font-semibold uppercase text-[var(--attio-text-tertiary)]">Upcoming follow-ups</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-semibold uppercase text-[var(--attio-text-tertiary)]">Follow-ups</p>
+                  <AttioButton variant="secondary" className="!h-7 !text-[11px]" onClick={() => setScheduleOpen(true)}>
+                    Schedule
+                  </AttioButton>
+                </div>
                 <ul className="space-y-2">
-                  {history.followUps.map((f) => (
-                    <li key={f.id} className="rounded-lg border border-[var(--attio-border-subtle)] px-3 py-2 text-[12px]">
-                      <span className="font-medium capitalize">{f.channel}</span> · {new Date(f.scheduledAt).toLocaleString("en-IN")}
-                      {f.notes && <p className="mt-1 text-[var(--attio-text-secondary)]">{f.notes}</p>}
-                    </li>
-                  ))}
+                  {leadFollowUps.map((f) => {
+                    const display = followUpDisplayStatus(f);
+                    return (
+                      <li key={f.id} className="rounded-lg border border-[var(--attio-border-subtle)] px-3 py-2 text-[12px]">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{channelLabel(f.channel)}</span>
+                          <StatusBadge
+                            label={display === "overdue" ? "Overdue" : display}
+                            variant={display === "done" ? "success" : display === "overdue" || display === "missed" ? "danger" : "warning"}
+                          />
+                        </div>
+                        <p className="mt-0.5 text-[var(--attio-text-tertiary)]">
+                          {new Date(f.scheduledAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                        </p>
+                        {f.notes && <p className="mt-1 text-[var(--attio-text-secondary)]">{f.notes}</p>}
+                      </li>
+                    );
+                  })}
                 </ul>
               </>
+            )}
+
+            {leadFollowUps.length === 0 && !["won", "lost"].includes(lead.stageId) && (
+              <AttioButton variant="secondary" className="!h-8 !text-[12px]" onClick={() => setScheduleOpen(true)}>
+                Schedule follow-up
+              </AttioButton>
             )}
 
             <div>
@@ -361,6 +392,16 @@ export function LeadDetailPanel({
           </TabsContent>
         </div>
       </Tabs>
+
+      <FollowUpScheduleModal
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        leads={[lead]}
+        agents={storeAgents}
+        defaultLeadId={lead.id}
+        defaultAssigneeId={lead.assigneeId || getOperator()?.id}
+        onSave={addFollowUp}
+      />
     </div>
   );
 }

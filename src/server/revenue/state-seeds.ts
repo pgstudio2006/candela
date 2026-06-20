@@ -4,7 +4,6 @@ import {
   SEED_ASSIGNMENT_RULES,
   SEED_CRM_ACTIVITIES,
   SEED_CRM_AGENTS,
-  SEED_CRM_FOLLOWUPS,
   SEED_CRM_INTEGRATIONS,
   SEED_CRM_LEADS,
   type CrmActivity,
@@ -116,7 +115,7 @@ export const defaultCounsellorState = (): CounsellorStateShape => ({
 
 export const defaultCrmState = (passwords: Record<string, string>): CrmStateShape => ({
   leads: structuredClone(SEED_CRM_LEADS),
-  followUps: structuredClone(SEED_CRM_FOLLOWUPS),
+  followUps: [],
   agents: structuredClone(SEED_CRM_AGENTS),
   agentPasswords: passwords,
   integrations: structuredClone(SEED_CRM_INTEGRATIONS),
