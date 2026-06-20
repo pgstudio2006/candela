@@ -1,0 +1,85 @@
+"use server";
+
+import { db } from "@/lib/db";
+import { prisma } from "@/lib/prisma";
+import { HR_MANAGER_ID } from "@/design-system/hr-data";
+import { requireModule } from "@/server/auth";
+import type { ServerContext } from "@/server/context";
+import { ServerActionError } from "@/server/errors";
+
+export const CRM_MANAGER_ID = "crm_mgr";
+export const PHARMACY_MANAGER_ID = "pharm_mgr";
+
+export async function resolveHrOperator(requireManager = false) {
+  const ctx = await requireModule("hr");
+  const user = await db.user.findUnique({ where: { id: ctx.userId }, select: { email: true, name: true } });
+  if (!user?.email) {
+    throw new ServerActionError("UNAUTHORIZED", "HR account is not linked to this login.");
+  }
+  const employee = await prisma.hrEmployee.findFirst({
+    where: { email: user.email.toLowerCase(), active: true },
+  });
+  if (!employee) {
+    throw new ServerActionError("FORBIDDEN", "No HR employee profile found for this account.");
+  }
+  const isManager = employee.id === HR_MANAGER_ID || employee.role === "manager";
+  if (requireManager && !isManager) {
+    throw new ServerActionError("FORBIDDEN", "Manager access required.");
+  }
+  return { ctx, operatorId: employee.id, isManager, employee, userName: user.name ?? employee.name };
+}
+
+export async function resolveCrmOperator() {
+  const ctx = await requireModule("crm");
+  const user = await db.user.findUnique({ where: { id: ctx.userId }, select: { email: true } });
+  if (!user?.email) {
+    throw new ServerActionError("UNAUTHORIZED", "CRM account is not linked to this login.");
+  }
+  const cred = await prisma.crmOperatorCredential.findUnique({
+    where: { email: user.email.toLowerCase() },
+  });
+  if (!cred?.active) {
+    throw new ServerActionError("FORBIDDEN", "No CRM operator profile found for this account.");
+  }
+  const isManager = cred.id === CRM_MANAGER_ID || cred.role === "manager";
+  return { ctx, operatorId: cred.id, isManager, operatorName: cred.name };
+}
+
+export async function resolvePharmacyOperator() {
+  const ctx = await requireModule("pharmacy");
+  const user = await db.user.findUnique({ where: { id: ctx.userId }, select: { email: true } });
+  if (!user?.email) {
+    throw new ServerActionError("UNAUTHORIZED", "Pharmacy account is not linked to this login.");
+  }
+  const cred = await prisma.pharmacyOperatorCredential.findUnique({
+    where: { email: user.email.toLowerCase() },
+  });
+  if (!cred?.active) {
+    throw new ServerActionError("FORBIDDEN", "No pharmacy operator profile found for this account.");
+  }
+  const isManager = cred.id === PHARMACY_MANAGER_ID || cred.role === "manager";
+  return { ctx, operatorId: cred.id, isManager, operatorName: cred.name };
+}
+
+export async function resolveNurseOperator(ctx: ServerContext) {
+  const user = await db.user.findUnique({ where: { id: ctx.userId }, select: { email: true, name: true } });
+  if (!user?.email) {
+    throw new ServerActionError("UNAUTHORIZED", "Nurse account is not linked to this login.");
+  }
+  return { operatorId: ctx.userId, operatorName: user.name ?? "Nurse" };
+}
+
+export async function resolveCounsellorOperator() {
+  const ctx = await requireModule("counsellor");
+  const user = await db.user.findUnique({ where: { id: ctx.userId }, select: { email: true, name: true } });
+  if (!user?.email) {
+    throw new ServerActionError("UNAUTHORIZED", "Counsellor account is not linked to this login.");
+  }
+  const cred = await prisma.counsellorOperatorCredential.findUnique({
+    where: { email: user.email.toLowerCase() },
+  });
+  if (cred?.active) {
+    return { ctx, operatorId: cred.id, operatorName: cred.name };
+  }
+  return { ctx, operatorId: ctx.userId, operatorName: user.name ?? "Counsellor" };
+}

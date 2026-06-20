@@ -266,6 +266,16 @@ async function backfillBranchScope(ctx: ServerContext) {
   }
 }
 
+async function requireVisitInBranch(ctx: ServerContext, visitId: string) {
+  const visit = await prisma.opdVisit.findFirst({
+    where: { id: visitId, ...branchScope(ctx) },
+  });
+  if (!visit) {
+    throw new ServerActionError("NOT_FOUND", "Visit not found in your branch.");
+  }
+  return visit;
+}
+
 async function assertNoDuplicatePatient(
   ctx: ServerContext,
   _phone: string,
@@ -275,6 +285,24 @@ async function assertNoDuplicatePatient(
 ) {
   if (force) return;
   const scope = branchScope(ctx);
+  const phoneNorm = _phone.replace(/\D/g, "").slice(-10);
+  if (phoneNorm.length >= 10) {
+    const phoneDup = await prisma.patient.findFirst({
+      where: {
+        tenantId: scope.tenantId,
+        branchId: scope.branchId,
+        phone: { endsWith: phoneNorm },
+        ...(excludeId ? { NOT: { id: excludeId } } : {}),
+      },
+    });
+    if (phoneDup) {
+      throw new ServerActionError(
+        "DUPLICATE_PHONE",
+        `Phone already registered: ${patientDisplayName(phoneDup)} (${phoneDup.uhid}). Use check-in instead.`,
+        { existingId: phoneDup.id, existingUhid: phoneDup.uhid },
+      );
+    }
+  }
   const existing = await prisma.patient.findFirst({
     where: {
       tenantId: scope.tenantId,
@@ -347,11 +375,10 @@ export async function getClinicalSnapshot(ctx: ServerContext): Promise<ClinicalS
   await backfillBranchScope(ctx);
   const scope = branchScope(ctx);
 
-  const [patientsRows, visitsRows, appointmentRows, submissionRows, handoffRows, roster] = await Promise.all([
+  const [patientsRows, visitsRows, appointmentRows, handoffRows, roster] = await Promise.all([
     prisma.patient.findMany({ where: scope, orderBy: { createdAt: "asc" } }),
     prisma.opdVisit.findMany({ where: scope, orderBy: { createdAt: "asc" } }),
     prisma.appointment.findMany({ where: { branchId: scope.branchId }, orderBy: { createdAt: "asc" } }),
-    prisma.formSubmission.findMany({ orderBy: { createdAt: "asc" } }),
     prisma.billingHandoff.findMany({ where: { branchId: scope.branchId }, orderBy: { createdAt: "asc" } }),
     loadClinicalRoster(ctx),
   ]);
@@ -359,6 +386,21 @@ export async function getClinicalSnapshot(ctx: ServerContext): Promise<ClinicalS
   const patients: Patient[] = patientsRows.map(mapPrismaPatientRow);
 
   const visits: Visit[] = visitsRows.map(mapVisit);
+  const branchPatientIds = patientsRows.map((p) => p.id);
+  const branchVisitIds = visitsRows.map((v) => v.id);
+
+  const submissionRows =
+    branchPatientIds.length || branchVisitIds.length
+      ? await prisma.formSubmission.findMany({
+          where: {
+            OR: [
+              ...(branchVisitIds.length ? [{ visitId: { in: branchVisitIds } }] : []),
+              ...(branchPatientIds.length ? [{ patientId: { in: branchPatientIds } }] : []),
+            ],
+          },
+          orderBy: { createdAt: "asc" },
+        })
+      : [];
 
   const appointments: Appointment[] = appointmentRows.map((row) => ({
     id: row.id,
@@ -630,10 +672,7 @@ export async function processBilling(
   data: BillingInput,
 ): Promise<BillingResult> {
   await ensureClinicalSeed();
-  const visit = await prisma.opdVisit.findUnique({ where: { id: visitId } });
-  if (!visit) {
-    return { routeHref: "/app/frontdesk/queue", routingLabel: "Visit missing", routingNote: "Visit not found." };
-  }
+  const visit = await requireVisitInBranch(ctx, visitId);
 
   const mode = String(data.mode ?? "upi");
   const paymentScope = (String(data.paymentScope ?? "full") as PaymentScope) || "full";
@@ -714,10 +753,7 @@ export async function processCounselBilling(
   input: CounselBillingInput,
 ): Promise<BillingResult> {
   await ensureClinicalSeed();
-  const visit = await prisma.opdVisit.findUnique({ where: { id: visitId } });
-  if (!visit) {
-    return { routeHref: "/app/frontdesk/billing", routingLabel: "Visit missing", routingNote: "Visit not found." };
-  }
+  const visit = await requireVisitInBranch(ctx, visitId);
 
   const { handoff, paymentScope, convertToIpd } = input;
   const net = handoff.quote.netAmount;
@@ -883,10 +919,7 @@ export async function completeJuniorExam(
   data?: Record<string, string | number | boolean>,
 ) {
   await ensureClinicalSeed();
-  const visit = await prisma.opdVisit.findUnique({ where: { id: visitId } });
-  if (!visit) {
-    throw new ServerActionError("NOT_FOUND", "Visit not found.");
-  }
+  const visit = await requireVisitInBranch(ctx, visitId);
   if (data && Object.keys(data).length > 0) {
     await saveSubmission("junior-exam", data, { visitId, patientId: visit.patientId });
   }

@@ -3,6 +3,8 @@ import { DEMO_NURSE_ID, DEMO_NURSE_NAME, requiredConsentsComplete, sessionCountF
 import type { Patient, Visit } from "@/design-system/frontdesk-data";
 import { prisma } from "@/lib/prisma";
 import { getClinicalSnapshot } from "@/server/clinical";
+import { resolveNurseOperator } from "@/server/module-operator";
+import type { ServerContext } from "@/server/context";
 
 function asRecord(value: unknown): Record<string, string | number | boolean> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
@@ -136,11 +138,18 @@ export type NurseSnapshot = {
   episodes: NursingEpisode[];
 };
 
-export async function getNurseSnapshot(ctx: import("@/server/context").ServerContext): Promise<NurseSnapshot> {
-  const [clinical, handoffRows, episodeRows] = await Promise.all([
-    getClinicalSnapshot(ctx),
-    prisma.nursingHandoff.findMany({ orderBy: { createdAt: "asc" } }),
-    prisma.nursingEpisode.findMany({ orderBy: { createdAt: "asc" } }),
+export async function getNurseSnapshot(ctx: ServerContext): Promise<NurseSnapshot> {
+  const clinical = await getClinicalSnapshot(ctx);
+  const branchVisitIds = clinical.visits.map((v) => v.id);
+  const [handoffRows, episodeRows] = await Promise.all([
+    prisma.nursingHandoff.findMany({
+      where: { visitId: { in: branchVisitIds } },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.nursingEpisode.findMany({
+      where: { branchId: ctx.branchId },
+      orderBy: { createdAt: "asc" },
+    }),
   ]);
   return {
     patients: clinical.patients,
@@ -150,7 +159,8 @@ export async function getNurseSnapshot(ctx: import("@/server/context").ServerCon
   };
 }
 
-export async function claimEpisode(visitId: string) {
+export async function claimEpisode(visitId: string, ctx: ServerContext) {
+  const { operatorId, operatorName } = await resolveNurseOperator(ctx);
   const existing = await prisma.nursingEpisode.findUnique({ where: { visitId } });
   if (existing) return;
   const handoffRow = await prisma.nursingHandoff.findUnique({ where: { visitId } });
@@ -162,9 +172,9 @@ export async function claimEpisode(visitId: string) {
       id: `ep_${visitId}`,
       visitId,
       patientId: handoff.patientId,
-      nurseId: DEMO_NURSE_ID,
-      nurseName: DEMO_NURSE_NAME,
-      branchId: "branch_gurgaon",
+      nurseId: operatorId,
+      nurseName: operatorName,
+      branchId: ctx.branchId,
       treatmentPath: handoff.treatmentPath,
       packageLabel: handoff.packageLabel,
       packageId: handoff.packageId,
@@ -182,12 +192,17 @@ export async function claimEpisode(visitId: string) {
   });
 }
 
-export async function saveVitals(visitId: string, vitals: Omit<VitalsRecord, "visitId" | "recordedAt" | "recordedBy">) {
+export async function saveVitals(
+  visitId: string,
+  vitals: Omit<VitalsRecord, "visitId" | "recordedAt" | "recordedBy">,
+  ctx: ServerContext,
+) {
+  const { operatorName } = await resolveNurseOperator(ctx);
   const record: VitalsRecord = {
     ...vitals,
     visitId,
     recordedAt: new Date().toISOString(),
-    recordedBy: DEMO_NURSE_NAME,
+    recordedBy: operatorName,
   };
   await prisma.$transaction([
     prisma.nursingEpisode.update({

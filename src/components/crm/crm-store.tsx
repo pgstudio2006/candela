@@ -28,7 +28,9 @@ import {
   type AgentKpi,
 } from "@/lib/crm-platform";
 import { SEED_AGENT_PASSWORDS } from "@/lib/crm-auth";
+import { parseActionError } from "@/lib/action-errors";
 import { getCrmStateAction, saveCrmStateAction } from "@/server/crm/actions";
+import { useSession } from "@/components/candela/session-provider";
 import {
   createContext,
   useCallback,
@@ -59,6 +61,8 @@ export type CrmState = {
 
 type CrmStoreValue = CrmState & {
   ready: boolean;
+  error: string | null;
+  refresh: () => Promise<void>;
   isManager: () => boolean;
   getOperator: () => CrmAgent | undefined;
   setOperator: (id: string) => void;
@@ -136,33 +140,41 @@ async function persist(state: CrmState) {
 }
 
 export function CrmStoreProvider({ children }: { children: ReactNode }) {
+  const { session } = useSession();
   const [crm, setCrm] = useState<CrmState>(loadCrmState);
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setReady(false);
+    try {
+      const remote = await getCrmStateAction();
+      const operatorId =
+        (session?.role === "crm" && session.crmOperatorId) ||
+        operatorFromSession() ||
+        remote.operatorId ||
+        "";
+      setCrm({ ...remote, operatorId });
+      setError(null);
+    } catch (err) {
+      setError(parseActionError(err).message);
+    } finally {
+      setReady(true);
+    }
+  }, [session?.crmOperatorId, session?.role]);
 
   useEffect(() => {
-    let mounted = true;
-    void (async () => {
-      try {
-        const remote = await getCrmStateAction();
-        if (!mounted) return;
-        setCrm({
-          ...remote,
-          operatorId: operatorFromSession() || remote.operatorId || "",
-        });
-      } finally {
-        if (mounted) setReady(true);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    void refresh();
+  }, [refresh]);
 
   const sync = useCallback((fn: (prev: CrmState) => CrmState) => {
     setCrm((prev) => {
       const next = fn(prev);
       if (next === prev) return prev;
-      void persist(next);
+      void persist(next).catch((err) => {
+        console.error("CRM save failed:", err);
+        setError(parseActionError(err).message);
+      });
       return next;
     });
   }, []);
@@ -181,7 +193,7 @@ export function CrmStoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<CrmStoreValue>(() => {
-    const isManager = () => !crm.operatorId || crm.operatorId === CRM_MANAGER_ID;
+    const isManager = () => crm.operatorId === CRM_MANAGER_ID;
     const getOperator = () => crm.agents.find((a) => a.id === crm.operatorId);
 
     const filterAgentId = isManager() ? crm.viewAsAgentId : crm.operatorId;
@@ -199,6 +211,8 @@ export function CrmStoreProvider({ children }: { children: ReactNode }) {
     return {
       ...crm,
       ready,
+      error,
+      refresh,
       isManager,
       getOperator,
       setOperator,
@@ -551,7 +565,7 @@ export function CrmStoreProvider({ children }: { children: ReactNode }) {
         }));
       },
     };
-  }, [crm, ready, sync, setOperator]);
+  }, [crm, ready, error, refresh, sync, setOperator]);
 
   return <CrmContext.Provider value={value}>{children}</CrmContext.Provider>;
 }

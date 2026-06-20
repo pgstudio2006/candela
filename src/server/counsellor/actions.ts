@@ -8,7 +8,9 @@ import { requireModule } from "@/server/auth";
 import { ensureRevenueSeeded } from "@/server/revenue/bootstrap";
 import { verifyPassword } from "@/server/revenue/password";
 import { mapPrismaPatientRow } from "@/lib/frontdesk-workflow";
-import { parseJson, type CounsellorStateShape } from "@/server/revenue/state-seeds";
+import { readCounsellorWorkspace, writeCounsellorWorkspace } from "@/server/workspace-state";
+import { getServerContext } from "@/server/context";
+import { parseJson, defaultCounsellorState, type CounsellorStateShape } from "@/server/revenue/state-seeds";
 
 const DEMO_TENANT_ID = "tenant_navayu";
 
@@ -23,8 +25,9 @@ export type CounsellorLoginResult =
 
 async function readState(): Promise<CounsellorStateShape> {
   await ensureRevenueSeeded();
-  const row = await prisma.counsellorWorkspaceState.findUniqueOrThrow({ where: { id: "default" } });
-  return parseJson<CounsellorStateShape>(row.payload);
+  const ctx = await getServerContext();
+  const state = await readCounsellorWorkspace(ctx, defaultCounsellorState);
+  return { ...state, activeBranchId: ctx.branchId };
 }
 
 export async function validateCounsellorLoginAction(
@@ -51,10 +54,10 @@ export async function getCounsellorStateAction(): Promise<CounsellorStateShape> 
 export async function saveCounsellorStateAction(next: CounsellorStateShape): Promise<void> {
   await requireModule("counsellor");
   await ensureRevenueSeeded();
-  await prisma.counsellorWorkspaceState.upsert({
-    where: { id: "default" },
-    create: { id: "default", payload: next },
-    update: { payload: next },
+  const ctx = await getServerContext();
+  await writeCounsellorWorkspace(ctx, {
+    ...next,
+    activeBranchId: ctx.branchId,
   });
 }
 

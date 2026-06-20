@@ -4,7 +4,9 @@ import { prisma } from "@/lib/prisma";
 import { requireModule } from "@/server/auth";
 import { ensureRevenueSeeded } from "@/server/revenue/bootstrap";
 import { hashPassword, verifyPassword } from "@/server/revenue/password";
-import { parseJson, type PharmacyStateShape } from "@/server/revenue/state-seeds";
+import { readPharmacyWorkspace, writePharmacyWorkspace } from "@/server/workspace-state";
+import { getServerContext } from "@/server/context";
+import { defaultPharmacyState, type PharmacyStateShape } from "@/server/revenue/state-seeds";
 import type {
   Drug,
   PharmacyActivity,
@@ -24,16 +26,14 @@ export type PharmacyLoginResult =
 
 async function readState(): Promise<PharmacyStateShape> {
   await ensureRevenueSeeded();
-  const row = await prisma.pharmacyWorkspaceState.findUniqueOrThrow({ where: { id: "default" } });
-  return parseJson<PharmacyStateShape>(row.payload);
+  const ctx = await getServerContext();
+  return readPharmacyWorkspace(ctx, () => defaultPharmacyState({}));
 }
 
 async function writeState(next: PharmacyStateShape): Promise<void> {
-  await prisma.pharmacyWorkspaceState.upsert({
-    where: { id: "default" },
-    create: { id: "default", payload: next },
-    update: { payload: next },
-  });
+  const ctx = await getServerContext();
+  const { operatorId: _drop, ...payload } = next;
+  await writePharmacyWorkspace(ctx, payload);
 }
 
 export async function getPharmacyStateAction(): Promise<PharmacyStateShape> {

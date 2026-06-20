@@ -1,7 +1,9 @@
 "use client";
 
 import { useSession } from "@/components/candela/session-provider";
-import { getWorkspace } from "@/design-system/workspace-config";
+import { parseActionError } from "@/lib/action-errors";
+import { canAccessPath, getWorkspace, roleForPath } from "@/design-system/workspace-config";
+import type { CandelaRole } from "@/design-system/modules";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 
@@ -28,9 +30,16 @@ export function AppShell({ children }: { children: ReactNode }) {
       return;
     }
     if (!hasOwnShell) {
-      router.replace(getWorkspace(session.role).homePath);
+      router.replace(getWorkspace(session.role as CandelaRole).homePath);
+      return;
     }
-  }, [session, authReady, hasOwnShell, router]);
+    if (session.role !== "admin") {
+      const pathRole = roleForPath(pathname);
+      if (pathRole && !canAccessPath(session.role as CandelaRole, pathname)) {
+        router.replace(getWorkspace(session.role as CandelaRole).homePath);
+      }
+    }
+  }, [session, authReady, hasOwnShell, pathname, router]);
 
   if (!authReady || !session || !hasOwnShell) {
     return (

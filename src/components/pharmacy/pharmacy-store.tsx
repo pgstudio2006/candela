@@ -33,6 +33,8 @@ import {
   isControlledSchedule,
   pickFefoBatch,
 } from "@/lib/pharmacy-platform";
+import { parseActionError } from "@/lib/action-errors";
+import { useSession } from "@/components/candela/session-provider";
 import { savePharmacyStateAction, getPharmacyStateAction } from "@/server/pharmacy/actions";
 import {
   createContext,
@@ -119,6 +121,8 @@ function logActivity(
 
 type Store = PharmacyState & {
   ready: boolean;
+  error: string | null;
+  refresh: () => Promise<void>;
   isManager: () => boolean;
   isPurchase: () => boolean;
   getOperator: () => PharmacyStaff | undefined;
@@ -152,32 +156,40 @@ type Store = PharmacyState & {
 const Ctx = createContext<Store | null>(null);
 
 export function PharmacyStoreProvider({ children }: { children: ReactNode }) {
+  const { session } = useSession();
   const [state, setState] = useState<PharmacyState>(loadState);
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setReady(false);
+    try {
+      const remote = await getPharmacyStateAction();
+      const operatorId =
+        (session?.role === "pharmacy" && session.pharmacyOperatorId) ||
+        operatorFromSession() ||
+        remote.operatorId ||
+        "";
+      setState({ ...remote, operatorId });
+      setError(null);
+    } catch (err) {
+      setError(parseActionError(err).message);
+    } finally {
+      setReady(true);
+    }
+  }, [session?.pharmacyOperatorId, session?.role]);
 
   useEffect(() => {
-    let mounted = true;
-    void (async () => {
-      try {
-        const remote = await getPharmacyStateAction();
-        if (!mounted) return;
-        setState({
-          ...remote,
-          operatorId: operatorFromSession() || remote.operatorId || "",
-        });
-      } finally {
-        if (mounted) setReady(true);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    void refresh();
+  }, [refresh]);
 
   const sync = useCallback((fn: (p: PharmacyState) => PharmacyState) => {
     setState((prev) => {
       const next = fn(prev);
-      void persist(next);
+      void persist(next).catch((err) => {
+        console.error("Pharmacy save failed:", err);
+        setError(parseActionError(err).message);
+      });
       return next;
     });
   }, []);
@@ -186,7 +198,8 @@ export function PharmacyStoreProvider({ children }: { children: ReactNode }) {
     const getOperator = () => state.staff.find((s) => s.id === state.operatorId);
     const getStaffRole = (): "manager" | "opd" | "purchase" => {
       const op = getOperator();
-      if (!op || op.id === PHARMACY_MANAGER_ID || op.role === "manager") return "manager";
+      if (!op) return "opd";
+      if (op.id === PHARMACY_MANAGER_ID || op.role === "manager") return "manager";
       return op.role;
     };
     const isManager = () => getStaffRole() === "manager";
@@ -196,6 +209,8 @@ export function PharmacyStoreProvider({ children }: { children: ReactNode }) {
     return {
       ...state,
       ready,
+      error,
+      refresh,
       isManager,
       isPurchase,
       getOperator,
@@ -471,7 +486,7 @@ export function PharmacyStoreProvider({ children }: { children: ReactNode }) {
         return pwd;
       },
     };
-  }, [state, ready, sync]);
+  }, [state, ready, error, refresh, sync]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

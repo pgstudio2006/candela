@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use server";
 
 import { prisma } from "@/lib/prisma";
@@ -7,6 +6,7 @@ import {
   buildSeedLeave,
   buildSeedPayroll,
   buildSeedShifts,
+  HR_MANAGER_ID,
   SEED_HR_DEPARTMENTS,
   SEED_HR_EMPLOYEES,
   type HrAttendanceRecord,
@@ -16,13 +16,14 @@ import {
   type HrPayrollLine,
   type HrShiftSlot,
 } from "@/design-system/hr-data";
-import { HR_MANAGER_EMAIL, SEED_HR_PASSWORDS } from "@/lib/hr-auth";
-import { DEFAULT_LEAVE_ENTITLEMENT, type HrLeaveRequest } from "@/design-system/hr-data";
-import { leaveDays, computeLeaveBalance } from "@/lib/hr-platform";
-import { requireModule } from "@/server/auth";
+import { SEED_HR_PASSWORDS } from "@/lib/hr-auth";
+import { DEFAULT_LEAVE_ENTITLEMENT } from "@/design-system/hr-data";
+import { leaveDays, computeLeaveBalance, computeHrKpis } from "@/lib/hr-platform";
+import { resolveHrOperator } from "@/server/module-operator";
 import { writeAuditLog } from "@/server/audit-log";
 import { clearCrmAbsenceAction, transferCrmAbsenceAction } from "@/server/crm/actions";
 import { ensureBootstrapData } from "@/server/bootstrap";
+import { ServerActionError } from "@/server/errors";
 
 type HrSettings = {
   autoCrmSync: boolean;
@@ -78,7 +79,7 @@ function createId(prefix: string) {
 }
 
 async function getSnapshot(operatorId = ""): Promise<HrSnapshot> {
-  await requireModule("hr");
+  await resolveHrOperator();
   await ensureBootstrapData();
   const [employees, departments, shifts, leaveRequests, attendance, payroll, settings] =
     await Promise.all([
@@ -101,18 +102,23 @@ async function getSnapshot(operatorId = ""): Promise<HrSnapshot> {
     ]);
 
   return {
-    employees: employees.map((x) => ({ ...x, salaryMonthly: Number(x.salaryMonthly) })),
-    departments,
-    shifts,
-    leaveRequests,
-    attendance,
+    employees: employees.map((x) => ({ ...x, salaryMonthly: Number(x.salaryMonthly) })) as HrEmployee[],
+    departments: departments as HrDepartment[],
+    shifts: shifts as HrShiftSlot[],
+    leaveRequests: leaveRequests as HrLeaveRequest[],
+    attendance: attendance.map((x) => ({
+      ...x,
+      checkIn: x.checkIn ?? undefined,
+      checkOut: x.checkOut ?? undefined,
+      notes: x.notes ?? undefined,
+    })) as HrAttendanceRecord[],
     payroll: payroll.map((x) => ({
       ...x,
       basic: Number(x.basic),
       allowances: Number(x.allowances),
       deductions: Number(x.deductions),
       net: Number(x.net),
-    })),
+    })) as HrPayrollLine[],
     operatorId,
     settings: {
       autoCrmSync: settings.autoCrmSync,
@@ -122,20 +128,31 @@ async function getSnapshot(operatorId = ""): Promise<HrSnapshot> {
   };
 }
 
-export async function getHrSnapshot(operatorId = "") {
+export async function getHrSnapshot(_operatorId = "") {
+  const { operatorId } = await resolveHrOperator();
   return getSnapshot(operatorId);
 }
 
 export async function addEmployee(
   input: Omit<HrEmployee, "id">,
-  operatorId: string,
+  _operatorId: string,
 ) {
+  const { operatorId } = await resolveHrOperator(true);
+  if (!input.name?.trim() || !input.email?.trim()) {
+    throw new ServerActionError("BAD_REQUEST", "Name and email are required.");
+  }
+  const email = input.email.trim().toLowerCase();
+  const dup = await prisma.hrEmployee.findFirst({ where: { email } });
+  if (dup) {
+    throw new ServerActionError("CONFLICT", "An employee with this email already exists.");
+  }
   await ensureBootstrapData();
   const id = createId("emp");
   await prisma.hrEmployee.create({
     data: {
       id,
       ...input,
+      email,
     },
   });
   await writeAuditLog({
@@ -153,8 +170,9 @@ export async function addEmployee(
 export async function updateEmployee(
   id: string,
   patch: Partial<HrEmployee>,
-  operatorId: string,
+  _operatorId: string,
 ) {
+  const { operatorId } = await resolveHrOperator(true);
   await ensureBootstrapData();
   await prisma.hrEmployee.update({
     where: { id },
@@ -173,7 +191,8 @@ export async function updateEmployee(
   return getSnapshot(operatorId);
 }
 
-export async function copyShiftsFromPreviousWeek(targetDate: string, operatorId: string) {
+export async function copyShiftsFromPreviousWeek(targetDate: string, _operatorId: string) {
+  const { operatorId } = await resolveHrOperator(true);
   await ensureBootstrapData();
   const target = new Date(`${targetDate}T12:00:00`);
   const sourceStart = new Date(target);
@@ -223,8 +242,12 @@ export async function copyShiftsFromPreviousWeek(targetDate: string, operatorId:
 
 export async function addShift(
   input: Omit<HrShiftSlot, "id">,
-  operatorId: string,
+  _operatorId: string,
 ) {
+  const { operatorId } = await resolveHrOperator();
+  if (!input.employeeId?.trim()) {
+    throw new ServerActionError("BAD_REQUEST", "Select an employee for this shift.");
+  }
   await ensureBootstrapData();
   const id = createId("sh");
   await prisma.hrShift.create({ data: { id, ...input } });
@@ -240,7 +263,8 @@ export async function addShift(
   return getSnapshot(operatorId);
 }
 
-export async function removeShift(id: string, operatorId: string) {
+export async function removeShift(id: string, _operatorId: string) {
+  const { operatorId } = await resolveHrOperator(true);
   await ensureBootstrapData();
   await prisma.hrShift.delete({ where: { id } });
   await writeAuditLog({
@@ -258,8 +282,9 @@ export async function removeShift(id: string, operatorId: string) {
 export async function updateShift(
   id: string,
   patch: Partial<HrShiftSlot>,
-  operatorId: string,
+  _operatorId: string,
 ) {
+  const { operatorId } = await resolveHrOperator(true);
   await ensureBootstrapData();
   await prisma.hrShift.update({
     where: { id },
@@ -280,34 +305,40 @@ export async function updateShift(
 
 export async function addLeaveRequest(
   input: Omit<HrLeaveRequest, "id" | "status" | "requestedAt">,
-  operatorId: string,
+  _operatorId: string,
 ) {
+  const { operatorId, isManager } = await resolveHrOperator();
+  if (!isManager && input.employeeId !== operatorId) {
+    throw new ServerActionError("FORBIDDEN", "You can only request leave for your own profile.");
+  }
   await ensureBootstrapData();
   if (input.fromDate > input.toDate) {
-    throw new Error("Leave end date must be on or after start date.");
+    throw new ServerActionError("BAD_REQUEST", "Leave end date must be on or after start date.");
   }
   const days = leaveDays(input.fromDate, input.toDate);
   if (days <= 0) {
-    throw new Error("Select a valid leave date range.");
+    throw new ServerActionError("BAD_REQUEST", "Select a valid leave date range.");
   }
   const snapshot = await getSnapshot(operatorId);
   if (input.type !== "unpaid") {
     const balances = computeLeaveBalance(input.employeeId, snapshot.leaveRequests);
     const remaining = balances[input.type as "casual" | "sick" | "earned"] ?? 0;
     if (days > remaining) {
-      throw new Error(`Insufficient leave balance (${remaining} day(s) remaining for ${input.type}).`);
+      throw new ServerActionError(
+        "BAD_REQUEST",
+        `Insufficient leave balance (${remaining} day(s) remaining for ${input.type}).`,
+      );
     }
   }
   const overlap = snapshot.leaveRequests.find(
     (l) =>
       l.employeeId === input.employeeId &&
       l.status !== "rejected" &&
-      l.status !== "cancelled" &&
       input.fromDate <= l.toDate &&
       input.toDate >= l.fromDate,
   );
   if (overlap) {
-    throw new Error("Leave dates overlap an existing request.");
+    throw new ServerActionError("BAD_REQUEST", "Leave dates overlap an existing request.");
   }
 
   const id = createId("lv");
@@ -331,8 +362,14 @@ export async function addLeaveRequest(
   return getSnapshot(operatorId);
 }
 
-export async function cancelLeaveRequest(id: string, operatorId: string) {
+export async function cancelLeaveRequest(id: string, _operatorId: string) {
+  const { operatorId, isManager } = await resolveHrOperator();
   await ensureBootstrapData();
+  const leave = await prisma.hrLeaveRequest.findUnique({ where: { id } });
+  if (!leave) return getSnapshot(operatorId);
+  if (!isManager && leave.employeeId !== operatorId) {
+    throw new ServerActionError("FORBIDDEN", "You can only cancel your own pending leave requests.");
+  }
   await prisma.hrLeaveRequest.deleteMany({ where: { id, status: "pending" } });
   await writeAuditLog({
     actor: operatorId || "HR",
@@ -346,14 +383,16 @@ export async function cancelLeaveRequest(id: string, operatorId: string) {
   return getSnapshot(operatorId);
 }
 
-export async function approveLeave(id: string, approved: boolean, operatorId: string) {
+export async function approveLeave(id: string, approved: boolean, _operatorId: string) {
+  const { operatorId } = await resolveHrOperator(true);
   await ensureBootstrapData();
   const leave = await prisma.hrLeaveRequest.findUnique({ where: { id } });
   if (!leave) return { snapshot: await getSnapshot(operatorId), transferred: 0 };
   const employee = await prisma.hrEmployee.findUnique({ where: { id: leave.employeeId } });
+  const settings = await prisma.hrSetting.findUnique({ where: { id: "hr_settings" } });
   const now = new Date().toISOString();
   let transferred = 0;
-  if (approved && leave.syncCrmAbsence && employee?.crmAgentId) {
+  if (approved && (leave.syncCrmAbsence || settings?.autoCrmSync) && employee?.crmAgentId) {
     const until = new Date(leave.toDate);
     until.setHours(23, 59, 59, 0);
     const result = await transferCrmAbsenceAction({
@@ -364,7 +403,7 @@ export async function approveLeave(id: string, approved: boolean, operatorId: st
     });
     transferred = result.transferred;
   }
-  if (!approved && employee?.crmAgentId) {
+  if (!approved && leave.status === "approved" && employee?.crmAgentId) {
     await clearCrmAbsenceAction(employee.crmAgentId);
   }
   await prisma.hrLeaveRequest.update({
@@ -392,8 +431,9 @@ export async function approveLeave(id: string, approved: boolean, operatorId: st
 
 export async function markAttendance(
   input: Omit<HrAttendanceRecord, "id">,
-  operatorId: string,
+  _operatorId: string,
 ) {
+  const { operatorId } = await resolveHrOperator();
   await ensureBootstrapData();
   const existing = await prisma.hrAttendance.findFirst({
     where: { employeeId: input.employeeId, date: input.date },
@@ -423,8 +463,9 @@ export async function markAttendance(
 export async function checkoutAttendance(
   employeeId: string,
   date: string,
-  operatorId: string,
+  _operatorId: string,
 ) {
+  const { operatorId } = await resolveHrOperator();
   await ensureBootstrapData();
   const record = await prisma.hrAttendance.findFirst({ where: { employeeId, date } });
   if (!record) return getSnapshot(operatorId);
@@ -444,7 +485,8 @@ export async function checkoutAttendance(
   return getSnapshot(operatorId);
 }
 
-export async function processPayroll(period: string, operatorId: string) {
+export async function processPayroll(period: string, _operatorId: string) {
+  const { operatorId } = await resolveHrOperator(true);
   await ensureBootstrapData();
   await prisma.hrPayrollLine.updateMany({
     where: { period, status: "draft" },
@@ -462,7 +504,8 @@ export async function processPayroll(period: string, operatorId: string) {
   return getSnapshot(operatorId);
 }
 
-export async function markPayrollPaid(period: string, operatorId: string) {
+export async function markPayrollPaid(period: string, _operatorId: string) {
+  const { operatorId } = await resolveHrOperator(true);
   await ensureBootstrapData();
   await prisma.hrPayrollLine.updateMany({
     where: { period, status: "processed" },
@@ -480,7 +523,8 @@ export async function markPayrollPaid(period: string, operatorId: string) {
   return getSnapshot(operatorId);
 }
 
-export async function generatePayrollRun(period: string, operatorId: string) {
+export async function generatePayrollRun(period: string, _operatorId: string) {
+  const { operatorId } = await resolveHrOperator(true);
   await ensureBootstrapData();
   const [employees, existing, leaveRows] = await Promise.all([
     prisma.hrEmployee.findMany({ where: { active: true, role: { not: "manager" } } }),
@@ -617,8 +661,9 @@ export async function resetHrDemo(operatorId: string) {
 
 export async function updateHrSettings(
   patch: Partial<HrSettings>,
-  operatorId: string,
+  _operatorId: string,
 ) {
+  const { operatorId } = await resolveHrOperator(true);
   await ensureBootstrapData();
   await prisma.hrSetting.update({
     where: { id: "hr_settings" },
@@ -637,7 +682,8 @@ export async function updateHrSettings(
   return getSnapshot(operatorId);
 }
 
-export async function getHrOrgChart(operatorId = "") {
+export async function getHrOrgChart(_operatorId = "") {
+  const { operatorId } = await resolveHrOperator();
   const snapshot = await getSnapshot(operatorId);
   return {
     nodes: snapshot.employees,

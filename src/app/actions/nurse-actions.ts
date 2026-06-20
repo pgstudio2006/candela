@@ -23,16 +23,16 @@ export async function getNurseSnapshotAction() {
 }
 
 export async function claimEpisodeAction(visitId: string) {
-  await requireModule("nurse");
-  return claimEpisode(visitId);
+  const ctx = await requireModule("nurse");
+  return claimEpisode(visitId, ctx);
 }
 
 export async function saveVitalsAction(
   visitId: string,
   vitals: Omit<VitalsRecord, "visitId" | "recordedAt" | "recordedBy">,
 ) {
-  await requireModule("nurse");
-  return saveVitals(visitId, vitals);
+  const ctx = await requireModule("nurse");
+  return saveVitals(visitId, vitals, ctx);
 }
 
 export async function presentConsentAction(visitId: string, consentId: string) {

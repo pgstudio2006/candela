@@ -1,5 +1,7 @@
 "use client";
 
+import { StoreGate } from "@/components/candela/store-gate";
+import { useCrmStore } from "@/components/crm/crm-store";
 import { CrmCommandPalette } from "@/components/crm/command-palette";
 import { CrmOperatorBanner } from "@/components/crm/operator-picker";
 import { CrmSidebar } from "@/components/crm/sidebar";
@@ -15,6 +17,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { session, authReady, signOut, setCommandOpen, commandOpen } = useSession();
+  const { ready, error, refresh } = useCrmStore();
   const [copilotOpen, setCopilotOpen] = useState(false);
   const current = getCrmNavItem(pathname);
 
@@ -71,7 +74,11 @@ export function CrmShell({ children }: { children: ReactNode }) {
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <CrmOperatorBanner />
-        <main className="scrollbar-none min-h-0 min-w-0 flex-1 overflow-y-auto">{children}</main>
+        <main className="scrollbar-none min-h-0 min-w-0 flex-1 overflow-y-auto">
+          <StoreGate ready={ready} error={error} onRetry={() => void refresh()}>
+            {children}
+          </StoreGate>
+        </main>
       </div>
       <CopilotPanel open={copilotOpen} onClose={() => setCopilotOpen(false)} context={current.label} />
       <CrmCommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} />

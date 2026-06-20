@@ -102,12 +102,18 @@ export async function getDoctorSnapshot(activeDoctorId = DEMO_DOCTOR_ID, ctx?: i
     loadCarePackages(),
   ]);
 
+  const branchVisitIds = new Set(clinical.visits.map((v) => v.id));
+
   return {
     patients: clinical.patients,
     visits: clinical.visits,
     activeDoctorId,
-    consultations: consultRows.map(mapConsultation),
-    counsellorQueue: queueRows.map((row) => ({
+    consultations: consultRows
+      .filter((row) => branchVisitIds.has(row.visitId))
+      .map(mapConsultation),
+    counsellorQueue: queueRows
+      .filter((row) => branchVisitIds.has(row.visitId))
+      .map((row) => ({
       id: row.id,
       visitId: row.visitId,
       patientId: row.patientId,
@@ -120,7 +126,9 @@ export async function getDoctorSnapshot(activeDoctorId = DEMO_DOCTOR_ID, ctx?: i
       priority: row.priority as "normal" | "high",
       payload: asRecord(row.payload) as unknown as ConsultationRecord,
     })),
-    ipdPatients: ipdRows.map((row) => ({
+    ipdPatients: ipdRows
+      .filter((row) => branchVisitIds.has(row.visitId))
+      .map((row) => ({
       id: row.id,
       patientId: row.patientId,
       ward: row.ward,

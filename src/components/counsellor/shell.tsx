@@ -1,6 +1,8 @@
 "use client";
 
 import { useSession } from "@/components/candela/session-provider";
+import { StoreGate } from "@/components/candela/store-gate";
+import { useCounsellorStore } from "@/components/counsellor/counsellor-store";
 import { CounsellorCommandPalette } from "@/components/counsellor/command-palette";
 import { CounsellorSidebar } from "@/components/counsellor/sidebar";
 import { CopilotPanel } from "@/components/frontdesk/copilot-panel";
@@ -12,6 +14,7 @@ export function CounsellorShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { session, authReady, signOut, setCommandOpen, commandOpen } = useSession();
+  const { ready, error, refresh } = useCounsellorStore();
   const [copilotOpen, setCopilotOpen] = useState(false);
   const current = getCounsellorNavItem(pathname);
 
@@ -45,7 +48,11 @@ export function CounsellorShell({ children }: { children: ReactNode }) {
         onSignOut={() => { signOut(); router.push("/login"); }}
       />
       <div className="flex min-h-0 min-w-0 flex-1">
-        <main className="scrollbar-none min-w-0 flex-1 overflow-y-auto">{children}</main>
+        <main className="scrollbar-none min-w-0 flex-1 overflow-y-auto">
+          <StoreGate ready={ready} error={error} onRetry={() => void refresh()}>
+            {children}
+          </StoreGate>
+        </main>
         <CopilotPanel open={copilotOpen} onClose={() => setCopilotOpen(false)} context={current.label} />
       </div>
       <CounsellorCommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} />

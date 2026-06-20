@@ -3,10 +3,17 @@
 import { Prisma } from "@prisma/client";
 import { formatStageStatus } from "@/lib/frontdesk-workflow";
 import { prisma } from "@/lib/prisma";
+import { readCounsellorWorkspace, readCrmWorkspace, readPharmacyWorkspace, writeCrmWorkspace } from "@/server/workspace-state";
 import { requireAnyModule, requireModule } from "@/server/auth";
+import { getServerContext } from "@/server/context";
 import { ensureRevenueSeeded } from "@/server/revenue/bootstrap";
 import { hashPassword, verifyPassword } from "@/server/revenue/password";
-import { parseJson, type CrmStateShape } from "@/server/revenue/state-seeds";
+import {
+  defaultCounsellorState,
+  defaultCrmState,
+  defaultPharmacyState,
+  type CrmStateShape,
+} from "@/server/revenue/state-seeds";
 import type { CrmIntegration, CrmLead } from "@/design-system/crm-data";
 import type { CounselSession } from "@/design-system/counsellor-data";
 import type { PharmacyBill, Prescription } from "@/design-system/pharmacy-data";
@@ -68,8 +75,8 @@ export type CrmPatientHistory = {
 
 async function readState(): Promise<CrmStateShape> {
   await ensureRevenueSeeded();
-  const row = await prisma.crmWorkspaceState.findUniqueOrThrow({ where: { id: "default" } });
-  const state = parseJson<CrmStateShape>(row.payload);
+  const ctx = await getServerContext();
+  const state = await readCrmWorkspace(ctx, () => defaultCrmState({}));
   const configs = await prisma.crmWebhookConfig.findMany();
   state.integrations = configs.map((c) => ({
     id: c.id as CrmIntegration["id"],
@@ -92,11 +99,9 @@ export async function getCrmStateAction(): Promise<CrmStateShape> {
 export async function saveCrmStateAction(next: CrmStateShape): Promise<void> {
   await requireModule("crm");
   await ensureRevenueSeeded();
-  await prisma.crmWorkspaceState.upsert({
-    where: { id: "default" },
-    create: { id: "default", payload: next },
-    update: { payload: next },
-  });
+  const ctx = await getServerContext();
+  const { operatorId: _drop, ...payload } = next;
+  await writeCrmWorkspace(ctx, payload);
 
   await Promise.all(
     next.integrations.map((integration) =>
@@ -213,13 +218,14 @@ function normalizeName(input?: string) {
 export async function getCrmLeadClinicalHistoryAction(lead: CrmLead): Promise<CrmPatientHistory> {
   await requireModule("crm");
   await ensureRevenueSeeded();
+  const ctx = await getServerContext();
   const state = await readState();
-  const pharmacy = await prisma.pharmacyWorkspaceState.findUniqueOrThrow({ where: { id: "default" } });
-  const counsellor = await prisma.counsellorWorkspaceState.findUniqueOrThrow({ where: { id: "default" } });
-  const pharmacyState = parseJson<{ prescriptions: Prescription[]; bills: PharmacyBill[] }>(pharmacy.payload);
-  const counsellorState = parseJson<{ sessions: CounselSession[] }>(counsellor.payload);
+  const pharmacyState = await readPharmacyWorkspace(ctx, () => defaultPharmacyState({}));
+  const counsellorState = await readCounsellorWorkspace(ctx, defaultCounsellorState);
 
-  const allPatients = await prisma.patient.findMany();
+  const allPatients = await prisma.patient.findMany({
+    where: { branchId: ctx.branchId, tenantId: ctx.tenantId },
+  });
   let patient = null as (typeof allPatients)[number] | null;
 
   if (lead.patientId) patient = allPatients.find((p) => p.id === lead.patientId) ?? null;

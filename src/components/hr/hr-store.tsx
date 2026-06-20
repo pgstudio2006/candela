@@ -10,6 +10,7 @@ import {
   type HrShiftSlot,
 } from "@/design-system/hr-data";
 import { computeHrKpis } from "@/lib/hr-platform";
+import { parseActionError } from "@/lib/action-errors";
 import {
   addEmployee as addEmployeeAction,
   addLeaveRequest as addLeaveRequestAction,
@@ -24,7 +25,6 @@ import {
   processPayroll as processPayrollAction,
   removeShift as removeShiftAction,
   copyShiftsFromPreviousWeek as copyShiftsFromPreviousWeekAction,
-  resetHrDemo,
   updateEmployee as updateEmployeeAction,
   updateHrSettings as updateHrSettingsAction,
   updateShift as updateShiftAction,
@@ -61,6 +61,7 @@ type HrState = {
 
 type HrStoreValue = HrState & {
   ready: boolean;
+  error: string | null;
   refresh: () => Promise<void>;
   isManager: () => boolean;
   getOperator: () => HrEmployee | undefined;
@@ -81,7 +82,6 @@ type HrStoreValue = HrState & {
   markPayrollPaid: (period: string) => Promise<void>;
   generatePayrollRun: (period: string) => Promise<number>;
   updateSettings: (patch: Partial<HrState["settings"]>) => Promise<void>;
-  resetDemo: () => Promise<void>;
 };
 
 const HrContext = createContext<HrStoreValue | null>(null);
@@ -120,12 +120,20 @@ function emptyState(): HrState {
 export function HrStoreProvider({ children }: { children: ReactNode }) {
   const [hr, setHr] = useState<HrState>(emptyState);
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const operatorId = operatorFromSession();
-    const next = await getHrSnapshot(operatorId);
-    setHr(next);
-    setReady(true);
+    setReady(false);
+    try {
+      const operatorId = operatorFromSession();
+      const next = await getHrSnapshot(operatorId);
+      setHr(next);
+      setError(null);
+    } catch (err) {
+      setError(parseActionError(err).message);
+    } finally {
+      setReady(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -141,6 +149,7 @@ export function HrStoreProvider({ children }: { children: ReactNode }) {
     const withRefresh = async (action: Promise<HrState>) => {
       const next = await action;
       setHr(next);
+      setError(null);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("candela-hr-updated"));
       }
@@ -149,6 +158,7 @@ export function HrStoreProvider({ children }: { children: ReactNode }) {
     return {
       ...hr,
       ready,
+      error,
       refresh,
       isManager,
       getOperator,
@@ -191,11 +201,9 @@ export function HrStoreProvider({ children }: { children: ReactNode }) {
         }
         return created;
       },
-      updateSettings: async (patch) =>
-        withRefresh(updateHrSettingsAction(patch, operatorId)),
-      resetDemo: async () => withRefresh(resetHrDemo(operatorId)),
+      updateSettings: async (patch) => withRefresh(updateHrSettingsAction(patch, operatorId)),
     };
-  }, [hr, ready, refresh]);
+  }, [hr, ready, error, refresh]);
 
   return <HrContext.Provider value={value}>{children}</HrContext.Provider>;
 }

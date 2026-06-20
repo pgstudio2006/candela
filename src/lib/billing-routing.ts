@@ -102,8 +102,8 @@ export function resolveOpdFirstRoute(input: {
   if (billing === "deferred") {
     return {
       billing,
-      stage: "queued",
-      routingLabel: "Deferred · released to queue",
+      stage: "junior_exam",
+      routingLabel: "Deferred · released to junior exam",
       routeHref: "/app/frontdesk/queue",
       routingNote: "Billing deferred — patient proceeds to junior exam → doctor consult.",
     };
@@ -111,16 +111,16 @@ export function resolveOpdFirstRoute(input: {
   if (billing === "partial") {
     return {
       billing,
-      stage: "queued",
-      routingLabel: "Partial · released to queue",
+      stage: "junior_exam",
+      routingLabel: "Partial · released to junior exam",
       routeHref: "/app/frontdesk/queue",
-      routingNote: `₹${input.collected.toLocaleString("en-IN")} collected · ₹${balance.toLocaleString("en-IN")} balance tracked. Patient released to queue.`,
+      routingNote: `₹${input.collected.toLocaleString("en-IN")} collected · ₹${balance.toLocaleString("en-IN")} balance tracked. Patient proceeds to junior exam.`,
     };
   }
   return {
     billing: "paid",
-    stage: "queued",
-    routingLabel: "Paid · released to queue",
+    stage: "junior_exam",
+    routingLabel: "Paid · released to junior exam",
     routeHref: "/app/frontdesk/queue",
     routingNote: "Payment complete — patient proceeds to junior exam → doctor consult.",
   };

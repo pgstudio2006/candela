@@ -1,7 +1,6 @@
 "use client";
 
 import type { Patient, Visit } from "@/design-system/frontdesk-data";
-import { PATIENTS, VISITS } from "@/design-system/frontdesk-data";
 import {
   DEFAULT_DISCOUNT_POLICY,
   DEMO_COUNSELLOR_ID,
@@ -28,6 +27,7 @@ import {
   saveCounsellorStateAction,
   setVisitStageAction,
 } from "@/server/counsellor/actions";
+import { parseActionError } from "@/lib/action-errors";
 import { patientDisplayName } from "@/lib/frontdesk-workflow";
 import {
   createContext,
@@ -50,6 +50,8 @@ type CounsellorState = {
 
 type CounsellorStoreValue = {
   ready: boolean;
+  error: string | null;
+  refresh: () => Promise<void>;
   patients: Patient[];
   visits: Visit[];
   queue: CounsellorQueueItem[];
@@ -131,13 +133,14 @@ async function persist(state: CounsellorState) {
 
 export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
   const [clinical, setClinical] = useState(() => ({
-    patients: structuredClone(PATIENTS),
-    visits: structuredClone(VISITS),
+    patients: [] as Patient[],
+    visits: [] as Visit[],
   }));
   const [counsellor, setCounsellor] = useState<CounsellorState>(loadState);
   const [queue, setQueue] = useState<CounsellorQueueItem[]>([]);
   const [billingHandoffs, setBillingHandoffs] = useState<BillingHandoffPayload[]>([]);
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const refreshQueue = useCallback(async () => {
     const [nextQueue, patients, visits, handoffs] = await Promise.all([
@@ -151,28 +154,32 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
     setBillingHandoffs(handoffs);
   }, []);
 
+  const refresh = useCallback(async () => {
+    setReady(false);
+    try {
+      const [remoteState] = await Promise.all([getCounsellorStateAction(), refreshQueue()]);
+      setCounsellor(remoteState);
+      setError(null);
+    } catch (err) {
+      setError(parseActionError(err).message);
+    } finally {
+      setReady(true);
+    }
+  }, [refreshQueue]);
+
+
   useEffect(() => {
-    let mounted = true;
-    void (async () => {
-      try {
-        const [remoteState] = await Promise.all([getCounsellorStateAction(), refreshQueue()]);
-        if (!mounted) return;
-        setCounsellor(remoteState);
-      } finally {
-        if (mounted) setReady(true);
-      }
-    })();
+    void refresh();
     const onUpdate = () => {
       void refreshQueue();
     };
     window.addEventListener("candela-counsellor-queue-updated", onUpdate);
     window.addEventListener("storage", onUpdate);
     return () => {
-      mounted = false;
       window.removeEventListener("candela-counsellor-queue-updated", onUpdate);
       window.removeEventListener("storage", onUpdate);
     };
-  }, [refreshQueue]);
+  }, [refresh, refreshQueue]);
 
   const syncCounsellor = useCallback((fn: (prev: CounsellorState) => CounsellorState) => {
     setCounsellor((prev) => {
@@ -333,60 +340,59 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
         ),
       }));
 
-      if (opts.sendToBilling && outcome === "converted" && opts.quote && item && patient) {
-        const handoffPayload: BillingHandoffPayload = {
-          visitId,
-          patientId: patient.id,
-        patientName: patientDisplayName(patient),
-          uhid: patient.uhid,
-          quote: {
-            ...opts.quote,
-            consentCaptured: opts.consentCaptured ?? false,
-            whatsappSent: opts.whatsappSent ?? false,
-          },
-          counsellorName: DEMO_COUNSELLOR_NAME,
-          counselNotes: opts.internalNotes,
-          doctorName: item.doctorName,
-          doctorId: item.doctorId,
-          sentAt: now,
-          paymentExpectation: opts.paymentExpectation ?? "desk",
-          treatmentMode: item.treatmentMode ?? item.payload.treatmentMode,
-          admissionRecommended:
-            item.treatmentMode === "ipd" ||
-            item.payload.treatmentMode === "ipd" ||
-            item.payload.treatmentMode === "daycare" ||
-            Boolean(opts.quote?.lineItems.some((l) => l.id === "addon_ipd_day")),
-          diagnosisSummary: String(
-            item.payload.diagnosis?.primaryDiagnosis ?? item.payload.diagnosis?.primary ?? "",
-          ),
-        };
-        void (async () => {
-          try {
+      void (async () => {
+        try {
+          if (opts.sendToBilling && outcome === "converted" && opts.quote && item && patient) {
+            const handoffPayload: BillingHandoffPayload = {
+              visitId,
+              patientId: patient.id,
+              patientName: patientDisplayName(patient),
+              uhid: patient.uhid,
+              quote: {
+                ...opts.quote,
+                consentCaptured: opts.consentCaptured ?? false,
+                whatsappSent: opts.whatsappSent ?? false,
+              },
+              counsellorName: DEMO_COUNSELLOR_NAME,
+              counselNotes: opts.internalNotes,
+              doctorName: item.doctorName,
+              doctorId: item.doctorId,
+              sentAt: now,
+              paymentExpectation: opts.paymentExpectation ?? "desk",
+              treatmentMode: item.treatmentMode ?? item.payload.treatmentMode,
+              admissionRecommended:
+                item.treatmentMode === "ipd" ||
+                item.payload.treatmentMode === "ipd" ||
+                item.payload.treatmentMode === "daycare" ||
+                Boolean(opts.quote?.lineItems.some((l) => l.id === "addon_ipd_day")),
+              diagnosisSummary: String(
+                item.payload.diagnosis?.primaryDiagnosis ?? item.payload.diagnosis?.primary ?? "",
+              ),
+            };
             await saveBillingHandoffAction(handoffPayload);
-          } catch (err) {
-            console.error("Billing handoff failed:", err);
-            window.dispatchEvent(
-              new CustomEvent("candela-counsellor-error", {
-                detail: { message: "Could not send to billing. Retry from queue or contact support." },
-              }),
-            );
+            setClinical((prev) => ({
+              ...prev,
+              visits: prev.visits.map((v) =>
+                v.id === visitId
+                  ? { ...v, stage: "billing", billAmount: opts.quote!.netAmount, billing: "pending" as const }
+                  : v,
+              ),
+            }));
+            await setVisitStageAction(visitId, "billing");
+          } else if (outcome === "converted") {
+            await setVisitStageAction(visitId, "completed");
           }
-        })();
-        setClinical((prev) => ({
-          ...prev,
-          visits: prev.visits.map((v) =>
-            v.id === visitId
-              ? { ...v, stage: "billing", billAmount: opts.quote!.netAmount, billing: "pending" as const }
-              : v,
-          ),
-        }));
-        void setVisitStageAction(visitId, "billing");
-      } else if (outcome === "converted") {
-        void setVisitStageAction(visitId, "completed");
-      }
-
-      void removeCounsellorQueueItemAction(visitId);
-      void refreshQueue();
+          await removeCounsellorQueueItemAction(visitId);
+          await refreshQueue();
+        } catch (err) {
+          console.error("Counsellor session completion failed:", err);
+          window.dispatchEvent(
+            new CustomEvent("candela-counsellor-error", {
+              detail: { message: "Could not complete session. Please retry." },
+            }),
+          );
+        }
+      })();
     };
 
     const completedSessions = counsellor.sessions.filter((s) => s.completedAt);
@@ -394,6 +400,8 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
 
     return {
       ready,
+      error,
+      refresh,
       patients,
       visits,
       queue,
@@ -476,7 +484,7 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
           .filter((s) => s.patientId === patientId && s.completedAt)
           .sort((a, b) => (b.completedAt! > a.completedAt! ? 1 : -1)),
     };
-  }, [clinical, counsellor, queue, billingHandoffs, ready, syncCounsellor, refreshQueue]);
+  }, [clinical, counsellor, queue, billingHandoffs, ready, error, refresh, syncCounsellor, refreshQueue]);
 
   return <CounsellorContext.Provider value={value}>{children}</CounsellorContext.Provider>;
 }

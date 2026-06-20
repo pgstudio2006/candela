@@ -1,6 +1,8 @@
 "use client";
 
 import { useSession } from "@/components/candela/session-provider";
+import { StoreGate } from "@/components/candela/store-gate";
+import { useNurseStore } from "@/components/nurse/nurse-store";
 import { NurseCommandPalette } from "@/components/nurse/command-palette";
 import { NurseSidebar } from "@/components/nurse/sidebar";
 import { CopilotPanel } from "@/components/frontdesk/copilot-panel";
@@ -12,6 +14,7 @@ export function NurseShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { session, authReady, signOut, setCommandOpen, commandOpen } = useSession();
+  const { ready, error, refresh } = useNurseStore();
   const [copilotOpen, setCopilotOpen] = useState(false);
   const current = getNurseNavItem(pathname);
 
@@ -48,7 +51,11 @@ export function NurseShell({ children }: { children: ReactNode }) {
         }}
       />
       <div className="flex min-h-0 min-w-0 flex-1">
-        <main className="scrollbar-none min-w-0 flex-1 overflow-y-auto">{children}</main>
+        <main className="scrollbar-none min-w-0 flex-1 overflow-y-auto">
+          <StoreGate ready={ready} error={error} onRetry={() => void refresh()}>
+            {children}
+          </StoreGate>
+        </main>
         <CopilotPanel open={copilotOpen} onClose={() => setCopilotOpen(false)} context={current.label} />
       </div>
       <NurseCommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} />

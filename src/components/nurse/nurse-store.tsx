@@ -30,6 +30,7 @@ import {
   uploadConsentAction,
   verifyConsentAction,
 } from "@/app/actions/nurse-actions";
+import { parseActionError } from "@/lib/action-errors";
 import { patientDisplayName } from "@/lib/frontdesk-workflow";
 import {
   createContext,
@@ -52,6 +53,8 @@ type NurseState = {
 
 type NurseStoreValue = {
   ready: boolean;
+  error: string | null;
+  refresh: () => Promise<void>;
   patients: Patient[];
   visits: Visit[];
   handoffs: NursingHandoffPayload[];
@@ -135,19 +138,25 @@ function buildSessions(handoff: NursingHandoffPayload): TreatmentSession[] {
 export function NurseStoreProvider({ children }: { children: ReactNode }) {
   const [nurse, setNurse] = useState<NurseState>(initialState);
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(() => {
-    void getNurseSnapshotAction()
-      .then((snapshot) => {
-        setNurse((prev) => ({
-          ...prev,
-          patients: snapshot.patients,
-          visits: snapshot.visits,
-          handoffs: snapshot.handoffs,
-          episodes: snapshot.episodes,
-        }));
-      })
-      .finally(() => setReady(true));
+  const refresh = useCallback(async () => {
+    setReady(false);
+    try {
+      const snapshot = await getNurseSnapshotAction();
+      setNurse((prev) => ({
+        ...prev,
+        patients: snapshot.patients,
+        visits: snapshot.visits,
+        handoffs: snapshot.handoffs,
+        episodes: snapshot.episodes,
+      }));
+      setError(null);
+    } catch (err) {
+      setError(parseActionError(err).message);
+    } finally {
+      setReady(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -223,6 +232,8 @@ export function NurseStoreProvider({ children }: { children: ReactNode }) {
 
     return {
       ready,
+      error,
+      refresh,
       patients: nurse.patients,
       visits: nurse.visits,
       handoffs: nurse.handoffs,
@@ -382,7 +393,7 @@ export function NurseStoreProvider({ children }: { children: ReactNode }) {
         );
       },
     };
-  }, [ready, nurse, syncNurse, refresh]);
+  }, [ready, error, refresh, nurse, syncNurse]);
 
   return <NurseContext.Provider value={value}>{children}</NurseContext.Provider>;
 }

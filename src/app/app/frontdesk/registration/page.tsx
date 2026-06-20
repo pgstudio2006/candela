@@ -41,8 +41,12 @@ export default function RegistrationPage() {
   const schema = useFrontdeskFormSchema("registration", roster);
 
   const submitRegistration = async (data: Record<string, string | number | boolean>) => {
+    if (phoneWarning) {
+      toast("This phone is already registered. Use check-in for the existing patient.", "error");
+      return;
+    }
     setSubmitting(true);
-    const result = await registerPatientAsync(data, { forceDuplicate: Boolean(phoneWarning) });
+    const result = await registerPatientAsync(data);
     setSubmitting(false);
 
     if (!result.ok) {
@@ -56,7 +60,7 @@ export default function RegistrationPage() {
       return;
     }
 
-    saveSubmission("registration", data, { patientId: result.patientId, visitId: result.visitId });
+    await saveSubmission("registration", data, { patientId: result.patientId, visitId: result.visitId });
     setSavedUhid(result.uhid);
     toast(`Registered ${result.uhid}`, "success");
     router.push(`/app/frontdesk/check-in?visit=${result.visitId}&patient=${result.patientId}`);

@@ -1,5 +1,7 @@
 "use client";
 
+import { StoreGate } from "@/components/candela/store-gate";
+import { usePharmacyStore } from "@/components/pharmacy/pharmacy-store";
 import { PharmacyCommandPalette } from "@/components/pharmacy/command-palette";
 import { PharmacySidebar } from "@/components/pharmacy/sidebar";
 import { PHARMACY_MANAGER_ID } from "@/components/pharmacy/pharmacy-store";
@@ -14,6 +16,7 @@ export function PharmacyShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { session, authReady, signOut, setCommandOpen, commandOpen } = useSession();
+  const { ready, error, refresh } = usePharmacyStore();
   const [copilotOpen, setCopilotOpen] = useState(false);
   const current = getPharmacyNavItem(pathname);
 
@@ -73,7 +76,11 @@ export function PharmacyShell({ children }: { children: ReactNode }) {
           <span className="mx-2">·</span>
           <span>{session.userEmail}</span>
         </div>
-        <main className="scrollbar-none min-h-0 min-w-0 flex-1 overflow-y-auto">{children}</main>
+        <main className="scrollbar-none min-h-0 min-w-0 flex-1 overflow-y-auto">
+          <StoreGate ready={ready} error={error} onRetry={() => void refresh()}>
+            {children}
+          </StoreGate>
+        </main>
       </div>
       <CopilotPanel open={copilotOpen} onClose={() => setCopilotOpen(false)} context={current.label} />
       <PharmacyCommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} />

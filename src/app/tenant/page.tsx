@@ -13,8 +13,8 @@ import { useState, type FormEvent } from "react";
 export default function TenantPage() {
   const router = useRouter();
   const { setAuthDraft } = useSession();
-  const [orgId, setOrgId] = useState("navayu");
-  const [orgPassword, setOrgPassword] = useState("demo");
+  const [orgId, setOrgId] = useState("");
+  const [orgPassword, setOrgPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 

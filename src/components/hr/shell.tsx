@@ -1,5 +1,6 @@
 "use client";
 
+import { StoreGate } from "@/components/candela/store-gate";
 import { HrCommandPalette } from "@/components/hr/command-palette";
 import { HrSidebar } from "@/components/hr/sidebar";
 import { HR_MANAGER_ID } from "@/components/hr/hr-store";
@@ -14,7 +15,7 @@ export function HrShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { session, authReady, signOut, commandOpen, setCommandOpen } = useSession();
-  const { isManager } = useHrStore();
+  const { isManager, ready, error, refresh } = useHrStore();
   const [copilotOpen, setCopilotOpen] = useState(false);
   const current = getHrNavItem(pathname);
 
@@ -72,7 +73,11 @@ export function HrShell({ children }: { children: ReactNode }) {
           <span className="mx-2">·</span>
           <span>{session.userEmail}</span>
         </div>
-        <main className="scrollbar-none min-h-0 min-w-0 flex-1 overflow-y-auto">{children}</main>
+        <main className="scrollbar-none min-h-0 min-w-0 flex-1 overflow-y-auto">
+          <StoreGate ready={ready} error={error} onRetry={() => void refresh()}>
+            {children}
+          </StoreGate>
+        </main>
       </div>
       <CopilotPanel open={copilotOpen} onClose={() => setCopilotOpen(false)} context={current.label} />
       <HrCommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} isManager={isManager()} />
