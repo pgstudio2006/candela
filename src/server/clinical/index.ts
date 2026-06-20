@@ -5,12 +5,13 @@ import { DOCTOR_TEMPLATES, IPD_PATIENTS } from "@/design-system/doctor-data";
 import { DEFAULT_DOCUMENT_TEMPLATES } from "@/design-system/document-templates";
 import { PATIENTS as SEED_PATIENTS, VISITS as SEED_VISITS, type Patient, type Visit } from "@/design-system/frontdesk-data";
 import type { Appointment, FormSubmission, FrontdeskCounters } from "@/lib/frontdesk-workflow";
-import { ageFromDob, deptLabel, doctorName, mapPrismaPatientRow, matchPatientByQuery, nextUhid, nowTime, patientDisplayName, templateAmount } from "@/lib/frontdesk-workflow";
+import { ageFromDob, computeWaitMinutes, deptLabel, doctorName, mapPrismaPatientRow, matchPatientByQuery, nextUhid, nowTime, patientDisplayName, templateAmount } from "@/lib/frontdesk-workflow";
 import { billingFromPayment, resolveOpdFirstRoute, resolvePostCounselRoute, treatmentPathFromConvert, type PaymentScope } from "@/lib/billing-routing";
 import { prisma } from "@/lib/prisma";
 import type { ServerContext } from "@/server/context";
 import { ServerActionError } from "@/server/errors";
-import { upsertVisitInvoice } from "@/server/invoicing";
+import { upsertVisitInvoice, getVisitReceipt } from "@/server/invoicing";
+import { buildPatientRegistrationPayload } from "@/lib/registration-meta";
 import { writePlatformAudit } from "@/server/platform-audit";
 import { branchScope } from "@/server/tenancy";
 import { syncVisitFromOpdVisit } from "@/server/visit-sync";
@@ -41,6 +42,10 @@ export type BillingResult = {
   routeHref: string;
   routingLabel: string;
   routingNote: string;
+  visitId: string;
+  invoiceNumber: string;
+  paymentMode: string;
+  token?: number;
 };
 
 export type ClinicalSnapshot = {
@@ -115,7 +120,7 @@ function mapVisit(row: {
     exam: (row.exam ?? "not_started") as Visit["exam"],
     appointment: row.appointment,
     appointmentTime: row.appointmentTime ?? undefined,
-    waitMin: row.waitMin,
+    waitMin: computeWaitMinutes(row.checkInAt),
     checkInAt: row.checkInAt ?? undefined,
     billAmount: row.billAmount ?? undefined,
     amountPaid: row.amountPaid ?? undefined,
@@ -252,6 +257,19 @@ async function backfillBranchScope(ctx: ServerContext) {
     data: scope,
   });
 
+  const branchVisitIds = (
+    await prisma.opdVisit.findMany({ where: scope, select: { id: true } })
+  ).map((v) => v.id);
+  if (branchVisitIds.length > 0) {
+    await prisma.appointment.updateMany({
+      where: {
+        visitId: { in: branchVisitIds },
+        OR: [{ branchId: null }, { tenantId: null }],
+      },
+      data: scope,
+    });
+  }
+
   const nullNamePatients = await prisma.patient.findMany({
     where: {
       tenantId: scope.tenantId,
@@ -378,7 +396,10 @@ export async function getClinicalSnapshot(ctx: ServerContext): Promise<ClinicalS
   const [patientsRows, visitsRows, appointmentRows, handoffRows, roster] = await Promise.all([
     prisma.patient.findMany({ where: scope, orderBy: { createdAt: "asc" } }),
     prisma.opdVisit.findMany({ where: scope, orderBy: { createdAt: "asc" } }),
-    prisma.appointment.findMany({ where: { branchId: scope.branchId }, orderBy: { createdAt: "asc" } }),
+    prisma.appointment.findMany({
+      where: { tenantId: scope.tenantId, branchId: scope.branchId },
+      orderBy: { createdAt: "asc" },
+    }),
     prisma.billingHandoff.findMany({ where: { branchId: scope.branchId }, orderBy: { createdAt: "asc" } }),
     loadClinicalRoster(ctx),
   ]);
@@ -501,6 +522,8 @@ export async function registerPatient(
 
   await assertNoDuplicatePatient(ctx, phone, uhid, patientId, forceDuplicate);
 
+  const registration = buildPatientRegistrationPayload(data);
+
   await prisma.patient.upsert({
     where: { id: patientId },
     update: {
@@ -513,12 +536,9 @@ export async function registerPatient(
       gender: String(data.gender ?? "O"),
       department: deptLabel(deptId),
       departmentId: deptId,
-      tags: [
-        String(data.visitType ?? "opd"),
-        ...(data.pincode ? [`pincode:${String(data.pincode)}`] : []),
-        ...(data.city ? [`city:${String(data.city)}`] : []),
-      ],
-      referrer: String(data.referrerName ?? "") || null,
+      tags: registration.tags,
+      referrer: registration.referrer,
+      meta: registration.meta,
       tenantId: scope.tenantId,
       branchId: scope.branchId,
     },
@@ -534,12 +554,9 @@ export async function registerPatient(
       gender: String(data.gender ?? "O"),
       department: deptLabel(deptId),
       departmentId: deptId,
-      tags: [
-        String(data.visitType ?? "opd"),
-        ...(data.pincode ? [`pincode:${String(data.pincode)}`] : []),
-        ...(data.city ? [`city:${String(data.city)}`] : []),
-      ],
-      referrer: String(data.referrerName ?? "") || null,
+      tags: registration.tags,
+      referrer: registration.referrer,
+      meta: registration.meta,
     },
   });
 
@@ -692,7 +709,8 @@ export async function processBilling(
     where: branchScope(ctx),
     _max: { token: true },
   });
-  const token = (maxToken._max.token ?? 0) + 1;
+  const nextToken = (maxToken._max.token ?? 0) + 1;
+  const assignedToken = visit.token ?? nextToken;
 
   await prisma.$transaction(async (tx) => {
     await tx.patient.update({
@@ -704,14 +722,14 @@ export async function processBilling(
       data: {
         stage: route.stage,
         billing: billingFromPayment(paymentScope, mode),
-        token: route.stage === "queued" ? token : visit.token,
+        token: assignedToken,
         billAmount: net,
         amountPaid: collected,
         balanceDue: balanceDue > 0 ? balanceDue : null,
         treatmentPath: "opd",
         routingNote: route.routingNote,
         deferredReason: route.billing === "deferred" ? String(data.deferReason ?? "") : null,
-        waitMin: 0,
+        waitMin: computeWaitMinutes(visit.checkInAt),
         tenantId: ctx.tenantId,
         branchId: ctx.branchId,
       },
@@ -744,7 +762,21 @@ export async function processBilling(
     summary: `Billing ₹${net} (${mode}) — ${route.routingLabel}`,
   });
 
-  return { routeHref: route.routeHref, routingLabel: route.routingLabel, routingNote: route.routingNote };
+  const invoice = await prisma.invoice.findUnique({ where: { visitId } });
+
+  return {
+    routeHref: route.routeHref,
+    routingLabel: route.routingLabel,
+    routingNote: route.routingNote,
+    visitId,
+    invoiceNumber: invoice?.invoiceNumber ?? `NV-${visitId.slice(-8).toUpperCase()}`,
+    paymentMode: mode,
+    token: assignedToken,
+  };
+}
+
+export async function fetchVisitReceipt(ctx: ServerContext, visitId: string) {
+  return getVisitReceipt(ctx, visitId);
 }
 
 export async function processCounselBilling(
@@ -910,7 +942,18 @@ export async function processCounselBilling(
     summary: `Post-counsel billing ₹${net}`,
   });
 
-  return { routeHref: route.routeHref, routingLabel: route.routingLabel, routingNote: route.routingNote };
+  const counselInvoice = await prisma.invoice.findUnique({ where: { visitId } });
+  const counselVisit = await prisma.opdVisit.findUnique({ where: { id: visitId } });
+
+  return {
+    routeHref: route.routeHref,
+    routingLabel: route.routingLabel,
+    routingNote: route.routingNote,
+    visitId,
+    invoiceNumber: counselInvoice?.invoiceNumber ?? `NV-${visitId.slice(-8).toUpperCase()}`,
+    paymentMode: input.mode,
+    token: counselVisit?.token ?? undefined,
+  };
 }
 
 export async function completeJuniorExam(
@@ -999,6 +1042,7 @@ export async function bookAppointment(
     prisma.appointment.upsert({
       where: { id: appointmentId },
       update: {
+        ...scope,
         patientId: patient.id,
         visitId,
         departmentId: deptId,
@@ -1012,6 +1056,7 @@ export async function bookAppointment(
       },
       create: {
         id: appointmentId,
+        ...scope,
         patientId: patient.id,
         visitId,
         departmentId: deptId,

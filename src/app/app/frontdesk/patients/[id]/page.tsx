@@ -1,15 +1,16 @@
 "use client";
 
+import { BillingReceiptModal } from "@/components/frontdesk/billing-receipt-modal";
 import { useSession } from "@/components/candela/session-provider";
 import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatStageStatus } from "@/lib/frontdesk-workflow";
-import { ArrowLeft, CreditCard, ListOrdered } from "lucide-react";
+import { ArrowLeft, CreditCard, ListOrdered, Printer } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 export default function PatientRecordPage() {
   const params = useParams();
@@ -19,6 +20,7 @@ export default function PatientRecordPage() {
   const patientVisits = patient ? getPatientVisits(patient.id) : [];
   const activeVisit = patientVisits.find((v) => !["completed", "with_doctor"].includes(v.stage));
   const { setActivePatientId } = useSession();
+  const [reprintVisitId, setReprintVisitId] = useState<string | null>(null);
 
   useEffect(() => {
     if (patient) setActivePatientId(patient.id);
@@ -84,8 +86,14 @@ export default function PatientRecordPage() {
               <dl className="grid grid-cols-2 gap-3 text-[13px]">
                 <div><dt className="text-[var(--attio-text-tertiary)]">Email</dt><dd>{patient.email ?? "—"}</dd></div>
                 <div><dt className="text-[var(--attio-text-tertiary)]">Referrer</dt><dd>{patient.referrer ?? "—"}</dd></div>
+                <div><dt className="text-[var(--attio-text-tertiary)]">Referral source</dt><dd>{patient.referrerSource ?? "—"}</dd></div>
+                <div><dt className="text-[var(--attio-text-tertiary)]">Corporate ID</dt><dd>{patient.corporateId ?? "—"}</dd></div>
+                <div><dt className="text-[var(--attio-text-tertiary)]">Consent</dt><dd>{patient.consentTreatment || patient.consentData ? "On file" : "—"}</dd></div>
                 <div><dt className="text-[var(--attio-text-tertiary)]">Last visit</dt><dd>{patient.lastVisit ?? "—"}</dd></div>
                 <div><dt className="text-[var(--attio-text-tertiary)]">Balance</dt><dd>{patient.balance > 0 ? `₹${patient.balance}` : "Clear"}</dd></div>
+                {patient.registrationNotes && (
+                  <div className="col-span-2"><dt className="text-[var(--attio-text-tertiary)]">Notes</dt><dd>{patient.registrationNotes}</dd></div>
+                )}
               </dl>
             </Panel>
             <Panel title="Next best action">
@@ -151,6 +159,16 @@ export default function PatientRecordPage() {
                 {v.routingNote && (
                   <p className="mt-2 text-[11px] text-[var(--attio-text-tertiary)]">{v.routingNote}</p>
                 )}
+                {(v.billAmount ?? 0) > 0 && (
+                  <AttioButton
+                    variant="secondary"
+                    className="mt-3 h-8 gap-1.5 text-[11px]"
+                    onClick={() => setReprintVisitId(v.id)}
+                  >
+                    <Printer className="size-3.5" />
+                    Reprint receipt
+                  </AttioButton>
+                )}
                 {v.stage === "ipd_admitted" && (
                   <Link href="/app/doctor/ipd" className="mt-2 inline-block text-[12px] font-medium text-[var(--attio-accent)] hover:underline">
                     View IPD ward →
@@ -161,6 +179,12 @@ export default function PatientRecordPage() {
           </Panel>
         </TabsContent>
       </Tabs>
+
+      <BillingReceiptModal
+        open={Boolean(reprintVisitId)}
+        visitId={reprintVisitId}
+        onClose={() => setReprintVisitId(null)}
+      />
     </PageChrome>
   );
 }

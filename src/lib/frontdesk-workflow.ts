@@ -1,6 +1,7 @@
 import type { BillingStatus, ExamStatus, Patient, Visit, VisitStage } from "@/design-system/frontdesk-data";
 import { BILLING_TEMPLATES } from "@/design-system/frontdesk-data";
 import { DEPARTMENTS, DOCTORS_BY_DEPT } from "@/design-system/mock-data";
+import { parsePatientRegistrationMeta } from "@/lib/registration-meta";
 
 export const DOCTOR_NAMES: Record<string, string> = Object.fromEntries(
   Object.values(DOCTORS_BY_DEPT)
@@ -23,6 +24,37 @@ export function deptLabel(id: string) {
 export function nowTime() {
   const d = new Date();
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/** Minutes since check-in — supports HH:mm (today) or ISO timestamps. */
+export function computeWaitMinutes(checkInAt?: string | null): number {
+  if (!checkInAt) return 0;
+  const now = new Date();
+  let start: Date;
+
+  if (checkInAt.includes("T")) {
+    start = new Date(checkInAt);
+    if (Number.isNaN(start.getTime())) return 0;
+  } else {
+    const parts = checkInAt.split(":");
+    if (parts.length < 2) return 0;
+    const hours = Number(parts[0]);
+    const minutes = Number(parts[1]);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return 0;
+    start = new Date(now);
+    start.setHours(hours, minutes, 0, 0);
+    if (start > now) start.setDate(start.getDate() - 1);
+  }
+
+  return Math.max(0, Math.floor((now.getTime() - start.getTime()) / 60_000));
+}
+
+export function sortVisitsByToken<T extends { token?: number }>(visits: T[]): T[] {
+  return [...visits].sort((a, b) => (a.token ?? 99_999) - (b.token ?? 99_999));
+}
+
+export function isAwaitingJuniorExam(visit: { stage: string; exam?: string }) {
+  return visit.stage === "junior_exam" && visit.exam !== "done";
 }
 
 export function nextUhid(counter: number) {
@@ -63,9 +95,11 @@ type PrismaPatientRow = PatientNameSource & {
   balance?: unknown;
   lastVisit?: string | null;
   referrer?: string | null;
+  meta?: unknown;
 };
 
 export function mapPrismaPatientRow(row: PrismaPatientRow): Patient {
+  const reg = parsePatientRegistrationMeta(row.meta);
   return {
     id: row.id,
     uhid: row.uhid,
@@ -79,7 +113,12 @@ export function mapPrismaPatientRow(row: PrismaPatientRow): Patient {
     tags: Array.isArray(row.tags) ? row.tags.map(String) : [],
     balance: Number(row.balance ?? 0),
     lastVisit: row.lastVisit ?? undefined,
-    referrer: row.referrer ?? undefined,
+    referrer: row.referrer ?? reg.referrerName ?? undefined,
+    referrerSource: reg.referrerSource,
+    corporateId: reg.corporateId,
+    registrationNotes: reg.registrationNotes,
+    consentTreatment: reg.consentTreatment,
+    consentData: reg.consentData,
   };
 }
 

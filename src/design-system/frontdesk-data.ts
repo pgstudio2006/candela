@@ -31,6 +31,11 @@ export type Patient = {
   balance: number;
   lastVisit?: string;
   referrer?: string;
+  referrerSource?: string;
+  corporateId?: string;
+  registrationNotes?: string;
+  consentTreatment?: boolean;
+  consentData?: boolean;
 };
 
 export type Visit = {

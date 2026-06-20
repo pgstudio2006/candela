@@ -4,18 +4,7 @@ import {
   type Patient,
   type Visit,
 } from "@/design-system/frontdesk-data";
-import {
-  buildActionItems,
-  computeKpis,
-  findDuplicatePatients,
-  matchPatientByQuery,
-  nextUhid,
-  nowTime,
-  patientDisplayName,
-  type Appointment,
-  type FormSubmission,
-  type FrontdeskCounters,
-} from "@/lib/frontdesk-workflow";
+import { buildActionItems, computeKpis, computeWaitMinutes, findDuplicatePatients, matchPatientByQuery, nextUhid, nowTime, patientDisplayName, sortVisitsByToken, type Appointment, type FormSubmission, type FrontdeskCounters } from "@/lib/frontdesk-workflow";
 import type { PaymentScope } from "@/lib/billing-routing";
 import type { BillingHandoffPayload } from "@/design-system/counsellor-data";
 import {
@@ -73,11 +62,18 @@ export type CounselBillingInput = {
   handoff: BillingHandoffPayload;
 };
 
-export type BillingResult = {
-  routeHref: string;
-  routingLabel: string;
-  routingNote: string;
-};
+export type BillingResult =
+  | {
+      ok: true;
+      routeHref: string;
+      routingLabel: string;
+      routingNote: string;
+      visitId: string;
+      invoiceNumber: string;
+      paymentMode: string;
+      token?: number;
+    }
+  | { ok: false; error: string };
 
 export type RegisterPatientResult =
   | { ok: true; patientId: string; visitId: string; uhid: string }
@@ -293,18 +289,26 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
 
   const processBilling = useCallback(
     async (visitId: string, data: BillingInput): Promise<BillingResult> => {
-      const result = await processBillingAction(visitId, data);
-      await refresh();
-      return result;
+      try {
+        const result = await processBillingAction(visitId, data);
+        await refresh({ silent: true });
+        return { ok: true, ...result };
+      } catch (err) {
+        return { ok: false, error: parseActionError(err).message };
+      }
     },
     [refresh],
   );
 
   const processCounselBilling = useCallback(
     async (visitId: string, input: CounselBillingInput): Promise<BillingResult> => {
-      const result = await processCounselBillingAction(visitId, input);
-      await refresh();
-      return result;
+      try {
+        const result = await processCounselBillingAction(visitId, input);
+        await refresh({ silent: true });
+        return { ok: true, ...result };
+      } catch (err) {
+        return { ok: false, error: parseActionError(err).message };
+      }
     },
     [refresh],
   );
@@ -394,11 +398,16 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
           .map((v) => ({ visit: v, patient: getPatient(v.patientId)! }))
           .filter((x) => x.patient),
       getQueueVisits: (doctorId) =>
-        state.visits.filter(
-          (v) =>
-            ["queued", "junior_exam"].includes(v.stage) &&
-            (!doctorId || v.doctorId === doctorId),
-        ),
+        sortVisitsByToken(
+          state.visits.filter(
+            (v) =>
+              ["queued", "junior_exam"].includes(v.stage) &&
+              (!doctorId || v.doctorId === doctorId),
+          ),
+        ).map((v) => ({
+          ...v,
+          waitMin: v.checkInAt ? computeWaitMinutes(v.checkInAt) : v.waitMin,
+        })),
       getJuniorExamVisits: () =>
         state.visits.filter((v) => ["queued", "junior_exam"].includes(v.stage)),
       getDashboardKpis: () => computeKpis(state.visits),

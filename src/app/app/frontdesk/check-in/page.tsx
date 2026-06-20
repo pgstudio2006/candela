@@ -73,7 +73,7 @@ function CheckInContent() {
                 toast(result.error ?? "Check-in failed", "error");
                 return;
               }
-              saveSubmission("checkin", data, { visitId: result.visitId, patientId: result.patientId });
+              await saveSubmission("checkin", data, { visitId: result.visitId, patientId: result.patientId });
               toast("Check-in complete", "success");
               router.push(`/app/frontdesk/billing?visit=${result.visitId}`);
             }}

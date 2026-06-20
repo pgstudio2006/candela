@@ -3,7 +3,7 @@
 import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
-import { patientDisplayName } from "@/lib/frontdesk-workflow";
+import { isAwaitingJuniorExam, patientDisplayName, sortVisitsByToken } from "@/lib/frontdesk-workflow";
 import { cn } from "@/lib/utils";
 import { Clock } from "lucide-react";
 import Link from "next/link";
@@ -16,9 +16,7 @@ export default function QueuePage() {
   const doctors = roster.allDoctors;
 
   const callNext = () => {
-    const next = visits
-      .filter((v) => v.stage === "queued")
-      .sort((a, b) => (a.token ?? 99) - (b.token ?? 99))[0];
+    const next = sortVisitsByToken(visits.filter(isAwaitingJuniorExam))[0];
     if (next) router.push(`/app/frontdesk/junior-exam/${next.id}`);
   };
 
@@ -29,12 +27,12 @@ export default function QueuePage() {
         { label: "Queue" },
       ]}
       title="Reception queue"
-      meta="Grouped by doctor · FIFO · appointment highlight only"
+      meta="Grouped by doctor · FIFO by token · junior exam pending"
       actions={<AttioButton variant="secondary" onClick={callNext}>Call next</AttioButton>}
     >
       <div className="grid gap-4 lg:grid-cols-3">
         {doctors.map((doc) => {
-          const queue = getQueueVisits(doc.id);
+          const queue = sortVisitsByToken(getQueueVisits(doc.id));
           return (
             <Panel
               key={doc.id}
@@ -56,7 +54,7 @@ export default function QueuePage() {
                       <div className="flex items-start justify-between">
                         <div>
                           <p className="text-[13px] font-medium">
-                            #{v.token} · {patientDisplayName(p)}
+                            {v.token != null ? `#${v.token}` : "—"} · {patientDisplayName(p)}
                           </p>
                           <p className="font-mono text-[11px] text-[var(--attio-text-tertiary)]">{p.uhid}</p>
                         </div>

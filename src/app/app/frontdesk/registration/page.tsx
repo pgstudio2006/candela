@@ -6,8 +6,8 @@ import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { useFrontdeskFormSchema } from "@/components/frontdesk/use-frontdesk-form-schema";
 import { AttioButton, Panel } from "@/components/frontdesk/ui";
 import { useToast } from "@/components/ui/toast-provider";
-import { checkDuplicatePatientAction } from "@/app/actions/clinical-actions";
-import { AlertTriangle } from "lucide-react";
+import { canOverrideDuplicateAction, checkDuplicatePatientAction } from "@/app/actions/clinical-actions";
+import { AlertTriangle, LogIn } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -17,11 +17,16 @@ type DuplicateInfo = { id: string; uhid: string; name: string; phone: string };
 export default function RegistrationPage() {
   const router = useRouter();
   const { toast } = useToast();
-  const { registerPatientAsync, saveSubmission, counters, roster, patients } = useFrontdeskStore();
+  const { registerPatientAsync, saveSubmission, counters, roster } = useFrontdeskStore();
   const [draft, setDraft] = useState<Record<string, string | number | boolean>>({});
   const [savedUhid, setSavedUhid] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [phoneWarning, setPhoneWarning] = useState<DuplicateInfo | null>(null);
+  const [canOverrideDuplicate, setCanOverrideDuplicate] = useState(false);
+
+  useEffect(() => {
+    void canOverrideDuplicateAction().then(setCanOverrideDuplicate);
+  }, []);
 
   const checkPhone = useCallback(async (phone: string) => {
     if (!phone || phone.replace(/\D/g, "").length < 10) {
@@ -40,17 +45,25 @@ export default function RegistrationPage() {
 
   const schema = useFrontdeskFormSchema("registration", roster);
 
-  const submitRegistration = async (data: Record<string, string | number | boolean>) => {
-    if (phoneWarning) {
+  const submitRegistration = async (
+    data: Record<string, string | number | boolean>,
+    opts?: { forceDuplicate?: boolean },
+  ) => {
+    if (phoneWarning && !opts?.forceDuplicate) {
       toast("This phone is already registered. Use check-in for the existing patient.", "error");
       return;
     }
+
     setSubmitting(true);
-    const result = await registerPatientAsync(data);
+    const result = await registerPatientAsync(data, { forceDuplicate: opts?.forceDuplicate });
     setSubmitting(false);
 
     if (!result.ok) {
-      toast(result.error, "error");
+      if (result.code === "DUPLICATE_PHONE" || result.code === "DUPLICATE_PATIENT") {
+        toast("Duplicate blocked — open check-in for the existing patient.", "error");
+      } else {
+        toast(result.error ?? "Registration failed", "error");
+      }
       return;
     }
 
@@ -66,18 +79,28 @@ export default function RegistrationPage() {
     router.push(`/app/frontdesk/check-in?visit=${result.visitId}&patient=${result.patientId}`);
   };
 
+  const checkInHref = phoneWarning
+    ? `/app/frontdesk/check-in?patient=${phoneWarning.id}`
+    : "/app/frontdesk/check-in";
+
   return (
     <PageChrome
       breadcrumbs={[{ label: "Front Desk", href: "/app/frontdesk" }, { label: "Registration" }]}
       title="Patient registration"
-      meta="New capture · duplicate phone warning · billing-first routing"
+      meta="New capture · duplicate phone guard · billing-first routing"
     >
       <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
         <Panel title="Patient details">
           <SchemaForm
             schema={schema}
             formKey={schema.id}
-            submitLabel={submitting ? "Saving…" : "Save & continue to check-in"}
+            submitLabel={
+              submitting
+                ? "Saving…"
+                : phoneWarning
+                  ? "Blocked — use check-in"
+                  : "Save & continue to check-in"
+            }
             onValuesChange={setDraft}
             roster={roster}
             onSubmit={(data) => void submitRegistration(data)}
@@ -89,17 +112,37 @@ export default function RegistrationPage() {
             {phoneWarning ? (
               <div className="flex gap-3 rounded-md border border-amber-200/80 bg-amber-50/50 p-3">
                 <AlertTriangle className="size-4 shrink-0 text-amber-600" />
-                <div>
+                <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-medium text-amber-900">Phone number already registered</p>
                   <p className="mt-1 text-[12px] text-amber-800">
                     {phoneWarning.name} · {phoneWarning.uhid} · {phoneWarning.phone}
                   </p>
-                  <p className="mt-2 text-[11px] text-amber-700">You can still register — this is a warning only.</p>
-                  <Link href={`/app/frontdesk/patients/${phoneWarning.id}`}>
-                    <AttioButton variant="secondary" className="mt-2 h-7 text-[11px]">
-                      Open existing record
+                  <p className="mt-2 text-[11px] text-amber-700">
+                    Registration is blocked for this number. Check in the existing patient instead.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Link href={checkInHref}>
+                      <AttioButton variant="primary" className="h-8 gap-1.5 text-[11px]">
+                        <LogIn className="size-3.5" />
+                        Go to check-in
+                      </AttioButton>
+                    </Link>
+                    <Link href={`/app/frontdesk/patients/${phoneWarning.id}`}>
+                      <AttioButton variant="secondary" className="h-8 text-[11px]">
+                        Open record
+                      </AttioButton>
+                    </Link>
+                  </div>
+                  {canOverrideDuplicate && (
+                    <AttioButton
+                      variant="secondary"
+                      className="mt-2 h-8 w-full text-[11px]"
+                      disabled={submitting}
+                      onClick={() => void submitRegistration(draft, { forceDuplicate: true })}
+                    >
+                      Register anyway (supervisor override)
                     </AttioButton>
-                  </Link>
+                  )}
                 </div>
               </div>
             ) : (

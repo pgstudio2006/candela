@@ -7,6 +7,7 @@ import {
   checkDuplicatePatient,
   checkInVisit,
   completeJuniorExam,
+  fetchVisitReceipt,
   getClinicalSnapshot,
   processBilling,
   processCounselBilling,
@@ -90,4 +91,15 @@ export async function saveSubmissionAction(
 ) {
   await requireModule("frontdesk");
   return saveSubmission(formId, data, ctx);
+}
+
+export async function getVisitReceiptAction(visitId: string) {
+  const ctx = await requireModule("frontdesk");
+  try {
+    const receipt = await fetchVisitReceipt(ctx, visitId);
+    return { receipt };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Could not load receipt.";
+    return { error: message };
+  }
 }

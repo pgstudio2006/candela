@@ -4,10 +4,11 @@ import { ScribeReviewPanel } from "@/components/doctor/scribe-review-panel";
 import { AttioButton, Panel } from "@/components/frontdesk/ui";
 import { SCRIBE_LANGUAGES } from "@/lib/ai/deepgram-languages";
 import type { ScribeDraft } from "@/lib/ai/scribe-types";
-import { useDeepgramScribe } from "@/hooks/use-deepgram-scribe";
+import { useSpeechScribe } from "@/hooks/use-speech-scribe";
+import { isSpeechRecognitionSupported } from "@/lib/speech-recognition";
 import { cn } from "@/lib/utils";
 import { Loader2, Mic, Sparkles, Square } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 type AiScribePanelProps = {
   language: string;
@@ -34,8 +35,11 @@ export function AiScribePanel({
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState("");
 
-  const { recording, interim, start, stop } = useDeepgramScribe({
+  const speechSupported = useMemo(() => isSpeechRecognitionSupported(), []);
+
+  const { recording, interim, start, stop } = useSpeechScribe({
     language,
+    seedTranscript: transcript,
     onTranscriptUpdate: onTranscriptChange,
     onRecordingStop,
     onError: setError,
@@ -68,14 +72,20 @@ export function AiScribePanel({
         action={
           <span className="flex items-center gap-1 text-[11px] text-[var(--attio-text-tertiary)]">
             <Sparkles className="size-3" />
-            Live · Deepgram
+            Live · Web Speech
           </span>
         }
       >
         <p className="mb-3 text-[12px] text-[var(--attio-text-secondary)]">
-          Record the consult in a regional language. Transcript streams live, then AI structures examination, diagnosis,
-          treatment, and prescription for your review.
+          Speak the consult in a regional language. Your browser transcribes live (Chrome or Edge recommended), then AI
+          structures examination, diagnosis, treatment, and prescription for your review.
         </p>
+
+        {!speechSupported && (
+          <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
+            Live transcription requires Chrome or Edge. Open this page in a supported browser with microphone access.
+          </p>
+        )}
 
         <div className="mb-3 flex flex-wrap gap-1.5">
           {SCRIBE_LANGUAGES.map((lang) => (
@@ -99,12 +109,17 @@ export function AiScribePanel({
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={() => (recording ? stop() : void start())}
+            disabled={!speechSupported}
+            onClick={() => {
+              setError("");
+              recording ? stop() : start();
+            }}
             className={cn(
               "flex flex-1 items-center justify-center gap-2 rounded-lg border py-3 text-[13px] font-medium transition-colors",
               recording
                 ? "border-red-200 bg-red-50 text-red-600"
                 : "border-[var(--attio-border)] bg-white hover:bg-[var(--attio-surface)]",
+              !speechSupported && "cursor-not-allowed opacity-50",
             )}
           >
             {recording ? <Square className="size-4" /> : <Mic className="size-4" />}
@@ -121,11 +136,15 @@ export function AiScribePanel({
               value={transcript}
               onChange={(e) => onTranscriptChange(e.target.value)}
               rows={6}
-              className="mt-2 w-full resize-none rounded-lg border border-[var(--attio-border)] bg-[var(--attio-surface)] px-3 py-2 text-[13px] outline-none focus:border-[var(--attio-accent)]"
+              readOnly={recording}
+              className={cn(
+                "mt-2 w-full resize-none rounded-lg border border-[var(--attio-border)] bg-[var(--attio-surface)] px-3 py-2 text-[13px] outline-none focus:border-[var(--attio-accent)]",
+                recording && "text-[var(--attio-text-secondary)]",
+              )}
               placeholder={recording ? "Listening…" : "Transcript appears here"}
             />
             {recording && interim && (
-              <p className="mt-1 text-[11px] text-[var(--attio-text-tertiary)]">Hearing: {interim}</p>
+              <p className="mt-1 text-[11px] italic text-[var(--attio-text-tertiary)]">Hearing: {interim}</p>
             )}
           </div>
         )}
