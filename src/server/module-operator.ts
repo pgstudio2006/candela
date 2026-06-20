@@ -1,14 +1,11 @@
-"use server";
-
 import { db } from "@/lib/db";
 import { prisma } from "@/lib/prisma";
 import { HR_MANAGER_ID } from "@/design-system/hr-data";
+import { PHARMACY_MANAGER_ID } from "@/design-system/pharmacy-data";
+import { CRM_MANAGER_ID } from "@/lib/crm-auth";
 import { requireModule } from "@/server/auth";
 import type { ServerContext } from "@/server/context";
 import { ServerActionError } from "@/server/errors";
-
-export const CRM_MANAGER_ID = "crm_mgr";
-export const PHARMACY_MANAGER_ID = "pharm_mgr";
 
 export async function resolveHrOperator(requireManager = false) {
   const ctx = await requireModule("hr");
