@@ -23,10 +23,16 @@ export function resolvePostCounselRoute(input: {
   collected: number;
   patientId: string;
   visitId: string;
+  /** Where the billing UI lives — front desk users cannot open nurse routes */
+  audience?: "frontdesk" | "nurse";
 }): BillingRoute {
-  const { paymentScope, convertToIpd, netAmount, collected, patientId, visitId } = input;
+  const { paymentScope, convertToIpd, netAmount, collected, visitId } = input;
   const balance = Math.max(0, netAmount - collected);
-  const nurseHref = `/app/nurse/queue?visit=${visitId}`;
+  const audience = input.audience ?? "frontdesk";
+  const routeHref =
+    audience === "nurse"
+      ? `/app/nurse/queue?visit=${visitId}`
+      : `/app/frontdesk/queue?visit=${visitId}`;
 
   if (convertToIpd) {
     if (paymentScope === "defer") {
@@ -34,7 +40,7 @@ export function resolvePostCounselRoute(input: {
         billing: "deferred",
         stage: "ipd_admitted",
         routingLabel: "IPD admission · billing deferred → nursing",
-        routeHref: nurseHref,
+        routeHref,
         routingNote: `Admitted to ward — ₹${netAmount.toLocaleString("en-IN")} deferred. Nursing intake & admission consent required.`,
       };
     }
@@ -43,7 +49,7 @@ export function resolvePostCounselRoute(input: {
         billing: "partial",
         stage: "ipd_admitted",
         routingLabel: "IPD admission · partial → nursing",
-        routeHref: nurseHref,
+        routeHref,
         routingNote: `Ward admission active. ₹${collected.toLocaleString("en-IN")} collected · ₹${balance.toLocaleString("en-IN")} due. Nursing consent gate before treatment.`,
       };
     }
@@ -51,7 +57,7 @@ export function resolvePostCounselRoute(input: {
       billing: "paid",
       stage: "ipd_admitted",
       routingLabel: "IPD admission · paid → nursing",
-      routeHref: nurseHref,
+      routeHref,
       routingNote: "Patient routed to nursing for ward intake, vitals, and admission consent before treatment.",
     };
   }
@@ -61,7 +67,7 @@ export function resolvePostCounselRoute(input: {
       billing: "deferred",
       stage: "nursing_queue",
       routingLabel: "Deferred billing · nursing authorized",
-      routeHref: nurseHref,
+      routeHref,
       routingNote: `Package enrolled with deferred billing. Nursing may proceed per authorization. ₹${netAmount.toLocaleString("en-IN")} due.`,
     };
   }
@@ -70,7 +76,7 @@ export function resolvePostCounselRoute(input: {
       billing: "partial",
       stage: "nursing_queue",
       routingLabel: "Partial payment → nursing execution",
-      routeHref: nurseHref,
+      routeHref,
       routingNote: `₹${collected.toLocaleString("en-IN")} collected · ₹${balance.toLocaleString("en-IN")} balance tracked. Nursing intake & consent required.`,
     };
   }
@@ -78,7 +84,7 @@ export function resolvePostCounselRoute(input: {
     billing: "paid",
     stage: "nursing_queue",
     routingLabel: "Full payment → nursing execution",
-    routeHref: nurseHref,
+    routeHref,
     routingNote: "Package paid in full. Patient routed to nursing for vitals, clinical consent, and session 1.",
   };
 }

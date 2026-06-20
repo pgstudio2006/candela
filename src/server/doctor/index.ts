@@ -113,7 +113,7 @@ export async function getDoctorSnapshot(activeDoctorId = DEMO_DOCTOR_ID, ctx?: i
       patientId: row.patientId,
       doctorId: row.doctorId,
       doctorName: row.doctorName,
-      sentAt: row.sentAt,
+      sentAt: String(row.sentAt),
       treatmentMode: row.treatmentMode as TreatmentMode,
       packageId: row.packageId ?? undefined,
       packageLabel: row.packageLabel ?? undefined,
@@ -270,7 +270,9 @@ export async function completeConsultation(
 ) {
   const consult = await prisma.consultation.findUnique({ where: { visitId } });
   const visit = await prisma.opdVisit.findUnique({ where: { id: visitId } });
-  if (!consult || !visit) return;
+  if (!consult || !visit) {
+    throw new ServerActionError("NOT_FOUND", "Consultation or visit not found.");
+  }
 
   const packageId = String(opts.handoff.packageId ?? "");
   const pkg = CARE_PACKAGES.find((p) => p.id === packageId);

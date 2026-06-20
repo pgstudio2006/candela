@@ -90,7 +90,7 @@ export const WORKSPACES: WorkspaceConfig[] = [
     icon: Stethoscope,
     sidebarItems: [
       { id: "queue", label: "Queue", href: "/app/doctor" },
-      { id: "consultation", label: "Consultation", href: "/app/doctor/consultation" },
+      { id: "consultation", label: "OPD queue", href: "/app/doctor/queue" },
     ],
   },
   {

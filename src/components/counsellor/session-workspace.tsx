@@ -13,6 +13,7 @@ import {
   PACKAGE_TIERS,
   type CounselQuote,
 } from "@/design-system/counsellor-data";
+import { useToast } from "@/components/ui/toast-provider";
 import { cn } from "@/lib/utils";
 import { ArrowLeft, MessageCircle, Printer, Send, Sparkles } from "lucide-react";
 import Link from "next/link";
@@ -29,6 +30,7 @@ type SessionWorkspaceProps = { visitId: string };
 
 export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
   const router = useRouter();
+  const { toast } = useToast();
   const {
     getQueueItem,
     getPatient,
@@ -109,8 +111,18 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
   };
 
   const finish = (outcome: "converted" | "deferred" | "lost" | "callback", sendBilling = false) => {
-    if (sendBilling && (!consent || needsApproval)) return;
-    if (needsReason && sendBilling) return;
+    if (sendBilling && !consent) {
+      toast("Capture patient consent before sending to billing.", "error");
+      return;
+    }
+    if (sendBilling && needsApproval) {
+      toast("Discount needs manager approval before billing handoff.", "error");
+      return;
+    }
+    if (needsReason && sendBilling) {
+      toast("Enter a discount reason before sending to billing.", "error");
+      return;
+    }
     if (needsApproval && sendBilling) {
       requestDiscountApproval(visitId, quote, discountReason || "Manager approval requested");
     }

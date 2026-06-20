@@ -88,7 +88,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (!res.ok) throw new Error("Session endpoint failed");
         const json = (await res.json()) as { session: Session | null };
         if (ignore) return;
-        setSessionState(json.session ?? fromStorageSession);
+        const apiSession = json.session;
+        const merged =
+          apiSession && fromStorageSession
+            ? {
+                ...apiSession,
+                crmOperatorId: fromStorageSession.crmOperatorId ?? apiSession.crmOperatorId,
+                pharmacyOperatorId:
+                  fromStorageSession.pharmacyOperatorId ?? apiSession.pharmacyOperatorId,
+                hrOperatorId: fromStorageSession.hrOperatorId ?? apiSession.hrOperatorId,
+              }
+            : apiSession ?? fromStorageSession;
+        setSessionState(merged);
+        if (merged) sessionStorage.setItem(SESSION_KEY, JSON.stringify(merged));
       } catch {
         if (!ignore) setSessionState(fromStorageSession);
       } finally {

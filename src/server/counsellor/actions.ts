@@ -7,10 +7,15 @@ import type { Patient, Visit } from "@/design-system/frontdesk-data";
 import { requireModule } from "@/server/auth";
 import { ensureRevenueSeeded } from "@/server/revenue/bootstrap";
 import { verifyPassword } from "@/server/revenue/password";
+import { mapPrismaPatientRow } from "@/lib/frontdesk-workflow";
 import { parseJson, type CounsellorStateShape } from "@/server/revenue/state-seeds";
 
 const DEMO_TENANT_ID = "tenant_navayu";
-const DEMO_BRANCH_ID = "branch_gurgaon";
+
+async function counsellorScope() {
+  const ctx = await requireModule("counsellor");
+  return { tenantId: ctx.tenantId, branchId: ctx.branchId };
+}
 
 export type CounsellorLoginResult =
   | { ok: true; operatorId: string; name: string; email: string }
@@ -56,17 +61,28 @@ export async function saveCounsellorStateAction(next: CounsellorStateShape): Pro
 export async function listCounsellorQueueAction(): Promise<CounsellorQueueItem[]> {
   await requireModule("counsellor");
   await ensureRevenueSeeded();
+  const { branchId } = await counsellorScope();
+  const branchVisitIds = new Set(
+    (
+      await prisma.opdVisit.findMany({
+        where: { branchId },
+        select: { id: true },
+      })
+    ).map((v) => v.id),
+  );
   const rows = await prisma.counsellorQueueItem.findMany({
     orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
     take: 200,
   });
-  return rows.map((row) => ({
+  return rows
+    .filter((row) => branchVisitIds.has(row.visitId))
+    .map((row) => ({
     id: row.id,
     visitId: row.visitId,
     patientId: row.patientId,
     doctorId: row.doctorId,
     doctorName: row.doctorName,
-    sentAt: row.sentAt,
+    sentAt: String(row.sentAt),
     treatmentMode: row.treatmentMode as CounsellorQueueItem["treatmentMode"],
     packageId: row.packageId ?? undefined,
     packageLabel: row.packageLabel ?? undefined,
@@ -84,8 +100,9 @@ export async function removeCounsellorQueueItemAction(visitId: string): Promise<
 export async function listBillingHandoffsAction(): Promise<BillingHandoffPayload[]> {
   await requireModule("counsellor");
   await ensureRevenueSeeded();
+  const { branchId } = await counsellorScope();
   const rows = await prisma.billingHandoff.findMany({
-    where: { branchId: DEMO_BRANCH_ID },
+    where: { branchId },
     include: { patient: true },
     orderBy: { sentAt: "desc" },
     take: 300,
@@ -93,7 +110,7 @@ export async function listBillingHandoffsAction(): Promise<BillingHandoffPayload
   return rows.map((row) => ({
     visitId: row.visitId,
     patientId: row.patientId,
-    patientName: row.patient.fullName,
+    patientName: row.patientName ?? row.patient.fullName ?? "Patient",
     uhid: row.patient.uhid,
     quote: row.quote as BillingHandoffPayload["quote"],
     counsellorName: row.counsellorName,
@@ -111,14 +128,17 @@ export async function listBillingHandoffsAction(): Promise<BillingHandoffPayload
 export async function saveBillingHandoffAction(payload: BillingHandoffPayload): Promise<void> {
   await requireModule("counsellor");
   await ensureRevenueSeeded();
+  const { tenantId, branchId } = await counsellorScope();
   await prisma.billingHandoff.upsert({
     where: { id: `bh_${payload.visitId}` },
     create: {
       id: `bh_${payload.visitId}`,
-      tenantId: DEMO_TENANT_ID,
-      branchId: DEMO_BRANCH_ID,
+      tenantId,
+      branchId,
       visitId: payload.visitId,
       patientId: payload.patientId,
+      patientName: payload.patientName,
+      uhid: payload.uhid,
       packageId: payload.quote.packageId,
       quote: payload.quote,
       counsellorName: payload.counsellorName,
@@ -132,6 +152,8 @@ export async function saveBillingHandoffAction(payload: BillingHandoffPayload): 
       sentAt: new Date(payload.sentAt),
     },
     update: {
+      patientName: payload.patientName,
+      uhid: payload.uhid,
       quote: payload.quote,
       counsellorName: payload.counsellorName,
       counselNotes: payload.counselNotes,
@@ -149,8 +171,9 @@ export async function saveBillingHandoffAction(payload: BillingHandoffPayload): 
 export async function setVisitStageAction(visitId: string, stage: Visit["stage"]): Promise<void> {
   await requireModule("counsellor");
   await ensureRevenueSeeded();
+  const { branchId } = await counsellorScope();
   await prisma.opdVisit.updateMany({
-    where: { id: visitId, branchId: DEMO_BRANCH_ID },
+    where: { id: visitId, branchId },
     data: { stage },
   });
 }
@@ -158,33 +181,26 @@ export async function setVisitStageAction(visitId: string, stage: Visit["stage"]
 export async function listCounsellorPatientsAction(): Promise<Patient[]> {
   await requireModule("counsellor");
   await ensureRevenueSeeded();
+  const { branchId } = await counsellorScope();
   const rows = await prisma.patient.findMany({
-    where: { branchId: DEMO_BRANCH_ID },
+    where: { branchId },
     orderBy: { createdAt: "desc" },
     take: 500,
   });
-  return rows.map((row) => ({
-    id: row.id,
-    uhid: row.uhid,
-    name: row.fullName,
-    phone: row.phone,
-    email: row.email ?? undefined,
-    age: row.age ?? 0,
-    gender: (row.gender ?? "O") as Patient["gender"],
-    department: row.departmentLabel ?? "General",
-    departmentId: row.departmentId ?? "dept_general",
-    tags: row.tags,
-    balance: Number(row.balance),
-    lastVisit: row.lastVisitAt?.toISOString().slice(0, 10),
-    referrer: row.referrer ?? undefined,
-  }));
+  return rows.map((row) =>
+    mapPrismaPatientRow({
+      ...row,
+      department: row.departmentLabel ?? row.department,
+    }),
+  );
 }
 
 export async function listCounsellorVisitsAction(): Promise<Visit[]> {
   await requireModule("counsellor");
   await ensureRevenueSeeded();
+  const { branchId } = await counsellorScope();
   const rows = await prisma.opdVisit.findMany({
-    where: { branchId: DEMO_BRANCH_ID },
+    where: { branchId },
     orderBy: { createdAt: "desc" },
     take: 500,
   });

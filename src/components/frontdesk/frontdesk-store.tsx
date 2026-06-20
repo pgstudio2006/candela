@@ -99,7 +99,11 @@ type FrontdeskStoreValue = FrontdeskState & {
   processCounselBilling: (visitId: string, input: CounselBillingInput) => Promise<BillingResult>;
   completeJuniorExam: (visitId: string, data: JuniorExamInput) => Promise<{ ok: boolean; error?: string }>;
   bookAppointment: (data: AppointmentInput) => Promise<{ appointmentId: string; visitId: string; error?: string }>;
-  saveSubmission: (formId: string, data: Record<string, string | number | boolean>, ctx?: { patientId?: string; visitId?: string }) => void;
+  saveSubmission: (
+    formId: string,
+    data: Record<string, string | number | boolean>,
+    ctx?: { patientId?: string; visitId?: string },
+  ) => Promise<void>;
   getSubmission: (formId: string, visitId: string) => FormSubmission | undefined;
   searchPatients: (q: string) => Patient[];
   findDuplicates: (phone: string, firstName?: string) => Patient[];
@@ -289,30 +293,15 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
   );
 
   const saveSubmission = useCallback(
-    (
+    async (
       formId: string,
       data: Record<string, string | number | boolean>,
       ctx?: { patientId?: string; visitId?: string },
     ) => {
-      update((prev) => ({
-        ...prev,
-        submissions: [
-          ...prev.submissions.filter(
-            (s) => !(s.formId === formId && s.visitId === ctx?.visitId),
-          ),
-          {
-            id: `sub_${Date.now()}`,
-            formId,
-            patientId: ctx?.patientId,
-            visitId: ctx?.visitId,
-            data,
-            submittedAt: new Date().toISOString(),
-          },
-        ],
-      }));
-      void saveSubmissionAction(formId, data, ctx).then(() => refresh());
+      await saveSubmissionAction(formId, data, ctx);
+      await refresh();
     },
-    [refresh, update],
+    [refresh],
   );
 
   const value = useMemo<FrontdeskStoreValue>(() => {

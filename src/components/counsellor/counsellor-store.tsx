@@ -337,7 +337,7 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
         const handoffPayload: BillingHandoffPayload = {
           visitId,
           patientId: patient.id,
-          patientName: patient.name,
+        patientName: patientDisplayName(patient),
           uhid: patient.uhid,
           quote: {
             ...opts.quote,
@@ -360,7 +360,18 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
             item.payload.diagnosis?.primaryDiagnosis ?? item.payload.diagnosis?.primary ?? "",
           ),
         };
-        void saveBillingHandoffAction(handoffPayload);
+        void (async () => {
+          try {
+            await saveBillingHandoffAction(handoffPayload);
+          } catch (err) {
+            console.error("Billing handoff failed:", err);
+            window.dispatchEvent(
+              new CustomEvent("candela-counsellor-error", {
+                detail: { message: "Could not send to billing. Retry from queue or contact support." },
+              }),
+            );
+          }
+        })();
         setClinical((prev) => ({
           ...prev,
           visits: prev.visits.map((v) =>

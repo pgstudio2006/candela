@@ -3,7 +3,6 @@
 import { useHrStore } from "@/components/hr/hr-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel } from "@/components/frontdesk/ui";
-import { HR_MANAGER_EMAIL, HR_MANAGER_PASSWORD } from "@/lib/hr-auth";
 
 export default function HrSettingsPage() {
   const { getOperator, resetDemo, settings, updateSettings } = useHrStore();
@@ -14,10 +13,6 @@ export default function HrSettingsPage() {
       <Panel title="Signed in as">
         <p className="text-[13px]">{op?.name} · {op?.email}</p>
         <p className="mt-1 text-[12px] text-[var(--attio-text-tertiary)]">{op?.designation} · {op?.role}</p>
-        <div className="mt-3 rounded-lg bg-[var(--attio-surface)] p-3 text-[12px] text-[var(--attio-text-secondary)]">
-          <p>Demo manager: {HR_MANAGER_EMAIL} / {HR_MANAGER_PASSWORD}</p>
-          <p className="mt-1">Executive: kavita.hr@navayu.in / kavita2026</p>
-        </div>
       </Panel>
       <Panel title="Leave & CRM policies" className="mt-4">
         <div className="space-y-3 text-[13px]">
