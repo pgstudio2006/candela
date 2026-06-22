@@ -3,6 +3,7 @@
 import type { Drug, PaymentMode, PharmacyBill, PoLine, Prescription, PurchaseOrder, Supplier } from "@/design-system/pharmacy-data";
 import { prisma } from "@/lib/prisma";
 import { requireModule } from "@/server/auth";
+import { runAction, type ActionResult } from "@/server/action-result";
 import { ensureRevenueSeeded } from "@/server/revenue/bootstrap";
 import { hashPassword, verifyPassword } from "@/server/revenue/password";
 import type { PharmacyStateShape } from "@/server/revenue/state-seeds";
@@ -26,14 +27,19 @@ import {
   verifyPrescription,
   addSupplier,
 } from "@/server/pharmacy/index";
+import type { PharmacySnapshot } from "@/server/pharmacy/index";
 
 export type PharmacyLoginResult =
   | { ok: true; operatorId: string; name: string; email: string }
   | { ok: false; error: string };
 
-export async function getPharmacySnapshotAction(operatorId: string) {
-  const ctx = await requireModule("pharmacy");
-  return getPharmacySnapshot(ctx, operatorId);
+export async function getPharmacySnapshotAction(
+  operatorId: string,
+): Promise<ActionResult<PharmacySnapshot>> {
+  return runAction(async () => {
+    const ctx = await requireModule("pharmacy");
+    return getPharmacySnapshot(ctx, operatorId);
+  });
 }
 
 export async function verifyPrescriptionAction(operatorId: string, rxId: string, counselingNotes?: string) {
@@ -198,24 +204,34 @@ export async function upsertPharmacyOperatorAction(input: {
 
 // Legacy list aliases — snapshot includes all data
 export async function getPharmacyStateAction(operatorId: string) {
-  return getPharmacySnapshotAction(operatorId);
+  const result = await getPharmacySnapshotAction(operatorId);
+  if (!result.ok) throw new Error(result.error);
+  return result.data;
 }
 
 export async function listDrugsAction(operatorId: string) {
-  return (await getPharmacySnapshotAction(operatorId)).drugs;
+  const result = await getPharmacySnapshotAction(operatorId);
+  if (!result.ok) throw new Error(result.error);
+  return result.data.drugs;
 }
 
 export async function listPrescriptionsAction(operatorId: string) {
-  return (await getPharmacySnapshotAction(operatorId)).prescriptions;
+  const result = await getPharmacySnapshotAction(operatorId);
+  if (!result.ok) throw new Error(result.error);
+  return result.data.prescriptions;
 }
 
 export async function listAuditAction(operatorId: string) {
-  return (await getPharmacySnapshotAction(operatorId)).activities;
+  const result = await getPharmacySnapshotAction(operatorId);
+  if (!result.ok) throw new Error(result.error);
+  return result.data.activities;
 }
 
 export async function listExpiryRiskAction(operatorId: string) {
   const now = Date.now();
-  const state = await getPharmacySnapshotAction(operatorId);
+  const result = await getPharmacySnapshotAction(operatorId);
+  if (!result.ok) throw new Error(result.error);
+  const state = result.data;
   return state.stock
     .map((batch) => ({
       batch,

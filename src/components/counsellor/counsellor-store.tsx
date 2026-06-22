@@ -19,6 +19,7 @@ import {
   resolveDiscountApprovalAction,
   saveCounsellorPrefsAction,
 } from "@/server/counsellor/actions";
+import type { CounsellorSnapshot } from "@/server/counsellor/index";
 import { parseActionError } from "@/lib/action-errors";
 import { patientDisplayName } from "@/lib/frontdesk-workflow";
 import { isTransientSessionError, sleep } from "@/lib/session-retry";
@@ -41,7 +42,7 @@ type CounsellorState = {
   approvals: DiscountApproval[];
   approvedDiscounts: DiscountApproval[];
   billingHandoffs: BillingHandoffPayload[];
-  packages: Awaited<ReturnType<typeof getCounsellorSnapshotAction>>["packages"];
+  packages: CounsellorSnapshot["packages"];
   discountPolicy: DiscountPolicy;
   seniorMode: boolean;
   activeCounsellorId: string;
@@ -116,7 +117,7 @@ type CounsellorStoreValue = {
 
 const CounsellorContext = createContext<CounsellorStoreValue | null>(null);
 
-function applySnapshot(snapshot: Awaited<ReturnType<typeof getCounsellorSnapshotAction>>): CounsellorState {
+function applySnapshot(snapshot: CounsellorSnapshot): CounsellorState {
   return {
     patients: snapshot.patients,
     visits: snapshot.visits,
@@ -144,9 +145,13 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
     const silent = opts?.silent ?? false;
     if (!silent) setReady(false);
     try {
-      const snapshot = await getCounsellorSnapshotAction();
-      setState(applySnapshot(snapshot));
-      setError(null);
+      const result = await getCounsellorSnapshotAction();
+      if (result.ok) {
+        setState(applySnapshot(result.data));
+        setError(null);
+      } else {
+        setError(result.error);
+      }
     } catch (err) {
       setError(parseActionError(err).message);
     } finally {
@@ -161,10 +166,14 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
     const load = async (attempt = 0) => {
       if (cancelled) return;
       try {
-        const snapshot = await getCounsellorSnapshotAction();
+        const result = await getCounsellorSnapshotAction();
         if (cancelled) return;
-        setState(applySnapshot(snapshot));
-        setError(null);
+        if (result.ok) {
+          setState(applySnapshot(result.data));
+          setError(null);
+        } else {
+          setError(result.error);
+        }
         setReady(true);
       } catch (err) {
         if (cancelled) return;

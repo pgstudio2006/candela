@@ -1,5 +1,6 @@
 import { ServerActionError } from "@/server/errors";
 import { throwIfPrismaError } from "@/server/prisma-errors";
+import { serializeForClient } from "@/server/serialize";
 
 export type ActionResult<T> =
   | { ok: true; data: T }
@@ -17,9 +18,7 @@ export function actionFail(code: string, error: string): ActionResult<never> {
 export async function runAction<T>(fn: () => Promise<T>): Promise<ActionResult<T>> {
   try {
     const data = await fn();
-    // Server actions must not return Date/BigInt/etc. — strip via JSON round-trip.
-    const safe = JSON.parse(JSON.stringify(data)) as T;
-    return actionOk(safe);
+    return actionOk(serializeForClient(data));
   } catch (error) {
     try {
       throwIfPrismaError(error);

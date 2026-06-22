@@ -64,6 +64,7 @@ export async function GET() {
   await probe("documentTemplate", () => prisma.documentTemplate.findFirst({ select: { id: true } }));
   await probe("doctorTemplate", () => prisma.doctorTemplate.findFirst({ select: { id: true } }));
   await probe("consultation", () => prisma.consultation.findFirst({ select: { id: true } }));
+  await probe("formSchemaOverride", () => prisma.formSchemaOverride.findFirst({ select: { id: true } }));
   await probe("session", () => prisma.session.findFirst({ select: { id: true, status: true } }));
   await probe("role", () => prisma.role.findFirst({ select: { id: true, key: true } }));
 

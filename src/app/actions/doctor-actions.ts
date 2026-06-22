@@ -3,6 +3,7 @@
 import type { DoctorTemplate, PrescriptionLine, TreatmentMode } from "@/design-system/doctor-data";
 import type { DocumentTemplate } from "@/design-system/document-templates";
 import { requireModule } from "@/server/auth";
+import { runAction, type ActionResult } from "@/server/action-result";
 import { resolveDoctorIdForContext } from "@/server/clinical/roster";
 import {
   addDocumentTemplate,
@@ -20,11 +21,16 @@ import {
   updateConsultation,
   updateDoctorTemplate,
 } from "@/server/doctor";
+import type { DoctorSnapshot } from "@/server/doctor";
 
-export async function getDoctorSnapshotAction(activeDoctorId?: string) {
-  const ctx = await requireModule("doctor");
-  const doctorId = activeDoctorId ?? (await resolveDoctorIdForContext(ctx));
-  return getDoctorSnapshot(ctx, doctorId);
+export async function getDoctorSnapshotAction(
+  activeDoctorId?: string,
+): Promise<ActionResult<DoctorSnapshot>> {
+  return runAction(async () => {
+    const ctx = await requireModule("doctor");
+    const doctorId = activeDoctorId ?? (await resolveDoctorIdForContext(ctx));
+    return getDoctorSnapshot(ctx, doctorId);
+  });
 }
 
 export async function startConsultationAction(visitId: string) {

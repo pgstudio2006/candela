@@ -26,6 +26,7 @@ import {
   updateConsultationAction,
   updateDoctorTemplateAction,
 } from "@/app/actions/doctor-actions";
+import type { DoctorSnapshot } from "@/server/doctor";
 import type { ScribeDraft } from "@/lib/ai/scribe-types";
 import { computeDoctorChartAnalytics } from "@/lib/doctor-analytics-data";
 import { filterDoctorOpdQueue } from "@/lib/doctor-queue";
@@ -139,7 +140,7 @@ function mapJuniorSubmissions(
   return out;
 }
 
-function applySnapshot(snapshot: Awaited<ReturnType<typeof getDoctorSnapshotAction>>): DoctorState {
+function applySnapshot(snapshot: DoctorSnapshot): DoctorState {
   return {
     patients: snapshot.patients,
     visits: snapshot.visits,
@@ -165,9 +166,13 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
     const silent = opts?.silent ?? false;
     if (!silent) setReady(false);
     try {
-      const snapshot = await getDoctorSnapshotAction();
-      setDoctor(applySnapshot(snapshot));
-      setError(null);
+      const result = await getDoctorSnapshotAction();
+      if (result.ok) {
+        setDoctor(applySnapshot(result.data));
+        setError(null);
+      } else {
+        setError(result.error);
+      }
     } catch (err) {
       setError(parseActionError(err).message);
     } finally {
@@ -195,10 +200,14 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
       await sleep(400 * attempt);
       if (cancelled) return;
       try {
-        const snapshot = await getDoctorSnapshotAction();
+        const result = await getDoctorSnapshotAction();
         if (cancelled) return;
-        setDoctor(applySnapshot(snapshot));
-        setError(null);
+        if (result.ok) {
+          setDoctor(applySnapshot(result.data));
+          setError(null);
+        } else {
+          setError(result.error);
+        }
         setReady(true);
       } catch (err) {
         if (cancelled) return;

@@ -29,6 +29,7 @@ import {
   updateSupplierAction,
   verifyPrescriptionAction,
 } from "@/server/pharmacy/actions";
+import type { PharmacySnapshot } from "@/server/pharmacy/index";
 import { useSession } from "@/components/candela/session-provider";
 import { parseActionError } from "@/lib/action-errors";
 import { getFilteredPrescriptions } from "@/lib/pharmacy-state-mutations";
@@ -43,8 +44,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-
-type PharmacySnapshot = Awaited<ReturnType<typeof getPharmacySnapshotAction>>;
 
 type Store = PharmacySnapshot & {
   ready: boolean;
@@ -99,9 +98,13 @@ export function PharmacyStoreProvider({ children }: { children: ReactNode }) {
       const silent = opts?.silent ?? false;
       if (!silent) setReady(false);
       try {
-        const snapshot = await getPharmacySnapshotAction(operatorId);
-        setState(snapshot);
-        setError(null);
+        const result = await getPharmacySnapshotAction(operatorId);
+        if (result.ok) {
+          setState(result.data);
+          setError(null);
+        } else {
+          setError(result.error);
+        }
       } catch (err) {
         setError(parseActionError(err).message);
       } finally {
@@ -118,10 +121,14 @@ export function PharmacyStoreProvider({ children }: { children: ReactNode }) {
     const load = async (attempt = 0) => {
       if (cancelled) return;
       try {
-        const snapshot = await getPharmacySnapshotAction(session.pharmacyOperatorId!);
+        const result = await getPharmacySnapshotAction(session.pharmacyOperatorId!);
         if (cancelled) return;
-        setState(snapshot);
-        setError(null);
+        if (result.ok) {
+          setState(result.data);
+          setError(null);
+        } else {
+          setError(result.error);
+        }
         setReady(true);
       } catch (err) {
         if (cancelled) return;

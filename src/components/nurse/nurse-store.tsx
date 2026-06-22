@@ -25,6 +25,7 @@ import {
   uploadConsentAction,
   verifyConsentAction,
 } from "@/app/actions/nurse-actions";
+import type { NurseSnapshot } from "@/server/nurse";
 import { useSession } from "@/components/candela/session-provider";
 import { parseActionError } from "@/lib/action-errors";
 import { patientDisplayName } from "@/lib/frontdesk-workflow";
@@ -111,7 +112,7 @@ type NurseStoreValue = {
 
 const NurseContext = createContext<NurseStoreValue | null>(null);
 
-function applySnapshot(snapshot: Awaited<ReturnType<typeof getNurseSnapshotAction>>): NurseState {
+function applySnapshot(snapshot: NurseSnapshot): NurseState {
   return {
     patients: snapshot.patients,
     visits: snapshot.visits,
@@ -133,9 +134,13 @@ export function NurseStoreProvider({ children }: { children: ReactNode }) {
     const silent = opts?.silent ?? false;
     if (!silent) setReady(false);
     try {
-      const snapshot = await getNurseSnapshotAction();
-      setState(applySnapshot(snapshot));
-      setError(null);
+      const result = await getNurseSnapshotAction();
+      if (result.ok) {
+        setState(applySnapshot(result.data));
+        setError(null);
+      } else {
+        setError(result.error);
+      }
     } catch (err) {
       setError(parseActionError(err).message);
     } finally {
@@ -150,10 +155,14 @@ export function NurseStoreProvider({ children }: { children: ReactNode }) {
     const load = async (attempt = 0) => {
       if (cancelled) return;
       try {
-        const snapshot = await getNurseSnapshotAction();
+        const result = await getNurseSnapshotAction();
         if (cancelled) return;
-        setState(applySnapshot(snapshot));
-        setError(null);
+        if (result.ok) {
+          setState(applySnapshot(result.data));
+          setError(null);
+        } else {
+          setError(result.error);
+        }
         setReady(true);
       } catch (err) {
         if (cancelled) return;

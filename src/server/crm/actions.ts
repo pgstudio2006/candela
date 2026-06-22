@@ -10,6 +10,7 @@ import type {
 } from "@/design-system/crm-data";
 import { prisma } from "@/lib/prisma";
 import { requireAnyModule, requireModule } from "@/server/auth";
+import { runAction, type ActionResult } from "@/server/action-result";
 import { getServerContext } from "@/server/context";
 import { ensureRevenueSeeded } from "@/server/revenue/bootstrap";
 import { hashPassword, verifyPassword } from "@/server/revenue/password";
@@ -47,6 +48,7 @@ import {
   updateStages,
   type CrmPatientHistory,
 } from "@/server/crm/index";
+import type { CrmSnapshot } from "@/server/crm/index";
 
 export type { CrmPatientHistory };
 
@@ -54,9 +56,11 @@ export type CrmLoginResult =
   | { ok: true; operatorId: string; name: string; email: string }
   | { ok: false; error: string };
 
-export async function getCrmSnapshotAction(operatorId: string) {
-  const ctx = await requireModule("crm");
-  return getCrmSnapshot(ctx, operatorId);
+export async function getCrmSnapshotAction(operatorId: string): Promise<ActionResult<CrmSnapshot>> {
+  return runAction(async () => {
+    const ctx = await requireModule("crm");
+    return getCrmSnapshot(ctx, operatorId);
+  });
 }
 
 /** @deprecated Use getCrmSnapshotAction */

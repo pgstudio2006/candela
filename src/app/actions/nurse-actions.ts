@@ -2,6 +2,7 @@
 
 import type { ConsentRecord, VitalsRecord } from "@/design-system/nurse-data";
 import { requireModule } from "@/server/auth";
+import { runAction, type ActionResult } from "@/server/action-result";
 import {
   claimEpisode,
   completeEpisode,
@@ -17,10 +18,13 @@ import {
   uploadConsent,
   verifyConsent,
 } from "@/server/nurse";
+import type { NurseSnapshot } from "@/server/nurse";
 
-export async function getNurseSnapshotAction() {
-  const ctx = await requireModule("nurse");
-  return getNurseSnapshot(ctx);
+export async function getNurseSnapshotAction(): Promise<ActionResult<NurseSnapshot>> {
+  return runAction(async () => {
+    const ctx = await requireModule("nurse");
+    return getNurseSnapshot(ctx);
+  });
 }
 
 export async function claimEpisodeAction(visitId: string) {

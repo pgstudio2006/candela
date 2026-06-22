@@ -16,10 +16,12 @@ export function SchemaOverrideProvider({ children }: { children: ReactNode }) {
 
   const refresh = async () => {
     try {
-      const overrides = await getPublishedFormSchemasAction();
-      setSchemaOverrideCache(overrides);
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("candela-schema-updated"));
+      const result = await getPublishedFormSchemasAction();
+      if (result.ok) {
+        setSchemaOverrideCache(result.data);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("candela-schema-updated"));
+        }
       }
     } finally {
       setReady(true);

@@ -2,6 +2,7 @@
 
 import type { CounselQuote, DiscountPolicy } from "@/design-system/counsellor-data";
 import { requireModule } from "@/server/auth";
+import { runAction, type ActionResult } from "@/server/action-result";
 import {
   claimCounselSession,
   completeCounselSession,
@@ -12,10 +13,13 @@ import {
   saveCounsellorPrefs,
   validateCounsellorLogin,
 } from "@/server/counsellor/index";
+import type { CounsellorSnapshot } from "@/server/counsellor/index";
 
-export async function getCounsellorSnapshotAction() {
-  const ctx = await requireModule("counsellor");
-  return getCounsellorSnapshot(ctx);
+export async function getCounsellorSnapshotAction(): Promise<ActionResult<CounsellorSnapshot>> {
+  return runAction(async () => {
+    const ctx = await requireModule("counsellor");
+    return getCounsellorSnapshot(ctx);
+  });
 }
 
 export async function claimCounselSessionAction(visitId: string) {

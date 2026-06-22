@@ -38,6 +38,7 @@ import {
   updateStageAction,
   updateStagesAction,
 } from "@/server/crm/actions";
+import type { CrmSnapshot } from "@/server/crm/index";
 import { useSession } from "@/components/candela/session-provider";
 import { CRM_MANAGER_ID } from "@/lib/crm-auth";
 import {
@@ -60,8 +61,6 @@ import {
 } from "react";
 
 export { CRM_MANAGER_ID };
-
-type CrmSnapshot = Awaited<ReturnType<typeof getCrmSnapshotAction>>;
 
 type CrmStoreValue = Omit<CrmSnapshot, "isManager" | "viewAsAgentId"> & {
   ready: boolean;
@@ -132,9 +131,13 @@ export function CrmStoreProvider({ children }: { children: ReactNode }) {
       const silent = opts?.silent ?? false;
       if (!silent) setReady(false);
       try {
-        const snapshot = await getCrmSnapshotAction(operatorId);
-        setState(snapshot);
-        setError(null);
+        const result = await getCrmSnapshotAction(operatorId);
+        if (result.ok) {
+          setState(result.data);
+          setError(null);
+        } else {
+          setError(result.error);
+        }
       } catch (err) {
         setError(parseActionError(err).message);
       } finally {
@@ -151,10 +154,14 @@ export function CrmStoreProvider({ children }: { children: ReactNode }) {
     const load = async (attempt = 0) => {
       if (cancelled) return;
       try {
-        const snapshot = await getCrmSnapshotAction(session.crmOperatorId!);
+        const result = await getCrmSnapshotAction(session.crmOperatorId!);
         if (cancelled) return;
-        setState(snapshot);
-        setError(null);
+        if (result.ok) {
+          setState(result.data);
+          setError(null);
+        } else {
+          setError(result.error);
+        }
         setReady(true);
       } catch (err) {
         if (cancelled) return;

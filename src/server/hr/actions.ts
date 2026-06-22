@@ -8,6 +8,7 @@ import type {
   HrShiftSlot,
 } from "@/design-system/hr-data";
 import { resolveHrOperator } from "@/server/module-operator";
+import { runAction, type ActionResult } from "@/server/action-result";
 import {
   addEmployee as addEmployeeCore,
   addLeaveRequest as addLeaveRequestCore,
@@ -41,9 +42,11 @@ export async function validateHrLoginAction(email: string, password: string): Pr
   return validateHrLogin(email, password);
 }
 
-export async function getHrSnapshot(_operatorId = ""): Promise<HrSnapshot> {
-  const { ctx, operatorId } = await resolveHrOperator();
-  return getHrSnapshotForContext(ctx, operatorId);
+export async function getHrSnapshot(_operatorId = ""): Promise<ActionResult<HrSnapshot>> {
+  return runAction(async () => {
+    const { ctx, operatorId } = await resolveHrOperator();
+    return getHrSnapshotForContext(ctx, operatorId);
+  });
 }
 
 export async function listHrAuditLogsAction(input?: { limit?: number; cursor?: string }) {
