@@ -208,6 +208,10 @@ export async function getAdminSnapshotForContext(
   return withPrismaError(async () => {
   await ensureBootstrapData();
   const clinicalWhere = branchClinicalWhere(ctx);
+  await prisma.adminStaff.updateMany({
+    where: { branchId: "" },
+    data: { branchId: ctx.branchId },
+  });
   const { settings, resolvedLeakageIds } = await loadSettings(ctx);
 
   const [

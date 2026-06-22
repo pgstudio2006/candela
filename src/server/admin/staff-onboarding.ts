@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { prisma } from "@/lib/prisma";
 import type { StaffMember } from "@/design-system/admin-data";
-import { validateAdminPassword } from "@/lib/admin-validation";
+import { validateAdminPassword, validateStaffInput } from "@/lib/admin-validation";
 import { doctorIdFromStaffId, moduleRoleForStaffRole, type HealthcareStaffRole, generateStaffPassword } from "@/lib/healthcare-roles";
 import type { ServerContext } from "@/server/context";
 import { branchScope } from "@/server/tenancy";
@@ -38,7 +38,11 @@ export async function addStaffWithLogin(
   },
 ) {
   const scope = branchScope(ctx);
-  if (input.staff.role === "doctor" && !input.staff.departmentIds.length) {
+  const staffPayload = validateStaffInput({
+    ...input.staff,
+    branchId: scope.branchId,
+  });
+  if (staffPayload.role === "doctor" && !staffPayload.departmentIds.length) {
     throw new ServerActionError(
       "VALIDATION",
       "Assign at least one department when onboarding a doctor — this links their private OPD queue and dashboard.",
@@ -46,27 +50,35 @@ export async function addStaffWithLogin(
   }
 
   const staffId = newStaffId();
-  const roleKey = input.moduleRole ?? moduleRoleForStaffRole(input.staff.role as HealthcareStaffRole);
+  const roleKey = input.moduleRole ?? moduleRoleForStaffRole(staffPayload.role as HealthcareStaffRole);
   const initialPassword = input.password?.trim()
     ? validateAdminPassword(input.password)
     : generateStaffPassword();
-  const email = input.staff.email.trim().toLowerCase();
-  const branchId = input.staff.branchId || scope.branchId;
+  const email = staffPayload.email.trim().toLowerCase();
+  const branchId = scope.branchId;
+
+  const dup = await prisma.adminStaff.findFirst({ where: { email } });
+  if (dup) {
+    throw new ServerActionError(
+      "CONFLICT",
+      `A staff member with email ${email} already exists. Edit the existing record or use a different email.`,
+    );
+  }
 
   await prisma.adminStaff.create({
     data: {
       id: staffId,
-      ...input.staff,
+      ...staffPayload,
       email,
       branchId,
     },
   });
 
-  if (input.staff.role === "doctor" && input.staff.departmentIds.length) {
-    await syncDoctorToDepartments(staffId, input.staff.departmentIds);
+  if (staffPayload.role === "doctor" && staffPayload.departmentIds.length) {
+    await syncDoctorToDepartments(staffId, staffPayload.departmentIds);
   }
 
-  const doctorId = input.staff.role === "doctor" ? doctorIdFromStaffId(staffId) : undefined;
+  const doctorId = staffPayload.role === "doctor" ? doctorIdFromStaffId(staffId) : undefined;
 
   if (roleKey && email) {
     const tenantUser = await db.user.findFirst({
@@ -85,7 +97,7 @@ export async function addStaffWithLogin(
           tenantId: scope.tenantId,
           branchId,
           email,
-          name: input.staff.name,
+          name: staffPayload.name,
           passwordHash,
           status: "ACTIVE",
           activeRoleId: role?.id,
@@ -103,7 +115,7 @@ export async function addStaffWithLogin(
       await db.user.update({
         where: { id: tenantUser.id },
         data: {
-          name: input.staff.name,
+          name: staffPayload.name,
           branchId,
           passwordHash: input.password?.trim() ? passwordHash : tenantUser.passwordHash,
           status: "ACTIVE",
@@ -133,7 +145,7 @@ export async function addStaffWithLogin(
     action: "staff_onboarded",
     entityType: "staff",
     entityId: staffId,
-    summary: `Onboarded ${input.staff.name}${roleKey ? ` with ${roleKey} login` : ""}`,
+    summary: `Onboarded ${staffPayload.name}${roleKey ? ` with ${roleKey} login` : ""}`,
   });
 
   return {
@@ -142,4 +154,96 @@ export async function addStaffWithLogin(
     loginEmail: email,
     initialPassword: roleKey ? initialPassword : undefined,
   };
+}
+
+export async function resetStaffLoginPassword(
+  ctx: ServerContext,
+  staffId: string,
+  password?: string,
+) {
+  const scope = branchScope(ctx);
+  const staff = await prisma.adminStaff.findFirst({
+    where: { id: staffId, branchId: scope.branchId },
+  });
+  if (!staff) {
+    throw new ServerActionError("NOT_FOUND", "Staff member not found in this branch.");
+  }
+
+  const roleKey = moduleRoleForStaffRole(staff.role as HealthcareStaffRole);
+  if (!roleKey) {
+    throw new ServerActionError("VALIDATION", "This staff role does not have a platform login.");
+  }
+
+  const email = staff.email.trim().toLowerCase();
+  const initialPassword = password?.trim()
+    ? validateAdminPassword(password)
+    : generateStaffPassword();
+  const passwordHash = await hashPassword(initialPassword);
+
+  const tenantUser = await db.user.findFirst({
+    where: { email, tenantId: scope.tenantId },
+  });
+  const role = await db.role.findFirst({
+    where: { key: roleKey, tenantId: scope.tenantId },
+  });
+
+  if (!tenantUser) {
+    const userId = `user_${staffId}`;
+    await db.user.create({
+      data: {
+        id: userId,
+        tenantId: scope.tenantId,
+        branchId: scope.branchId,
+        email,
+        name: staff.name,
+        passwordHash,
+        status: "ACTIVE",
+        activeRoleId: role?.id,
+        userRoles: role
+          ? {
+              create: {
+                roleId: role.id,
+                branchId: scope.branchId,
+              },
+            }
+          : undefined,
+      },
+    });
+  } else {
+    await db.user.update({
+      where: { id: tenantUser.id },
+      data: {
+        name: staff.name,
+        branchId: scope.branchId,
+        passwordHash,
+        status: "ACTIVE",
+        activeRoleId: role?.id ?? tenantUser.activeRoleId,
+      },
+    });
+    if (role) {
+      const existingRole = await db.userRole.findFirst({
+        where: { userId: tenantUser.id, roleId: role.id, branchId: scope.branchId },
+      });
+      if (!existingRole) {
+        await db.userRole.create({
+          data: {
+            userId: tenantUser.id,
+            roleId: role.id,
+            branchId: scope.branchId,
+          },
+        });
+      }
+    }
+  }
+
+  await writePlatformAudit({
+    ctx,
+    module: "admin",
+    action: "staff_password_reset",
+    entityType: "staff",
+    entityId: staffId,
+    summary: `Reset login password for ${staff.name}`,
+  });
+
+  return { loginEmail: email, initialPassword };
 }

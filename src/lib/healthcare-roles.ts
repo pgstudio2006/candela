@@ -49,3 +49,7 @@ export function doctorIdFromStaffId(staffId: string) {
 export function generateStaffPassword() {
   return `welcome${Math.floor(1000 + Math.random() * 9000)}`;
 }
+
+export function staffRoleLabel(role: string) {
+  return HEALTHCARE_STAFF_ROLES.find((r) => r.value === role)?.label ?? role.replace(/_/g, " ");
+}

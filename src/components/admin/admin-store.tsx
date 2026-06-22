@@ -65,6 +65,7 @@ type AdminStoreValue = Omit<
   patients: Patient[];
   visits: Visit[];
   refresh: (opts?: { silent?: boolean }) => Promise<void>;
+  hydrateSnapshot: (snapshot: AdminSnapshot) => void;
   getAuditLog: () => AdminSnapshot["auditEvents"];
   getCommandKpis: () => ReturnType<typeof computeCommandKpis>;
   getHawkEye: () => ReturnType<typeof computeHawkEye>;
@@ -186,6 +187,12 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
     };
   }, [authReady, session?.role]);
 
+  const hydrateSnapshot = useCallback((snapshot: AdminSnapshot) => {
+    setState(snapshot);
+    setError(null);
+    setReady(true);
+  }, []);
+
   const run = useCallback(
     async (fn: () => Promise<AdminSnapshot>) => {
       try {
@@ -251,6 +258,7 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
       patients,
       visits,
       refresh,
+      hydrateSnapshot,
       getAuditLog: () => data.auditEvents,
       getCommandKpis: () =>
         computeCommandKpis(visits, data.staff, data.mrdRequests, patients, data.auditEvents.length),
@@ -302,7 +310,7 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
         exportRevenueShareCsvAction(policyId, doctorName, gross, share, packagesClosed),
       logAdminAction: (summary) => run(() => logAdminActionMutation(summary)),
     };
-  }, [state, ready, error, refresh, run, session?.branchId]);
+  }, [state, ready, error, refresh, hydrateSnapshot, run, session?.branchId]);
 
   return <AdminContext.Provider value={value}>{children}</AdminContext.Provider>;
 }

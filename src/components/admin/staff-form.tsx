@@ -1,7 +1,12 @@
 "use client";
 
 import type { AdminRole, DepartmentConfig, StaffMember } from "@/design-system/admin-data";
-import { HEALTHCARE_STAFF_ROLES, generateStaffPassword } from "@/lib/healthcare-roles";
+import {
+  HEALTHCARE_STAFF_ROLES,
+  doctorIdFromStaffId,
+  generateStaffPassword,
+  staffRoleLabel,
+} from "@/lib/healthcare-roles";
 import { AttioButton } from "@/components/frontdesk/ui";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,7 +27,10 @@ type StaffFormProps = {
   departments: DepartmentConfig[];
   branchId: string;
   initial?: StaffMember;
-  onSave: (data: Omit<StaffMember, "id">, opts?: { createLogin?: boolean; password?: string }) => void;
+  onSave: (
+    data: Omit<StaffMember, "id">,
+    opts?: { createLogin?: boolean; password?: string; resetPassword?: boolean },
+  ) => Promise<void>;
 };
 
 export function StaffFormModal({ open, onClose, departments, branchId, initial, onSave }: StaffFormProps) {
@@ -34,7 +42,10 @@ export function StaffFormModal({ open, onClose, departments, branchId, initial, 
   const [licenseNo, setLicenseNo] = useState("");
   const [onDuty, setOnDuty] = useState(true);
   const [createLogin, setCreateLogin] = useState(true);
+  const [resetPassword, setResetPassword] = useState(false);
   const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -46,7 +57,10 @@ export function StaffFormModal({ open, onClose, departments, branchId, initial, 
     setLicenseNo(initial?.licenseNo ?? "");
     setOnDuty(initial?.onDuty ?? true);
     setCreateLogin(!initial);
+    setResetPassword(false);
     setPassword("");
+    setFormError(null);
+    setSaving(false);
   }, [open, initial]);
 
   if (!open) return null;
@@ -55,28 +69,48 @@ export function StaffFormModal({ open, onClose, departments, branchId, initial, 
     setDepartmentIds((prev) => (prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id]));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const needsDepartment = role === "doctor" || role === "nurse";
+  const doctorWorkspaceId = initial && role === "doctor" ? doctorIdFromStaffId(initial.id) : null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim()) return;
     if (role === "doctor" && departmentIds.length === 0) {
-      alert("Assign at least one department for doctors — this sets their private OPD queue.");
+      setFormError("Assign at least one department for doctors — this sets their private OPD queue.");
       return;
     }
-    onSave(
-      {
-        name: name.trim(),
-        email: email.trim(),
-        phone: phone.trim() || "+91",
-        role,
-        departmentIds,
-        branchId: initial?.branchId ?? branchId,
-        licenseNo: licenseNo.trim() || undefined,
-        onDuty,
-        joinedAt: initial?.joinedAt ?? new Date().toISOString().slice(0, 10),
-      },
-      initial ? undefined : { createLogin, password },
-    );
-    onClose();
+    if (role === "nurse" && departmentIds.length === 0) {
+      setFormError("Assign at least one department for nurses.");
+      return;
+    }
+
+    setSaving(true);
+    setFormError(null);
+    try {
+      await onSave(
+        {
+          name: name.trim(),
+          email: email.trim(),
+          phone: phone.trim() || "+91",
+          role,
+          departmentIds,
+          branchId: initial?.branchId ?? branchId,
+          licenseNo: licenseNo.trim() || undefined,
+          onDuty,
+          joinedAt: initial?.joinedAt ?? new Date().toISOString().slice(0, 10),
+        },
+        initial
+          ? resetPassword
+            ? { resetPassword: true, password }
+            : undefined
+          : { createLogin, password },
+      );
+      onClose();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Could not save staff member.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -89,6 +123,12 @@ export function StaffFormModal({ open, onClose, departments, branchId, initial, 
           </button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4 p-4">
+          {formError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-800">
+              {formError}
+            </div>
+          )}
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5 sm:col-span-2">
               <Label className="text-[12px]">Full name *</Label>
@@ -96,7 +136,14 @@ export function StaffFormModal({ open, onClose, departments, branchId, initial, 
             </div>
             <div className="space-y-1.5">
               <Label className="text-[12px]">Email *</Label>
-              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="h-9 text-[13px]" required />
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="h-9 text-[13px]"
+                required
+                readOnly={!!initial}
+              />
             </div>
             <div className="space-y-1.5">
               <Label className="text-[12px]">Phone</Label>
@@ -106,11 +153,13 @@ export function StaffFormModal({ open, onClose, departments, branchId, initial, 
               <Label className="text-[12px]">Healthcare role</Label>
               <Select value={role} onValueChange={(v) => v && setRole(v as AdminRole)}>
                 <SelectTrigger className="h-9 text-[13px]">
-                  <SelectValue />
+                  <SelectValue placeholder="Select role">{staffRoleLabel(role)}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {HEALTHCARE_STAFF_ROLES.map((r) => (
-                    <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                    <SelectItem key={r.value} value={r.value}>
+                      {r.label}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -120,6 +169,17 @@ export function StaffFormModal({ open, onClose, departments, branchId, initial, 
               <Input value={licenseNo} onChange={(e) => setLicenseNo(e.target.value)} className="h-9 text-[13px]" placeholder="Optional" />
             </div>
           </div>
+
+          {doctorWorkspaceId && (
+            <div className="rounded-lg border border-blue-100 bg-blue-50/80 px-3 py-2 text-[12px] text-blue-900">
+              <p className="font-medium">Doctor workspace</p>
+              <p className="mt-1 text-blue-800">
+                ID <span className="font-mono">{doctorWorkspaceId}</span> · sign in at{" "}
+                <span className="font-mono">/workspace</span> with this email
+              </p>
+            </div>
+          )}
+
           {!initial && (
             <div className="space-y-2 rounded-lg border border-[var(--attio-border-subtle)] p-3">
               <label className="flex items-center gap-2 text-[13px]">
@@ -152,40 +212,77 @@ export function StaffFormModal({ open, onClose, departments, branchId, initial, 
               )}
             </div>
           )}
+
+          {initial && (
+            <div className="space-y-2 rounded-lg border border-[var(--attio-border-subtle)] p-3">
+              <label className="flex items-center gap-2 text-[13px]">
+                <input type="checkbox" checked={resetPassword} onChange={(e) => setResetPassword(e.target.checked)} />
+                Reset platform login password
+              </label>
+              {resetPassword && (
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="h-9 flex-1 text-[13px]"
+                    placeholder="Auto-generated if blank"
+                  />
+                  <AttioButton
+                    type="button"
+                    variant="secondary"
+                    className="h-9 shrink-0 text-[12px]"
+                    onClick={() => setPassword(generateStaffPassword())}
+                  >
+                    Generate
+                  </AttioButton>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="space-y-2">
             <Label className="text-[12px]">
-              Departments{role === "doctor" ? " *" : ""}
+              Departments{needsDepartment ? " *" : ""}
             </Label>
             {role === "doctor" && (
               <p className="text-[11px] text-[var(--attio-text-tertiary)]">
                 Required for doctors — links their login to a private queue and dashboard.
               </p>
             )}
-            <div className="flex flex-wrap gap-2">
-              {departments.map((d) => (
-                <button
-                  key={d.id}
-                  type="button"
-                  onClick={() => toggleDept(d.id)}
-                  className={cn(
-                    "rounded-md border px-2.5 py-1 text-[12px] transition-colors",
-                    departmentIds.includes(d.id)
-                      ? "border-[var(--attio-text)] bg-[var(--attio-text)] text-white"
-                      : "border-[var(--attio-border)] hover:bg-[var(--attio-surface)]",
-                  )}
-                >
-                  {d.label}
-                </button>
-              ))}
-            </div>
+            {departments.length === 0 ? (
+              <p className="text-[12px] text-amber-700">Add departments in Admin → Departments first.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {departments.map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => toggleDept(d.id)}
+                    className={cn(
+                      "rounded-md border px-2.5 py-1 text-[12px] transition-colors",
+                      departmentIds.includes(d.id)
+                        ? "border-[var(--attio-text)] bg-[var(--attio-text)] text-white"
+                        : "border-[var(--attio-border)] hover:bg-[var(--attio-surface)]",
+                    )}
+                  >
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <label className="flex items-center gap-2 text-[13px]">
             <input type="checkbox" checked={onDuty} onChange={(e) => setOnDuty(e.target.checked)} />
             On duty now
           </label>
           <div className="flex justify-end gap-2 border-t border-[var(--attio-border-subtle)] pt-4">
-            <AttioButton variant="secondary" onClick={onClose}>Cancel</AttioButton>
-            <AttioButton variant="primary" type="submit">{initial ? "Save changes" : "Add staff"}</AttioButton>
+            <AttioButton variant="secondary" type="button" onClick={onClose} disabled={saving}>
+              Cancel
+            </AttioButton>
+            <AttioButton variant="primary" type="submit" disabled={saving}>
+              {saving ? "Saving…" : initial ? "Save changes" : "Add staff"}
+            </AttioButton>
           </div>
         </form>
       </div>
