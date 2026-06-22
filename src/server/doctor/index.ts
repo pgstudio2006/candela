@@ -21,6 +21,7 @@ import {
   requireDoctorConsult,
   requireDoctorVisit,
 } from "@/server/doctor/guards";
+import { ensureVisitDoctorAssignment } from "@/server/doctor/visit-claim";
 import { ServerActionError } from "@/server/errors";
 import { notifyPrescriptionWhatsapp } from "@/server/notifications";
 import { writePlatformAudit } from "@/server/platform-audit";
@@ -276,7 +277,8 @@ function juniorExamToConsultFields(junior: Record<string, string | number | bool
 
 export async function startConsultation(ctx: ServerContext, visitId: string) {
   const doctorId = await resolveDoctorIdForContext(ctx);
-  const visit = await assertDoctorOwnsVisit(ctx, visitId, doctorId);
+  await ensureVisitDoctorAssignment(ctx, visitId, doctorId);
+  const visit = await requireDoctorVisit(ctx, visitId);
 
   const existing = await prisma.consultation.findUnique({ where: { visitId } });
   if (existing) {
@@ -458,7 +460,8 @@ export async function completeConsultation(
   },
 ) {
   const doctorId = await resolveDoctorIdForContext(ctx);
-  const visit = await assertDoctorOwnsVisit(ctx, visitId, doctorId);
+  await ensureVisitDoctorAssignment(ctx, visitId, doctorId);
+  const visit = await requireDoctorVisit(ctx, visitId);
   const consultRow = await requireDoctorConsult(ctx, visitId, doctorId);
   const consult = mapConsultation(consultRow);
 
@@ -561,7 +564,7 @@ export async function completeConsultation(
           packageId,
           packageLabel: pkg?.label ?? null,
           priority,
-          payload: updatedConsult,
+          payload: JSON.parse(JSON.stringify(updatedConsult)) as object,
         },
         create: {
           id: `cq_${visitId}`,
@@ -574,7 +577,7 @@ export async function completeConsultation(
           packageId,
           packageLabel: pkg?.label ?? null,
           priority,
-          payload: updatedConsult,
+          payload: JSON.parse(JSON.stringify(updatedConsult)) as object,
         },
       });
     }
@@ -584,17 +587,21 @@ export async function completeConsultation(
   if (updatedOpd) await syncVisitFromOpdVisit(ctx, updatedOpd);
 
   if (consult.prescription?.length) {
-    const patient = await prisma.patient.findUnique({ where: { id: visit.patientId } });
-    const { pushPrescriptionToPharmacy } = await import("@/server/pharmacy-rx-bridge");
-    await pushPrescriptionToPharmacy(ctx, {
-      visitId,
-      patientId: visit.patientId,
-      patientName: patient?.name ?? patient?.fullName ?? "Patient",
-      uhid: patient?.uhid ?? "",
-      doctorId,
-      doctorName: visit.doctorName ?? doctorId,
-      lines: consult.prescription as PrescriptionLine[],
-    });
+    try {
+      const patient = await prisma.patient.findUnique({ where: { id: visit.patientId } });
+      const { pushPrescriptionToPharmacy } = await import("@/server/pharmacy-rx-bridge");
+      await pushPrescriptionToPharmacy(ctx, {
+        visitId,
+        patientId: visit.patientId,
+        patientName: patient?.name ?? patient?.fullName ?? "Patient",
+        uhid: patient?.uhid ?? "",
+        doctorId,
+        doctorName: visit.doctorName ?? doctorId,
+        lines: consult.prescription as PrescriptionLine[],
+      });
+    } catch {
+      /* Rx bridge is best-effort — consult completion must still succeed */
+    }
   }
 
   if (opts.sendWhatsapp && consult.prescription?.length) {

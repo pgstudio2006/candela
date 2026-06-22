@@ -96,15 +96,21 @@ export async function resolveAdminOperator() {
   });
   if (staff) {
     const { buildAdminOperator } = await import("@/server/admin/guards");
-    return {
-      ctx,
-      operator: buildAdminOperator({
+    let operator = buildAdminOperator({
+      operatorId: staff.id,
+      name: staff.name,
+      email: staff.email,
+      staffRole: staff.role,
+    });
+    if (ctx.role === "admin" && !operator.canManageConfig) {
+      operator = buildAdminOperator({
         operatorId: staff.id,
         name: staff.name,
         email: staff.email,
-        staffRole: staff.role,
-      }),
-    };
+        staffRole: "super_admin",
+      });
+    }
+    return { ctx, operator };
   }
   const { buildAdminOperator } = await import("@/server/admin/guards");
   return {

@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { prisma } from "@/lib/prisma";
 import type { StaffMember } from "@/design-system/admin-data";
 import { validateAdminPassword } from "@/lib/admin-validation";
-import { doctorIdFromStaffId, moduleRoleForStaffRole, type HealthcareStaffRole } from "@/lib/healthcare-roles";
+import { doctorIdFromStaffId, moduleRoleForStaffRole, type HealthcareStaffRole, generateStaffPassword } from "@/lib/healthcare-roles";
 import type { ServerContext } from "@/server/context";
 import { branchScope } from "@/server/tenancy";
 import { ServerActionError } from "@/server/errors";
@@ -11,10 +11,6 @@ import { hashPassword } from "@/server/revenue/password";
 
 function newStaffId() {
   return `st_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-}
-
-function generateStaffPassword() {
-  return `welcome${Math.floor(1000 + Math.random() * 9000)}`;
 }
 
 export async function syncDoctorToDepartments(staffId: string, departmentIds: string[]) {

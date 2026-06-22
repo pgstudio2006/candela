@@ -1,17 +1,28 @@
 import { z } from "zod";
 import { ServerActionError } from "@/server/errors";
 
-export const staffInputSchema = z.object({
-  name: z.string().min(2).max(120),
-  email: z.string().email().max(120),
-  phone: z.string().min(6).max(20),
-  role: z.string().min(1),
-  departmentIds: z.array(z.string()).min(1),
-  branchId: z.string().min(1),
-  licenseNo: z.string().max(40).optional(),
-  onDuty: z.boolean(),
-  joinedAt: z.string().min(1),
-});
+export const staffInputSchema = z
+  .object({
+    name: z.string().min(2).max(120),
+    email: z.string().email().max(120),
+    phone: z.string().min(6).max(20),
+    role: z.string().min(1),
+    departmentIds: z.array(z.string()).default([]),
+    branchId: z.string().min(1),
+    licenseNo: z.string().max(40).optional(),
+    onDuty: z.boolean(),
+    joinedAt: z.string().min(1),
+  })
+  .superRefine((val, ctx) => {
+    const needsDept = val.role === "doctor" || val.role === "nurse";
+    if (needsDept && val.departmentIds.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Assign at least one department for clinical staff.",
+        path: ["departmentIds"],
+      });
+    }
+  });
 
 export const departmentInputSchema = z.object({
   label: z.string().min(2).max(80),

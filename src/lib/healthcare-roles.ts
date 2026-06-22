@@ -45,3 +45,7 @@ export function moduleRoleForStaffRole(role: HealthcareStaffRole): string | unde
 export function doctorIdFromStaffId(staffId: string) {
   return `dr_${staffId.replace(/^st_/, "")}`;
 }
+
+export function generateStaffPassword() {
+  return `welcome${Math.floor(1000 + Math.random() * 9000)}`;
+}

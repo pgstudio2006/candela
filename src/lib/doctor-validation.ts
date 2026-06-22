@@ -26,7 +26,9 @@ export function validateCompleteConsultation(
   const dx = consult.diagnosis;
   const tx = consult.treatment;
 
-  const complaint = String(exam.chiefComplaint ?? exam.mskExam ?? "").trim();
+  const complaint = String(
+    exam.chiefComplaint ?? exam.mskExam ?? exam.juniorImpression ?? "",
+  ).trim();
   if (!complaint) {
     throw new ServerActionError("VALIDATION", "Examination — chief complaint or MSK exam is required.");
   }

@@ -131,7 +131,7 @@ function mapVisit(row: {
     token: row.token ?? undefined,
     stage: (row.stage ?? "registered") as Visit["stage"],
     departmentId: row.departmentId ?? "dept_spine",
-    doctorId: row.doctorId || "dr_1",
+    doctorId: row.doctorId ?? "",
     doctorName: row.doctorName ?? "",
     billing: (row.billing ?? "pending") as Visit["billing"],
     exam: (row.exam ?? "not_started") as Visit["exam"],
@@ -267,12 +267,20 @@ async function ensureClinicalSeed() {
 
 async function backfillBranchScope(ctx: ServerContext) {
   const scope = branchScope(ctx);
+  const unscopedPatient = {
+    OR: [
+      { tenantId: null },
+      { branchId: null },
+      { tenantId: "" },
+      { branchId: "" },
+    ],
+  };
   await prisma.patient.updateMany({
-    where: { tenantId: null, branchId: null },
+    where: unscopedPatient,
     data: scope,
   });
   await prisma.opdVisit.updateMany({
-    where: { tenantId: null, branchId: null },
+    where: unscopedPatient,
     data: scope,
   });
 

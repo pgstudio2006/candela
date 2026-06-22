@@ -268,16 +268,21 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
 
       try {
         const record = await startConsultationAction(visitId);
-        if (record) {
+        if (!record.ok) {
+          setError(record.error);
+          throw new Error(record.error);
+        }
+        const data = record.data;
+        if (data) {
           syncDoctor((prev) => {
             const idx = prev.consultations.findIndex((c) => c.visitId === visitId);
             const next = [...prev.consultations];
-            if (idx >= 0) next[idx] = record;
-            else next.push(record);
+            if (idx >= 0) next[idx] = data;
+            else next.push(data);
             return { ...prev, consultations: next };
           });
         }
-        return record ?? getConsultation(visitId);
+        return data ?? getConsultation(visitId);
       } catch (err) {
         setError(parseActionError(err).message);
         throw err;
@@ -402,7 +407,10 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
             scribeLanguage: c.scribeLanguage ?? "en",
           });
         }
-        await completeConsultationAction(visitId, opts);
+        const result = await completeConsultationAction(visitId, opts);
+        if (!result.ok) {
+          return { ok: false, error: result.error };
+        }
         await refresh();
         return { ok: true };
       } catch (err) {

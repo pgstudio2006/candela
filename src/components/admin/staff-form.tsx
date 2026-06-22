@@ -1,7 +1,7 @@
 "use client";
 
 import type { AdminRole, DepartmentConfig, StaffMember } from "@/design-system/admin-data";
-import { HEALTHCARE_STAFF_ROLES } from "@/lib/healthcare-roles";
+import { HEALTHCARE_STAFF_ROLES, generateStaffPassword } from "@/lib/healthcare-roles";
 import { AttioButton } from "@/components/frontdesk/ui";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -127,13 +127,28 @@ export function StaffFormModal({ open, onClose, departments, branchId, initial, 
                 Create platform login (User account)
               </label>
               {createLogin && (
-                <Input
-                  type="text"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="h-9 text-[13px]"
-                  placeholder="Auto-generated if blank"
-                />
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="h-9 flex-1 text-[13px]"
+                    placeholder="Auto-generated if blank"
+                  />
+                  <AttioButton
+                    type="button"
+                    variant="secondary"
+                    className="h-9 shrink-0 text-[12px]"
+                    onClick={() => setPassword(generateStaffPassword())}
+                  >
+                    Generate
+                  </AttioButton>
+                </div>
+              )}
+              {createLogin && (
+                <p className="text-[11px] text-[var(--attio-text-tertiary)]">
+                  Password is shown once after save — copy it for the new user. Min 8 characters.
+                </p>
               )}
             </div>
           )}

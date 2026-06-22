@@ -34,8 +34,27 @@ export async function getDoctorSnapshotAction(
 }
 
 export async function startConsultationAction(visitId: string) {
-  const ctx = await requireModule("doctor");
-  return startConsultation(ctx, visitId);
+  return runAction(async () => {
+    const ctx = await requireModule("doctor");
+    return startConsultation(ctx, visitId);
+  });
+}
+
+export async function completeConsultationAction(
+  visitId: string,
+  opts: {
+    treatmentMode: TreatmentMode;
+    recommendCounsellor: boolean;
+    skipCounsellor: boolean;
+    handoff: Record<string, string | number | boolean>;
+    sendWhatsapp: boolean;
+  },
+): Promise<ActionResult<{ visitId: string }>> {
+  return runAction(async () => {
+    const ctx = await requireModule("doctor");
+    await completeConsultation(ctx, visitId, opts);
+    return { visitId };
+  });
 }
 
 export async function updateConsultationAction(visitId: string, patch: Record<string, unknown>) {
@@ -55,20 +74,6 @@ export async function saveConsultSectionAction(
 export async function setPrescriptionAction(visitId: string, lines: PrescriptionLine[]) {
   const ctx = await requireModule("doctor");
   return setPrescription(ctx, visitId, lines);
-}
-
-export async function completeConsultationAction(
-  visitId: string,
-  opts: {
-    treatmentMode: TreatmentMode;
-    recommendCounsellor: boolean;
-    skipCounsellor: boolean;
-    handoff: Record<string, string | number | boolean>;
-    sendWhatsapp: boolean;
-  },
-) {
-  const ctx = await requireModule("doctor");
-  return completeConsultation(ctx, visitId, opts);
 }
 
 export async function createDoctorTemplateAction(doctorId: string, tpl: Omit<DoctorTemplate, "id" | "doctorId">) {
