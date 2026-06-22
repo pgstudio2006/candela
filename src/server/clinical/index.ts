@@ -12,7 +12,13 @@ import { ServerActionError } from "@/server/errors";
 import { upsertVisitInvoice, getVisitReceipt } from "@/server/invoicing";
 import { buildPatientRegistrationPayload } from "@/lib/registration-meta";
 import { isDemoSeedEnabled } from "@/lib/demo-seed";
-import { billingSchema, checkInSchema, registerPatientSchema, validateFrontdeskInput } from "@/lib/frontdesk-validation";
+import {
+  billingSchema,
+  checkInSchema,
+  normalizeRegisterPatientInput,
+  registerPatientSchema,
+  validateFrontdeskInput,
+} from "@/lib/frontdesk-validation";
 import { ensureHospitalBootstrap } from "@/server/hospital-bootstrap";
 import { writePlatformAudit } from "@/server/platform-audit";
 import { branchScope } from "@/server/tenancy";
@@ -517,7 +523,8 @@ export async function registerPatient(
 ) {
   await ensureHospitalBootstrap();
   await ensureClinicalSeed();
-  const { data, patientId, visitId, startVisit = true, forceDuplicate = false } = input;
+  const { data: rawData, patientId, visitId, startVisit = true, forceDuplicate = false } = input;
+  const data = normalizeRegisterPatientInput(rawData);
   validateFrontdeskInput(registerPatientSchema, data);
   const scope = branchScope(ctx);
   if (forceDuplicate && !canOverrideDuplicate(ctx.role)) {
@@ -546,7 +553,11 @@ export async function registerPatient(
       fullName: name,
       phone,
       email: String(data.email ?? "") || null,
-      age: data.dob ? ageFromDob(String(data.dob)) : 0,
+      age: data.dob
+        ? ageFromDob(String(data.dob))
+        : Number(data.age ?? 0) > 0
+          ? Number(data.age)
+          : 0,
       gender: String(data.gender ?? "O"),
       department: deptLabel(deptId),
       departmentId: deptId,
@@ -564,7 +575,11 @@ export async function registerPatient(
       fullName: name,
       phone,
       email: String(data.email ?? "") || null,
-      age: data.dob ? ageFromDob(String(data.dob)) : 0,
+      age: data.dob
+        ? ageFromDob(String(data.dob))
+        : Number(data.age ?? 0) > 0
+          ? Number(data.age)
+          : 0,
       gender: String(data.gender ?? "O"),
       department: deptLabel(deptId),
       departmentId: deptId,

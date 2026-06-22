@@ -1,23 +1,6 @@
 #!/bin/sh
 set -e
 
-ensure_database() {
-  url="$DATABASE_URL"
-  db_name="${url##*/}"
-  db_name="${db_name%%\?*}"
-  admin_url="${url%/*}/postgres"
-  if [ -z "$db_name" ] || [ "$db_name" = "postgres" ]; then
-    return 0
-  fi
-
-  echo "Ensuring database '$db_name' exists..."
-  exists="$(psql "$admin_url" -tAc "SELECT 1 FROM pg_database WHERE datname='${db_name}'" 2>/dev/null || true)"
-  if [ "$exists" != "1" ]; then
-    psql "$admin_url" -c "CREATE DATABASE \"${db_name}\" OWNER adrine;" >/dev/null
-    echo "Created database '$db_name'."
-  fi
-}
-
 backfill_branch_scope() {
   echo "Backfilling branch scope on legacy rows..."
   psql "$DATABASE_URL" -v ON_ERROR_STOP=0 <<'SQL' || true
@@ -29,17 +12,30 @@ UPDATE "OpdVisit" SET "tenantId" = 'tenant_navayu', "branchId" = 'branch_gurgaon
 SQL
 }
 
+apply_schema() {
+  attempt=1
+  while [ "$attempt" -le 5 ]; do
+    if npx prisma db push --skip-generate --accept-data-loss; then
+      return 0
+    fi
+    echo "WARNING: prisma db push failed (attempt ${attempt}/5) — retrying in 3s..."
+    attempt=$((attempt + 1))
+    sleep 3
+  done
+  echo "WARNING: prisma db push failed after retries — app will start but workspace loads may fail until schema is synced."
+  return 1
+}
+
 if [ -n "$DATABASE_URL" ]; then
-  ensure_database
   echo "Applying database schema..."
-  if ! npx prisma db push --skip-generate --accept-data-loss; then
-    echo "WARNING: prisma db push failed — app will start but workspace loads may fail until schema is synced."
-  fi
+  apply_schema || true
   backfill_branch_scope
   if [ "$RUN_DB_SEED" = "true" ]; then
     echo "Seeding database..."
     npx prisma db seed || echo "Seed skipped or failed (non-fatal)."
   fi
+else
+  echo "WARNING: DATABASE_URL is not set — skipping database setup."
 fi
 
 exec "$@"

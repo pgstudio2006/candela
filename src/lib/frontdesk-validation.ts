@@ -6,15 +6,56 @@ const phoneSchema = z
   .min(10, "Mobile number must be at least 10 digits")
   .max(20, "Mobile number is too long");
 
-export const registerPatientSchema = z.object({
-  firstName: z.string().trim().min(1, "First name is required"),
-  lastName: z.string().trim().min(1, "Last name is required"),
-  phone: phoneSchema,
-  email: z.string().email("Invalid email").optional().or(z.literal("")),
-  dob: z.string().min(1, "Date of birth is required"),
-  gender: z.enum(["M", "F", "O"]),
-  department: z.string().min(1, "Department is required"),
-});
+function asString(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  return String(value).trim();
+}
+
+function normalizeGender(value: unknown): "M" | "F" | "O" {
+  const raw = asString(value).toLowerCase();
+  if (raw === "m" || raw === "male") return "M";
+  if (raw === "f" || raw === "female") return "F";
+  if (raw === "o" || raw === "other") return "O";
+  return "O";
+}
+
+/** Align dynamic form-builder payloads with server registration expectations. */
+export function normalizeRegisterPatientInput(
+  data: Record<string, string | number | boolean>,
+): Record<string, string | number | boolean> {
+  return {
+    ...data,
+    firstName: asString(data.firstName ?? data.first_name),
+    lastName: asString(data.lastName ?? data.last_name),
+    phone: asString(data.phone ?? data.mobile),
+    email: data.email === undefined ? "" : asString(data.email),
+    dob: asString(data.dob ?? data.dateOfBirth),
+    gender: normalizeGender(data.gender),
+    department: asString(data.department),
+    age: data.age === undefined || data.age === "" ? 0 : Number(data.age),
+  };
+}
+
+export const registerPatientSchema = z
+  .object({
+    firstName: z.string().trim().min(1, "First name is required"),
+    lastName: z.string().trim().optional().default(""),
+    phone: phoneSchema,
+    email: z.union([z.string().email("Invalid email"), z.literal("")]).optional().default(""),
+    dob: z.string().optional().default(""),
+    age: z.coerce.number().min(0).max(120).optional(),
+    gender: z.enum(["M", "F", "O"]),
+    department: z.string().min(1, "Department is required"),
+  })
+  .superRefine((val, ctx) => {
+    if (!val.dob && (val.age === undefined || val.age <= 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Date of birth or age is required",
+        path: ["dob"],
+      });
+    }
+  });
 
 export const checkInSchema = z.object({
   uhid: z.string().trim().min(1, "Patient UHID is required"),
@@ -32,6 +73,25 @@ export const billingSchema = z.object({
   customLine: z.string().optional(),
 });
 
+const FIELD_LABELS: Record<string, string> = {
+  firstName: "First name",
+  lastName: "Last name",
+  phone: "Mobile",
+  email: "Email",
+  dob: "Date of birth",
+  gender: "Gender",
+  department: "Department",
+};
+
+function validationMessage(issue: z.ZodIssue): string {
+  if (issue.message && !issue.message.startsWith("Invalid input")) return issue.message;
+  const field = issue.path[0];
+  if (typeof field === "string" && FIELD_LABELS[field]) {
+    return `${FIELD_LABELS[field]} is required`;
+  }
+  return issue.message || "Invalid input";
+}
+
 export function validateFrontdeskInput<T extends z.ZodType>(
   schema: T,
   data: Record<string, string | number | boolean>,
@@ -39,7 +99,7 @@ export function validateFrontdeskInput<T extends z.ZodType>(
   const parsed = schema.safeParse(data);
   if (!parsed.success) {
     const first = parsed.error.issues[0];
-    throw new ServerActionError("VALIDATION", first?.message ?? "Invalid input");
+    throw new ServerActionError("VALIDATION", validationMessage(first));
   }
   return parsed.data;
 }

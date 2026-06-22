@@ -40,12 +40,23 @@ export default function WorkspacePage() {
   useEffect(() => {
     if (!authReady) return;
     if (session) {
-      router.replace(getWorkspace(session.role).homePath);
+      const needsOperator =
+        session.role === "pharmacy" || session.role === "crm" || session.role === "hr";
+      const hasOperator =
+        (session.role === "pharmacy" && session.pharmacyOperatorId) ||
+        (session.role === "crm" && session.crmOperatorId) ||
+        (session.role === "hr" && session.hrOperatorId) ||
+        !needsOperator;
+      if (hasOperator) {
+        router.replace(getWorkspace(session.role).homePath);
+      } else if (session.userEmail && !email) {
+        setEmail(session.userEmail);
+      }
       return;
     }
     if (!authDraft?.tenantId) router.replace("/tenant");
     else if (!authDraft.branchId) router.replace("/branch");
-  }, [authDraft, authReady, session, router]);
+  }, [authDraft, authReady, session, router, email]);
 
   const signInToWorkspace = async (e: FormEvent) => {
     e.preventDefault();
