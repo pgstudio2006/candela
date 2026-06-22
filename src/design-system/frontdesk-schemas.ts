@@ -316,6 +316,21 @@ export const JUNIOR_EXAM_SCHEMA: FormSchema = {
   title: "Junior doctor MSK intake",
   sections: [
     {
+      id: "vitals",
+      label: "Vitals",
+      fields: [
+        { id: "bpSystolic", type: "number", label: "BP systolic (mmHg)", placeholder: "120" },
+        { id: "bpDiastolic", type: "number", label: "BP diastolic (mmHg)", placeholder: "80" },
+        { id: "pulse", type: "number", label: "Pulse (bpm)", placeholder: "72" },
+        { id: "temperature", type: "number", label: "Temperature (°F)", placeholder: "98.4" },
+        { id: "spo2", type: "number", label: "SpO₂ (%)", placeholder: "98" },
+        { id: "respiratoryRate", type: "number", label: "Respiratory rate", placeholder: "16" },
+        { id: "weight", type: "number", label: "Weight (kg)", placeholder: "70" },
+        { id: "height", type: "number", label: "Height (cm)", placeholder: "170" },
+        { id: "vitalsNotes", type: "textarea", label: "Vitals notes", span: 2, placeholder: "Any abnormal findings…" },
+      ],
+    },
+    {
       id: "complaint",
       label: "Chief complaint",
       fields: [

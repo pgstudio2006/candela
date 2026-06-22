@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { OpdReceiptPayload } from "@/lib/opd-receipt";
 import { receiptFromGstBreakdown } from "@/lib/opd-receipt";
-import { computeGstInvoice, parseBranchGstSettings } from "@/lib/gst-invoicing";
+import { computeGstInvoice, parseBranchGstSettings, type GstSettings } from "@/lib/gst-invoicing";
 import { patientDisplayName } from "@/lib/frontdesk-workflow";
 import type { ServerContext } from "@/server/context";
 import { branchScope } from "@/server/tenancy";
@@ -19,16 +19,29 @@ export async function upsertVisitInvoice(
     collected: number;
     mode: string;
     paymentScope: string;
+    lines?: { label: string; quantity: number; taxableAmount: number }[];
+    paymentSplits?: { mode: string; amount: number }[];
+    gstOverride?: Partial<Pick<GstSettings, "gstRatePercent" | "taxMode">>;
   },
   tx: Prisma.TransactionClient = prisma,
 ) {
   const scope = branchScope(ctx);
   const branch = await tx.branch.findUnique({ where: { id: scope.branchId } });
-  const gstSettings = parseBranchGstSettings(branch?.meta);
+  const baseGst = parseBranchGstSettings(branch?.meta);
+  const gstSettings: GstSettings = {
+    ...baseGst,
+    gstRatePercent: input.gstOverride?.gstRatePercent ?? baseGst.gstRatePercent,
+    taxMode: input.gstOverride?.taxMode ?? baseGst.taxMode,
+  };
+
+  const invoiceLines =
+    input.lines?.length
+      ? input.lines
+      : [{ label: input.label, quantity: 1, taxableAmount: input.subtotal }];
 
   const gstInvoice = computeGstInvoice({
     settings: gstSettings,
-    lines: [{ label: input.label, quantity: 1, taxableAmount: input.subtotal }],
+    lines: invoiceLines,
     discount: input.discount,
   });
 
@@ -58,6 +71,7 @@ export async function upsertVisitInvoice(
         cgstTotal: gstInvoice.cgstTotal,
         sgstTotal: gstInvoice.sgstTotal,
         igstTotal: gstInvoice.igstTotal,
+        paymentSplits: input.paymentSplits ?? [],
       },
       lines: {
         create: gstInvoice.lines.map((line, i) => ({
@@ -91,24 +105,31 @@ export async function upsertVisitInvoice(
         cgstTotal: gstInvoice.cgstTotal,
         sgstTotal: gstInvoice.sgstTotal,
         igstTotal: gstInvoice.igstTotal,
+        paymentSplits: input.paymentSplits ?? [],
       },
     },
   });
 
-  if (input.collected > 0) {
-    const paymentId = `pay_${input.visitId}_${Date.now()}`;
-    await tx.payment.create({
-      data: {
-        id: paymentId,
-        ...scope,
-        invoiceId,
-        amount: input.collected,
-        mode: input.mode,
-        status: "captured",
-        referenceNo: `${input.mode.toUpperCase()}-${Date.now()}`,
-        paidAt: new Date(),
-      },
-    });
+  const splits =
+    input.paymentSplits?.filter((p) => p.amount > 0) ??
+    (input.collected > 0 ? [{ mode: input.mode, amount: input.collected }] : []);
+
+  if (splits.length > 0) {
+    await tx.payment.deleteMany({ where: { invoiceId } });
+    for (const [index, split] of splits.entries()) {
+      await tx.payment.create({
+        data: {
+          id: `pay_${input.visitId}_${Date.now()}_${index}`,
+          ...scope,
+          invoiceId,
+          amount: split.amount,
+          mode: split.mode,
+          status: "captured",
+          referenceNo: `${split.mode.toUpperCase()}-${Date.now()}-${index}`,
+          paidAt: new Date(),
+        },
+      });
+    }
   }
 }
 

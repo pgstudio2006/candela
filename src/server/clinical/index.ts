@@ -10,7 +10,14 @@ import { prisma } from "@/lib/prisma";
 import type { ServerContext } from "@/server/context";
 import { ServerActionError } from "@/server/errors";
 import { upsertVisitInvoice, getVisitReceipt } from "@/server/invoicing";
+import {
+  billingCollectedTotal,
+  billingSubtotal,
+  parseOpdBillingPayload,
+  primaryPaymentMode,
+} from "@/lib/opd-billing";
 import { buildPatientRegistrationPayload } from "@/lib/registration-meta";
+import { computeGstInvoice, parseBranchGstSettings } from "@/lib/gst-invoicing";
 import { isDemoSeedEnabled } from "@/lib/demo-seed";
 import {
   billingSchema,
@@ -721,18 +728,38 @@ export async function processBilling(
   await ensureClinicalSeed();
   const visit = await requireVisitInBranch(ctx, visitId);
 
-  validateFrontdeskInput(billingSchema, data);
-  const mode = String(data.mode ?? "upi");
-  const paymentScope = (String(data.paymentScope ?? "full") as PaymentScope) || "full";
-  const amount = Number(data.amount ?? templateAmount(String(data.template ?? "bt1")));
-  const discount = Number(data.discount ?? 0);
-  const net = Math.max(0, amount - discount);
-  const collected =
-    paymentScope === "partial"
-      ? Math.min(net, Math.max(0, Number(data.collectedAmount ?? 0)))
-      : paymentScope === "defer"
-        ? 0
-        : net;
+  const payload = parseOpdBillingPayload(data);
+  if (!payload.packageLines.length && !payload.skipBilling) {
+    validateFrontdeskInput(billingSchema, data);
+  }
+
+  const subtotal = billingSubtotal(payload.packageLines);
+  const paymentScope = payload.skipBilling ? "defer" : payload.paymentScope;
+  const mode = primaryPaymentMode(payload);
+
+  const gstTaxMode =
+    payload.gstRatePercent > 0 && payload.gstTaxMode === "exempt" ? "cgst_sgst" : payload.gstTaxMode;
+
+  const scope = branchScope(ctx);
+  const branch = await prisma.branch.findUnique({ where: { id: scope.branchId } });
+  const gstSettings = {
+    ...parseBranchGstSettings(branch?.meta),
+    gstRatePercent: payload.gstRatePercent,
+    taxMode: gstTaxMode,
+  };
+
+  const gstInvoice = computeGstInvoice({
+    settings: gstSettings,
+    lines: payload.packageLines.map((line) => ({
+      label: line.label,
+      quantity: line.quantity,
+      taxableAmount: line.amount * line.quantity,
+    })),
+    discount: payload.discount,
+  });
+
+  const net = gstInvoice.grandTotal;
+  const collected = billingCollectedTotal(payload, net);
   const balanceDue = Math.max(0, net - collected);
 
   const route = resolveOpdFirstRoute({ paymentScope, mode, visitId, netAmount: net, collected });
@@ -742,6 +769,8 @@ export async function processBilling(
   });
   const nextToken = (maxToken._max.token ?? 0) + 1;
   const assignedToken = visit.token ?? nextToken;
+  const lineLabel =
+    payload.packageLines.map((l) => l.label).join(" · ") || String(data.customLine ?? "OPD consultation");
 
   await prisma.$transaction(async (tx) => {
     await tx.patient.update({
@@ -759,26 +788,41 @@ export async function processBilling(
         balanceDue: balanceDue > 0 ? balanceDue : null,
         treatmentPath: "opd",
         routingNote: route.routingNote,
-        deferredReason: route.billing === "deferred" ? String(data.deferReason ?? "") : null,
+        deferredReason:
+          route.billing === "deferred"
+            ? String(payload.deferReason ?? data.deferReason ?? "Billing skipped / deferred for this patient")
+            : null,
         waitMin: computeWaitMinutes(visit.checkInAt),
         tenantId: ctx.tenantId,
         branchId: ctx.branchId,
       },
     });
-    await upsertVisitInvoice(
-      ctx,
-      {
-        visitId,
-        patientId: visit.patientId,
-        label: String(data.customLine ?? data.template ?? "OPD consultation"),
-        subtotal: amount,
-        discount,
-        collected,
-        mode,
-        paymentScope,
-      },
-      tx,
-    );
+    if (payload.packageLines.length > 0 || collected > 0) {
+      await upsertVisitInvoice(
+        ctx,
+        {
+          visitId,
+          patientId: visit.patientId,
+          label: lineLabel,
+          subtotal,
+          discount: payload.discount,
+          collected,
+          mode,
+          paymentScope,
+          lines: payload.packageLines.map((line) => ({
+            label: line.label,
+            quantity: line.quantity,
+            taxableAmount: line.amount * line.quantity,
+          })),
+          paymentSplits: payload.paymentSplits,
+          gstOverride: {
+            gstRatePercent: payload.gstRatePercent,
+            taxMode: gstTaxMode,
+          },
+        },
+        tx,
+      );
+    }
   });
 
   const updated = await prisma.opdVisit.findUnique({ where: { id: visitId } });

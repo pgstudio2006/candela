@@ -224,10 +224,20 @@ function juniorExamToConsultFields(junior: Record<string, string | number | bool
       specialTests: String(junior.specialTests ?? ""),
       juniorImpression: String(junior.juniorImpression ?? ""),
       seniorHandoff: String(junior.seniorHandoff ?? ""),
+      bpSystolic: junior.bpSystolic ?? "",
+      bpDiastolic: junior.bpDiastolic ?? "",
+      pulse: junior.pulse ?? "",
+      temperature: junior.temperature ?? "",
+      spo2: junior.spo2 ?? "",
+      weight: junior.weight ?? "",
+      height: junior.height ?? "",
     },
     diagnosis: { clinicalImpression: String(junior.juniorImpression ?? "") },
     treatment: { plan: String(junior.seniorHandoff ?? "") },
     notes: [
+      junior.bpSystolic || junior.bpDiastolic
+        ? `Vitals: BP ${junior.bpSystolic ?? "—"}/${junior.bpDiastolic ?? "—"} · Pulse ${junior.pulse ?? "—"} · SpO₂ ${junior.spo2 ?? "—"}%`
+        : "",
       junior.seniorHandoff ? `Handoff: ${junior.seniorHandoff}` : "",
       junior.rom ? `ROM: ${junior.rom}` : "",
       junior.redFlagNotes ? `Red flags: ${junior.redFlagNotes}` : "",

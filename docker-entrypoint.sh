@@ -13,6 +13,10 @@ SQL
 }
 
 apply_schema() {
+  if [ "$PRISMA_DB_PUSH" = "false" ]; then
+    echo "Skipping prisma db push (PRISMA_DB_PUSH=false)."
+    return 0
+  fi
   attempt=1
   accept_flag=""
   if [ "$PRISMA_ACCEPT_DATA_LOSS" = "true" ]; then

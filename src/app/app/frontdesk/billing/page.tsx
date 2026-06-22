@@ -1,54 +1,73 @@
 "use client";
 
-import { SchemaForm } from "@/components/candela/schema-form";
 import { BillingReceiptModal } from "@/components/frontdesk/billing-receipt-modal";
+import { OpdBillingForm } from "@/components/frontdesk/opd-billing-form";
 import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { PostCounselBillingForm } from "@/components/frontdesk/post-counsel-billing-form";
-import { useFormSchema } from "@/components/frontdesk/use-form-schema";
 import { Panel, StatusBadge } from "@/components/frontdesk/ui";
+import { useSession } from "@/components/candela/session-provider";
 import { useFrontdeskPoll } from "@/hooks/use-frontdesk-poll";
-import { BILLING_TEMPLATES } from "@/design-system/frontdesk-data";
 import { useToast } from "@/components/ui/toast-provider";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import type { Patient } from "@/design-system/frontdesk-data";
 
 function BillingContent() {
   useFrontdeskPoll();
   const router = useRouter();
   const params = useSearchParams();
   const visitParam = params.get("visit") ?? undefined;
-  const schema = useFormSchema("billing");
-  const { processBilling, processCounselBilling, getPendingBilling, getVisit, getPatient, saveSubmission, billingHandoffs, getBillingHandoff } =
-    useFrontdeskStore();
+  const { session } = useSession();
+  const {
+    processBilling,
+    processCounselBilling,
+    getPendingBilling,
+    getVisit,
+    getPatient,
+    getPatientVisits,
+    saveSubmission,
+    billingHandoffs,
+    getBillingHandoff,
+    patients,
+  } = useFrontdeskStore();
   const { toast } = useToast();
-  const [selectedVisit, setSelectedVisit] = useState(visitParam ?? "");
-  const [templatePrefill, setTemplatePrefill] = useState<Record<string, string | number | boolean>>({});
+  const [selectedVisitId, setSelectedVisitId] = useState(visitParam ?? "");
   const [routingFlash, setRoutingFlash] = useState<string | null>(null);
   const [receiptVisitId, setReceiptVisitId] = useState<string | null>(null);
   const [pendingRoute, setPendingRoute] = useState<string | null>(null);
 
   const pending = getPendingBilling();
-  const activeVisitId = selectedVisit || billingHandoffs[0]?.visitId || pending[0]?.visit.id || "";
+  const activeVisitId = selectedVisitId || billingHandoffs[0]?.visitId || "";
   const counselForVisit = activeVisitId ? getBillingHandoff(activeVisitId) : undefined;
   const activeVisit = activeVisitId ? getVisit(activeVisitId) : undefined;
   const activePatient = activeVisit ? getPatient(activeVisit.patientId) : undefined;
   const isPostCounsel = Boolean(counselForVisit);
 
-  const initialValues = useMemo(
-    () => ({
-      template: "bt1",
-      paymentScope: "full",
-      amount: counselForVisit?.quote.netAmount ?? 1500,
-      discount: counselForVisit?.quote.discountPercent ?? 0,
-      collectedAmount: counselForVisit?.quote.netAmount ?? 1500,
-      mode: counselForVisit?.paymentExpectation === "corporate" ? "corporate" : "upi",
-      customLine: counselForVisit?.quote.packageLabel ?? "",
-      ...templatePrefill,
-    }),
-    [templatePrefill, counselForVisit],
-  );
+  const [selectedPatient, setSelectedPatient] = useState<Patient | undefined>(activePatient);
+
+  useEffect(() => {
+    if (visitParam) setSelectedVisitId(visitParam);
+  }, [visitParam]);
+
+  useEffect(() => {
+    if (activePatient) setSelectedPatient(activePatient);
+  }, [activePatient?.id]);
+
+  const resolveVisitForPatient = (patient: Patient) => {
+    const visits = getPatientVisits(patient.id);
+    const billable = visits.find(
+      (v) => v.stage === "billing" || v.billing === "pending" || v.billing === "deferred",
+    );
+    return billable ?? visits[visits.length - 1];
+  };
+
+  const selectedVisit = useMemo(() => {
+    if (selectedVisitId) return getVisit(selectedVisitId);
+    if (selectedPatient) return resolveVisitForPatient(selectedPatient);
+    return undefined;
+  }, [selectedVisitId, selectedPatient, getVisit, getPatientVisits]);
 
   const handleBillingSuccess = (result: {
     ok: true;
@@ -61,9 +80,7 @@ function BillingContent() {
     setPendingRoute(result.routeHref);
   };
 
-  const finishBilling = async (
-    resultPromise: ReturnType<typeof processBilling>,
-  ) => {
+  const finishBilling = async (resultPromise: ReturnType<typeof processBilling>) => {
     const result = await resultPromise;
     if (!result.ok) {
       toast(result.error, "error");
@@ -91,7 +108,7 @@ function BillingContent() {
         meta={
           isPostCounsel
             ? "Full / partial payment · OPD → IPD conversion · routing by payment state"
-            : "Pay or defer — both release to doctor queue per Navayu workflow"
+            : "Search patient · add branch packages · GST · split payment · release to queue"
         }
       >
         {routingFlash && (
@@ -103,95 +120,62 @@ function BillingContent() {
           </div>
         )}
 
-        {!isPostCounsel && (
-          <div className="mb-6 grid gap-3 sm:grid-cols-4">
-            {BILLING_TEMPLATES.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() =>
-                  setTemplatePrefill({ template: t.id, amount: t.amount, customLine: t.label })
-                }
-                className="rounded-xl border border-[var(--attio-border)] bg-white p-3 text-left transition-colors hover:border-[var(--attio-border-subtle)] hover:shadow-sm"
-              >
-                <p className="text-[13px] font-medium">{t.label}</p>
-                <p className="mt-1 text-lg font-semibold tabular-nums">₹{t.amount.toLocaleString("en-IN")}</p>
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
-          <Panel
-            title={
-              activePatient
-                ? isPostCounsel
-                  ? `Package closure · ${activePatient.name}`
-                  : `Bill · ${activePatient.name}`
-                : "Create bill"
-            }
-          >
+        <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
+          <div>
             {activeVisit && counselForVisit ? (
-              <PostCounselBillingForm
-                handoff={counselForVisit}
-                onSubmit={async (input) => {
-                  await saveSubmission("billing", input as unknown as Record<string, string | number | boolean>, {
-                    visitId: activeVisit.id,
-                    patientId: activeVisit.patientId,
-                  });
-                  void finishBilling(processCounselBilling(activeVisit.id, input));
-                }}
-              />
-            ) : activeVisit ? (
-              <SchemaForm
-                schema={schema}
-                formKey={`${schema.id}-${activeVisit.id}-${String(templatePrefill.template ?? "")}`}
-                initialValues={initialValues}
-                submitLabel="Collect payment & release to queue"
-                onSubmit={async (data) => {
-                  await saveSubmission("billing", data, { visitId: activeVisit.id, patientId: activeVisit.patientId });
-                  void finishBilling(processBilling(activeVisit.id, data));
-                }}
-              />
+              <Panel title={`Package closure · ${activePatient?.name ?? "Patient"}`}>
+                <PostCounselBillingForm
+                  handoff={counselForVisit}
+                  onSubmit={async (input) => {
+                    await saveSubmission("billing", input as unknown as Record<string, string | number | boolean>, {
+                      visitId: activeVisit.id,
+                      patientId: activeVisit.patientId,
+                    });
+                    void finishBilling(processCounselBilling(activeVisit.id, input));
+                  }}
+                />
+              </Panel>
             ) : (
-              <p className="text-[13px] text-[var(--attio-text-tertiary)]">Select a patient from pending billing</p>
+              <OpdBillingForm
+                branchId={session?.branchId}
+                branchName={session?.branchName}
+                patients={patients}
+                patient={selectedPatient}
+                visit={selectedVisit}
+                onSelectPatient={(p) => {
+                  setSelectedPatient(p);
+                  const v = resolveVisitForPatient(p);
+                  if (v) setSelectedVisitId(v.id);
+                }}
+                onClearPatient={() => {
+                  setSelectedPatient(undefined);
+                  setSelectedVisitId("");
+                }}
+                onSubmit={async (data) => {
+                  if (!selectedVisit || !selectedPatient) return;
+                  await saveSubmission("billing", data, {
+                    visitId: selectedVisit.id,
+                    patientId: selectedPatient.id,
+                  });
+                  void finishBilling(processBilling(selectedVisit.id, data));
+                }}
+              />
             )}
-          </Panel>
+          </div>
 
           <div className="space-y-4">
             {billingHandoffs.length > 0 && (
-              <Panel
-                title="From counsellor"
-                action={
-                  <span className="text-[11px] text-[var(--attio-text-tertiary)]">
-                    {billingHandoffs.length} handoff(s)
-                  </span>
-                }
-              >
+              <Panel title="From counsellor">
                 <ul className="space-y-2">
                   {billingHandoffs.map((h) => (
                     <li key={h.visitId}>
                       <button
                         type="button"
-                        onClick={() => setSelectedVisit(h.visitId)}
-                        className={`w-full rounded-lg border p-3 text-left ${
-                          selectedVisit === h.visitId
-                            ? "border-[var(--attio-accent)] bg-blue-50/30"
-                            : "border-[var(--attio-border-subtle)]"
-                        }`}
+                        onClick={() => setSelectedVisitId(h.visitId)}
+                        className="w-full rounded-lg border border-[var(--attio-border-subtle)] p-3 text-left hover:bg-[var(--attio-hover)]"
                       >
                         <p className="text-[13px] font-medium">{h.patientName}</p>
                         <p className="text-[11px] text-[var(--attio-text-tertiary)]">{h.quote.packageLabel}</p>
-                        <p className="mt-1 text-[14px] font-semibold tabular-nums text-[var(--attio-accent)]">
-                          ₹{h.quote.netAmount.toLocaleString("en-IN")}
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {h.admissionRecommended && <StatusBadge label="IPD flagged" variant="info" />}
-                          {h.paymentExpectation === "corporate" && (
-                            <StatusBadge label="Corporate" variant="neutral" />
-                          )}
-                        </div>
-                        <p className="mt-1 text-[11px] text-[var(--attio-text-secondary)]">{h.counselNotes}</p>
                       </button>
                     </li>
                   ))}
@@ -199,63 +183,36 @@ function BillingContent() {
               </Panel>
             )}
 
-            <Panel title="Pending billing">
-              <ul className="space-y-2">
-                {pending.length === 0 && (
-                  <li className="py-4 text-center text-[13px] text-[var(--attio-text-tertiary)]">All clear</li>
-                )}
-                {pending.map(({ visit, patient }) => (
-                  <li key={visit.id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedVisit(visit.id)}
-                      className={`w-full rounded-lg border p-3 text-left ${
-                        selectedVisit === visit.id
-                          ? "border-[var(--attio-accent)] bg-blue-50/30"
-                          : "border-[var(--attio-border-subtle)]"
-                      }`}
-                    >
-                      <p className="text-[13px] font-medium">{patient.name}</p>
-                      <p className="text-[11px] text-[var(--attio-text-tertiary)]">{visit.doctorName}</p>
+            <Panel
+              title="Awaiting billing"
+              action={
+                <span className="text-[11px] text-[var(--attio-text-tertiary)]">{pending.length} visit(s)</span>
+              }
+            >
+              {pending.length === 0 ? (
+                <p className="text-[13px] text-[var(--attio-text-tertiary)]">All clear — use search above to bill any patient.</p>
+              ) : (
+                <ul className="max-h-48 space-y-1 overflow-y-auto text-[12px] text-[var(--attio-text-secondary)]">
+                  {pending.map(({ visit, patient }) => (
+                    <li key={visit.id}>
+                      {patient.name} · {visit.doctorName} ·{" "}
                       <StatusBadge label={visit.billing} variant="warning" />
-                      {visit.deferredReason && (
-                        <p className="mt-1 text-[11px] text-[var(--attio-text-tertiary)]">{visit.deferredReason}</p>
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </Panel>
 
             <Panel title="Routing guide">
-              {isPostCounsel ? (
-                <ul className="space-y-2 text-[12px] text-[var(--attio-text-secondary)]">
-                  <li>
-                    <strong className="text-[var(--attio-text)]">Full pay</strong> → nursing intake (routing screen)
-                  </li>
-                  <li>
-                    <strong className="text-[var(--attio-text)]">Partial</strong> → balance on patient ledger
-                  </li>
-                  <li>
-                    <strong className="text-[var(--attio-text)]">IPD convert</strong> → ward admission + doctor rounds
-                  </li>
-                  <li>
-                    <strong className="text-[var(--attio-text)]">Defer</strong> → CRM follow-up, care plan saved
-                  </li>
-                </ul>
-              ) : (
-                <>
-                  <p className="text-[13px] text-[var(--attio-text-secondary)]">
-                    Patient proceeds to queue → junior exam → doctor consult.
-                  </p>
-                  <Link
-                    href="/app/frontdesk/queue"
-                    className="mt-2 inline-block text-[13px] font-medium text-[var(--attio-accent)] hover:underline"
-                  >
-                    View queue →
-                  </Link>
-                </>
-              )}
+              <p className="text-[13px] text-[var(--attio-text-secondary)]">
+                Paid or deferred patients proceed to queue → junior exam → doctor consult.
+              </p>
+              <Link
+                href="/app/frontdesk/queue"
+                className="mt-2 inline-block text-[13px] font-medium text-[var(--attio-accent)] hover:underline"
+              >
+                View queue →
+              </Link>
             </Panel>
           </div>
         </div>

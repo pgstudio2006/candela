@@ -1,5 +1,4 @@
-/** Demo seed runs only in non-production unless explicitly enabled. */
+/** Demo seed runs only when explicitly enabled — never auto-seeds in production or on deploy. */
 export function isDemoSeedEnabled(): boolean {
-  if (process.env.ALLOW_DEMO_SEED === "true") return true;
-  return process.env.NODE_ENV !== "production";
+  return process.env.ALLOW_DEMO_SEED === "true" || process.env.RUN_DB_SEED === "true";
 }
