@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   ListOrdered,
   ScrollText,
+  Settings,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -28,6 +29,7 @@ export const DOCTOR_NAV: DoctorNavItem[] = [
   { id: "documents", label: "Print templates", href: "/app/doctor/documents", icon: FileStack },
   { id: "analytics", label: "Analytics", href: "/app/doctor/analytics", icon: BarChart3 },
   { id: "audit", label: "Audit log", href: "/app/doctor/audit", icon: ClipboardList },
+  { id: "settings", label: "My profile", href: "/app/doctor/settings", icon: Settings },
 ];
 
 export function getDoctorNavItem(pathname: string) {

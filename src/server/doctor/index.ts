@@ -1,6 +1,7 @@
 import type {
   ConsultationRecord,
   CounsellorQueueItem,
+  DoctorProfile,
   DoctorTemplate,
   IpdPatient,
   PrescriptionLine,
@@ -13,7 +14,7 @@ import { validateCompleteConsultation } from "@/lib/doctor-validation";
 import { isRedFlagVisit } from "@/lib/frontdesk-workflow";
 import { prisma } from "@/lib/prisma";
 import { getClinicalSnapshot } from "@/server/clinical";
-import { resolveDoctorIdForContext } from "@/server/clinical/roster";
+import { resolveDoctorIdForContext, resolveDoctorProfile } from "@/server/clinical/roster";
 import type { ServerContext } from "@/server/context";
 import {
   assertDoctorOwnsVisit,
@@ -99,6 +100,7 @@ export type DoctorSnapshot = {
   patients: Patient[];
   visits: Visit[];
   activeDoctorId: string;
+  profile: DoctorProfile;
   consultations: ConsultationRecord[];
   counsellorQueue: CounsellorQueueItem[];
   ipdPatients: IpdPatient[];
@@ -119,14 +121,31 @@ export async function getDoctorSnapshot(
   ctx: ServerContext,
   activeDoctorId?: string,
 ): Promise<DoctorSnapshot> {
-  const doctorId = activeDoctorId ?? (await resolveDoctorIdForContext(ctx));
+  const profile = await resolveDoctorProfile(ctx);
+  const doctorId = activeDoctorId ?? profile.doctorId;
+  if (doctorId !== profile.doctorId) {
+    throw new ServerActionError("FORBIDDEN", "You can only access your own doctor workspace.");
+  }
+
   const [clinical, consultRows, queueRows, ipdRows, templateRows, docRows, packages, juniorRows] =
     await Promise.all([
       getClinicalSnapshot(ctx),
-      prisma.consultation.findMany({ orderBy: { createdAt: "asc" } }),
-      prisma.counsellorQueueItem.findMany({ orderBy: { createdAt: "asc" } }),
-      prisma.ipdAdmission.findMany({ orderBy: { createdAt: "asc" } }),
-      prisma.doctorTemplate.findMany({ orderBy: { createdAt: "asc" } }),
+      prisma.consultation.findMany({
+        where: { doctorId },
+        orderBy: { createdAt: "asc" },
+      }),
+      prisma.counsellorQueueItem.findMany({
+        where: { doctorId },
+        orderBy: { createdAt: "asc" },
+      }),
+      prisma.ipdAdmission.findMany({
+        where: { attendingDoctorId: doctorId },
+        orderBy: { createdAt: "asc" },
+      }),
+      prisma.doctorTemplate.findMany({
+        where: { OR: [{ doctorId }, { isSystem: true }] },
+        orderBy: { createdAt: "asc" },
+      }),
       prisma.documentTemplate.findMany({ orderBy: { createdAt: "asc" } }),
       loadCarePackages(),
       prisma.formSubmission.findMany({
@@ -135,8 +154,17 @@ export async function getDoctorSnapshot(
       }),
     ]);
 
-  const branchVisitIds = new Set(clinical.visits.map((v) => v.id));
-  const branchPatientIds = new Set(clinical.patients.map((p) => p.id));
+  const doctorConsultVisitIds = new Set(consultRows.map((row) => row.visitId));
+  const scopedVisits = clinical.visits.filter(
+    (v) => v.doctorId === doctorId || doctorConsultVisitIds.has(v.id),
+  );
+  const branchVisitIds = new Set(scopedVisits.map((v) => v.id));
+  const scopedPatientIds = new Set([
+    ...scopedVisits.map((v) => v.patientId),
+    ...consultRows.map((row) => row.patientId),
+  ]);
+  const scopedPatients = clinical.patients.filter((p) => scopedPatientIds.has(p.id));
+  const branchPatientIds = new Set(scopedPatients.map((p) => p.id));
 
   const juniorByVisit = new Map<string, JuniorExamSubmission>();
   for (const row of juniorRows) {
@@ -150,12 +178,11 @@ export async function getDoctorSnapshot(
   }
 
   return {
-    patients: clinical.patients,
-    visits: clinical.visits,
+    patients: scopedPatients,
+    visits: scopedVisits,
     activeDoctorId: doctorId,
-    consultations: consultRows
-      .filter((row) => branchVisitIds.has(row.visitId))
-      .map(mapConsultation),
+    profile,
+    consultations: consultRows.map(mapConsultation),
     counsellorQueue: queueRows
       .filter((row) => branchVisitIds.has(row.visitId))
       .map((row) => ({
@@ -601,7 +628,10 @@ export async function createDoctorTemplate(
   doctorId: string,
   tpl: Omit<DoctorTemplate, "id" | "doctorId">,
 ) {
-  await resolveDoctorIdForContext(ctx);
+  const resolvedId = await resolveDoctorIdForContext(ctx);
+  if (doctorId !== resolvedId) {
+    throw new ServerActionError("FORBIDDEN", "You can only create templates in your own workspace.");
+  }
   const id = `tpl_custom_${Date.now()}`;
   await prisma.doctorTemplate.create({
     data: {
@@ -627,7 +657,14 @@ export async function createDoctorTemplate(
 }
 
 export async function updateDoctorTemplate(ctx: ServerContext, id: string, patch: Partial<DoctorTemplate>) {
-  await resolveDoctorIdForContext(ctx);
+  const resolvedId = await resolveDoctorIdForContext(ctx);
+  const existing = await prisma.doctorTemplate.findUnique({ where: { id } });
+  if (!existing || existing.isSystem) {
+    throw new ServerActionError("NOT_FOUND", "Template not found or not editable.");
+  }
+  if (existing.doctorId !== resolvedId) {
+    throw new ServerActionError("FORBIDDEN", "You can only edit your own templates.");
+  }
   await prisma.doctorTemplate.update({
     where: { id },
     data: {
@@ -641,8 +678,13 @@ export async function updateDoctorTemplate(ctx: ServerContext, id: string, patch
 }
 
 export async function deleteDoctorTemplate(ctx: ServerContext, id: string) {
-  await resolveDoctorIdForContext(ctx);
-  await prisma.doctorTemplate.deleteMany({ where: { id, isSystem: false } });
+  const resolvedId = await resolveDoctorIdForContext(ctx);
+  const deleted = await prisma.doctorTemplate.deleteMany({
+    where: { id, doctorId: resolvedId, isSystem: false },
+  });
+  if (!deleted.count) {
+    throw new ServerActionError("NOT_FOUND", "Template not found or not deletable.");
+  }
   await writePlatformAudit({
     ctx,
     module: "doctor",

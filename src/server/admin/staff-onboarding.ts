@@ -5,6 +5,7 @@ import { validateAdminPassword } from "@/lib/admin-validation";
 import { doctorIdFromStaffId, moduleRoleForStaffRole, type HealthcareStaffRole } from "@/lib/healthcare-roles";
 import type { ServerContext } from "@/server/context";
 import { branchScope } from "@/server/tenancy";
+import { ServerActionError } from "@/server/errors";
 import { writePlatformAudit } from "@/server/platform-audit";
 import { hashPassword } from "@/server/revenue/password";
 
@@ -41,18 +42,27 @@ export async function addStaffWithLogin(
   },
 ) {
   const scope = branchScope(ctx);
+  if (input.staff.role === "doctor" && !input.staff.departmentIds.length) {
+    throw new ServerActionError(
+      "VALIDATION",
+      "Assign at least one department when onboarding a doctor — this links their private OPD queue and dashboard.",
+    );
+  }
+
   const staffId = newStaffId();
   const roleKey = input.moduleRole ?? moduleRoleForStaffRole(input.staff.role as HealthcareStaffRole);
   const initialPassword = input.password?.trim()
     ? validateAdminPassword(input.password)
     : generateStaffPassword();
+  const email = input.staff.email.trim().toLowerCase();
+  const branchId = input.staff.branchId || scope.branchId;
 
   await prisma.adminStaff.create({
     data: {
       id: staffId,
       ...input.staff,
-      email: input.staff.email.trim().toLowerCase(),
-      branchId: input.staff.branchId || scope.branchId,
+      email,
+      branchId,
     },
   });
 
@@ -60,11 +70,12 @@ export async function addStaffWithLogin(
     await syncDoctorToDepartments(staffId, input.staff.departmentIds);
   }
 
-  if (roleKey && input.staff.email) {
-    const tenantUser = await db.user.findFirst({
-      where: { email: input.staff.email.toLowerCase(), tenantId: scope.tenantId },
-    });
+  const doctorId = input.staff.role === "doctor" ? doctorIdFromStaffId(staffId) : undefined;
 
+  if (roleKey && email) {
+    const tenantUser = await db.user.findFirst({
+      where: { email, tenantId: scope.tenantId },
+    });
     const passwordHash = await hashPassword(initialPassword);
     const role = await db.role.findFirst({
       where: { key: roleKey, tenantId: scope.tenantId },
@@ -76,8 +87,8 @@ export async function addStaffWithLogin(
         data: {
           id: userId,
           tenantId: scope.tenantId,
-          branchId: input.staff.branchId || scope.branchId,
-          email: input.staff.email.toLowerCase(),
+          branchId,
+          email,
           name: input.staff.name,
           passwordHash,
           status: "ACTIVE",
@@ -86,12 +97,37 @@ export async function addStaffWithLogin(
             ? {
                 create: {
                   roleId: role.id,
-                  branchId: input.staff.branchId || scope.branchId,
+                  branchId,
                 },
               }
             : undefined,
         },
       });
+    } else {
+      await db.user.update({
+        where: { id: tenantUser.id },
+        data: {
+          name: input.staff.name,
+          branchId,
+          passwordHash: input.password?.trim() ? passwordHash : tenantUser.passwordHash,
+          status: "ACTIVE",
+          activeRoleId: role?.id ?? tenantUser.activeRoleId,
+        },
+      });
+      if (role) {
+        const existingRole = await db.userRole.findFirst({
+          where: { userId: tenantUser.id, roleId: role.id, branchId },
+        });
+        if (!existingRole) {
+          await db.userRole.create({
+            data: {
+              userId: tenantUser.id,
+              roleId: role.id,
+              branchId,
+            },
+          });
+        }
+      }
     }
   }
 
@@ -104,5 +140,10 @@ export async function addStaffWithLogin(
     summary: `Onboarded ${input.staff.name}${roleKey ? ` with ${roleKey} login` : ""}`,
   });
 
-  return { staffId, initialPassword };
+  return {
+    staffId,
+    doctorId,
+    loginEmail: email,
+    initialPassword: roleKey ? initialPassword : undefined,
+  };
 }

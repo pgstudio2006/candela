@@ -58,6 +58,10 @@ export function StaffFormModal({ open, onClose, departments, branchId, initial, 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim()) return;
+    if (role === "doctor" && departmentIds.length === 0) {
+      alert("Assign at least one department for doctors — this sets their private OPD queue.");
+      return;
+    }
     onSave(
       {
         name: name.trim(),
@@ -134,7 +138,14 @@ export function StaffFormModal({ open, onClose, departments, branchId, initial, 
             </div>
           )}
           <div className="space-y-2">
-            <Label className="text-[12px]">Departments</Label>
+            <Label className="text-[12px]">
+              Departments{role === "doctor" ? " *" : ""}
+            </Label>
+            {role === "doctor" && (
+              <p className="text-[11px] text-[var(--attio-text-tertiary)]">
+                Required for doctors — links their login to a private queue and dashboard.
+              </p>
+            )}
             <div className="flex flex-wrap gap-2">
               {departments.map((d) => (
                 <button

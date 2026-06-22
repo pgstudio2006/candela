@@ -21,8 +21,8 @@ export default function DoctorPatientsPage() {
         { label: "Doctor", href: "/app/doctor" },
         { label: "Patients" },
       ]}
-      title="Patient registry"
-      meta="Search by name or UHID"
+      title="My patients"
+      meta="Patients you have consulted or who are in your OPD queue"
     >
       <div className="relative mb-4 max-w-md">
         <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-[var(--attio-text-tertiary)]" />

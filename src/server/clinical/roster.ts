@@ -1,21 +1,75 @@
 import { prisma } from "@/lib/prisma";
-import { buildClinicalRoster, doctorIdFromStaffId, DOCTOR_LOGIN_EMAIL_MAP, type ClinicalRoster } from "@/lib/clinical-roster";
+import {
+  buildClinicalRoster,
+  doctorIdFromStaffId,
+  DOCTOR_LOGIN_EMAIL_MAP,
+  type ClinicalRoster,
+} from "@/lib/clinical-roster";
+import type { DoctorProfile } from "@/design-system/doctor-data";
 import type { ServerContext } from "@/server/context";
+import { ServerActionError } from "@/server/errors";
 
 function parseArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : [];
 }
 
-export async function resolveDoctorIdForContext(ctx: ServerContext): Promise<string> {
+export async function resolveDoctorProfile(ctx: ServerContext): Promise<DoctorProfile> {
   const user = await prisma.user.findUnique({ where: { id: ctx.userId } });
   const email = user?.email?.trim().toLowerCase();
-  if (email && DOCTOR_LOGIN_EMAIL_MAP[email]) return DOCTOR_LOGIN_EMAIL_MAP[email];
-  if (!email) return "dr_1";
-  const staff = await prisma.adminStaff.findFirst({
-    where: { email, role: "doctor" },
+  if (!email) {
+    throw new ServerActionError("UNAUTHORIZED", "Doctor login not linked to a user account.");
+  }
+
+  const legacyDoctorId = DOCTOR_LOGIN_EMAIL_MAP[email];
+  if (legacyDoctorId) {
+    return {
+      doctorId: legacyDoctorId,
+      staffId: "",
+      name: user?.name ?? "Doctor",
+      email,
+      departmentIds: [],
+      departmentLabels: [],
+    };
+  }
+
+  let staff = await prisma.adminStaff.findFirst({
+    where: { email, role: "doctor", branchId: ctx.branchId },
   });
-  if (staff) return doctorIdFromStaffId(staff.id);
-  return DOCTOR_LOGIN_EMAIL_MAP[email] ?? "dr_1";
+  if (!staff) {
+    staff = await prisma.adminStaff.findFirst({
+      where: { email, role: "doctor" },
+    });
+  }
+  if (!staff) {
+    throw new ServerActionError(
+      "FORBIDDEN",
+      "No doctor profile is linked to this login. Ask your admin to add you under Staff & access with the Doctor role.",
+    );
+  }
+
+  const departments = await prisma.adminDepartment.findMany({
+    where: { active: true },
+    orderBy: { label: "asc" },
+  });
+  const departmentIds = parseArray(staff.departmentIds);
+  const departmentLabels = departmentIds.map(
+    (id) => departments.find((d) => d.id === id)?.label ?? id,
+  );
+
+  return {
+    doctorId: doctorIdFromStaffId(staff.id),
+    staffId: staff.id,
+    name: staff.name,
+    email: staff.email,
+    departmentIds,
+    departmentLabels,
+    licenseNo: staff.licenseNo ?? undefined,
+  };
+}
+
+export async function resolveDoctorIdForContext(ctx: ServerContext): Promise<string> {
+  const profile = await resolveDoctorProfile(ctx);
+  return profile.doctorId;
 }
 
 export async function loadClinicalRoster(_ctx: ServerContext): Promise<ClinicalRoster> {

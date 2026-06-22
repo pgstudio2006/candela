@@ -37,6 +37,16 @@ export type ConsultationRecord = {
   handoff?: Record<string, string | number | boolean>;
 };
 
+export type DoctorProfile = {
+  doctorId: string;
+  staffId: string;
+  name: string;
+  email: string;
+  departmentIds: string[];
+  departmentLabels: string[];
+  licenseNo?: string;
+};
+
 export type CounsellorQueueItem = {
   id: string;
   visitId: string;

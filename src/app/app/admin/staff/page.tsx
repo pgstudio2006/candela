@@ -160,7 +160,11 @@ export default function AdminStaffPage() {
             });
             await refresh();
             if (result.initialPassword) {
-              showToast(`Staff onboarded · login: ${data.email} / ${result.initialPassword}`);
+              const doctorNote =
+                data.role === "doctor" && result.doctorId
+                  ? ` · Doctor ID ${result.doctorId} · private workspace at /workspace`
+                  : "";
+              showToast(`Staff onboarded · login: ${data.email} / ${result.initialPassword}${doctorNote}`);
             }
             logAdminAction(`Added staff with login: ${data.name}`);
           } else {

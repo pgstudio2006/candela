@@ -4,6 +4,7 @@ import type { Patient, Visit } from "@/design-system/frontdesk-data";
 import {
   CARE_PACKAGES,
   DEMO_DOCTOR_ID,
+  type DoctorProfile,
   type ConsultationRecord,
   type CounsellorQueueItem,
   type DoctorTemplate,
@@ -52,6 +53,7 @@ type DoctorState = {
   counsellorQueue: CounsellorQueueItem[];
   ipdPatients: IpdPatient[];
   activeDoctorId: string;
+  profile: DoctorProfile;
   templates: DoctorTemplate[];
   documentTemplates: DocumentTemplate[];
   packages: typeof CARE_PACKAGES;
@@ -65,6 +67,7 @@ type DoctorStoreValue = {
   patients: Patient[];
   visits: Visit[];
   activeDoctorId: string;
+  profile: DoctorProfile;
   consultations: ConsultationRecord[];
   counsellorQueue: CounsellorQueueItem[];
   ipdPatients: IpdPatient[];
@@ -125,6 +128,14 @@ function initialDoctorState(): DoctorState {
     counsellorQueue: [],
     ipdPatients: [],
     activeDoctorId: DEMO_DOCTOR_ID,
+    profile: {
+      doctorId: DEMO_DOCTOR_ID,
+      staffId: "",
+      name: "Doctor",
+      email: "",
+      departmentIds: [],
+      departmentLabels: [],
+    },
     templates: [],
     documentTemplates: [],
     packages: CARE_PACKAGES,
@@ -148,6 +159,7 @@ function applySnapshot(snapshot: DoctorSnapshot): DoctorState {
     counsellorQueue: snapshot.counsellorQueue,
     ipdPatients: snapshot.ipdPatients,
     activeDoctorId: snapshot.activeDoctorId,
+    profile: snapshot.profile,
     templates: snapshot.templates,
     documentTemplates: snapshot.documentTemplates,
     packages: snapshot.packages,
@@ -456,7 +468,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
 
     const getPatientConsultations = (patientId: string) =>
       doctor.consultations
-        .filter((c) => c.patientId === patientId)
+        .filter((c) => c.patientId === patientId && c.doctorId === doctorId)
         .sort((a, b) => (b.startedAt > a.startedAt ? 1 : -1));
 
     return {
@@ -466,6 +478,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
       patients,
       visits,
       activeDoctorId: doctorId,
+      profile: doctor.profile,
       consultations: doctor.consultations,
       counsellorQueue: doctor.counsellorQueue,
       ipdPatients: doctor.ipdPatients,
@@ -558,8 +571,9 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
         computeDoctorChartAnalytics(patients, visits, doctor.consultations, doctorId),
       searchPatients: (q: string) => {
         const query = q.trim().toLowerCase();
-        if (!query) return patients;
-        return patients.filter(
+        const mine = patients;
+        if (!query) return mine;
+        return mine.filter(
           (p) =>
             patientDisplayName(p).toLowerCase().includes(query) ||
             p.uhid.toLowerCase().includes(query),

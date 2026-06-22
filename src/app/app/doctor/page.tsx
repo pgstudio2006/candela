@@ -22,6 +22,7 @@ export default function DoctorDashboardPage() {
     counsellorQueue,
     ipdPatients,
     activeDoctorId,
+    profile,
     startConsultation,
   } = useDoctorStore();
 
@@ -74,8 +75,8 @@ export default function DoctorDashboardPage() {
   return (
     <PageChrome
       breadcrumbs={[{ label: "Doctor", href: "/app/doctor" }, { label: "Dashboard" }]}
-      title="Consultant command center"
-      meta="Wed 18 Jun 2026 · OPD + IPD · live queue"
+      title={`${profile.name}'s workspace`}
+      meta="Your OPD queue, patients, and consult records only"
       tabs={[
         { id: "overview", label: "Overview" },
         { id: "activity", label: "Activity" },
