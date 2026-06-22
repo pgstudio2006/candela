@@ -14,8 +14,13 @@ SQL
 
 apply_schema() {
   attempt=1
+  accept_flag=""
+  if [ "$PRISMA_ACCEPT_DATA_LOSS" = "true" ]; then
+    accept_flag="--accept-data-loss"
+    echo "WARNING: PRISMA_ACCEPT_DATA_LOSS=true — destructive schema changes may delete data."
+  fi
   while [ "$attempt" -le 5 ]; do
-    if npx prisma db push --skip-generate --accept-data-loss; then
+    if npx prisma db push --skip-generate $accept_flag; then
       return 0
     fi
     echo "WARNING: prisma db push failed (attempt ${attempt}/5) — retrying in 3s..."

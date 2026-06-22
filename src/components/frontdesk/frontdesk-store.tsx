@@ -34,6 +34,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useRef,
   type ReactNode,
 } from "react";
 import { useSession } from "@/components/candela/session-provider";
@@ -131,6 +132,40 @@ type FrontdeskStoreValue = FrontdeskState & {
 
 const FrontdeskContext = createContext<FrontdeskStoreValue | null>(null);
 
+type ClinicalSnapshotResult = Awaited<ReturnType<typeof getClinicalSnapshotAction>>;
+
+async function loadClinicalSnapshot(): Promise<ClinicalSnapshotResult> {
+  try {
+    const result = await getClinicalSnapshotAction();
+    if (result.ok) return result;
+  } catch {
+    /* Server actions can throw masked errors in production — fall through to API route. */
+  }
+
+  try {
+    const res = await fetch("/api/clinical/snapshot", { cache: "no-store" });
+    if (res.ok) {
+      return (await res.json()) as ClinicalSnapshotResult;
+    }
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    return {
+      ok: false,
+      code: "INTERNAL_ERROR",
+      error: body?.error ?? "Failed to load frontdesk workspace.",
+    };
+  } catch {
+    return {
+      ok: false,
+      code: "INTERNAL_ERROR",
+      error: "Workspace data could not be loaded. Sign out and sign in again (platform → org → branch → workspace).",
+    };
+  }
+}
+
+function hasWorkspaceData(state: FrontdeskState) {
+  return state.patients.length > 0 || state.visits.length > 0 || state.appointments.length > 0;
+}
+
 function initialState(): FrontdeskState {
   return {
     patients: [],
@@ -165,33 +200,37 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<FrontdeskState>(initialState);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const applySnapshot = (snapshot: Awaited<ReturnType<typeof getClinicalSnapshotAction>>) => {
-    if (!snapshot.ok) {
-      setError(snapshot.error);
-      return false;
-    }
-    setState({
-      patients: snapshot.data.patients,
-      visits: snapshot.data.visits,
-      appointments: snapshot.data.appointments,
-      submissions: snapshot.data.submissions,
-      counters: snapshot.data.counters,
-      billingHandoffs: snapshot.data.billingHandoffs,
-      roster: snapshot.data.roster,
-    });
-    setError(null);
-    return true;
-  };
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent ?? false;
     if (!silent) setReady(false);
     try {
-      applySnapshot(await getClinicalSnapshotAction());
+      const snapshot = await loadClinicalSnapshot();
+      if (!snapshot.ok) {
+        if (silent && hasWorkspaceData(stateRef.current)) {
+          console.warn("Frontdesk refresh failed — keeping cached workspace data.", snapshot.error);
+          return;
+        }
+        setError(snapshot.error);
+        return;
+      }
+      setState({
+        patients: snapshot.data.patients,
+        visits: snapshot.data.visits,
+        appointments: snapshot.data.appointments,
+        submissions: snapshot.data.submissions,
+        counters: snapshot.data.counters,
+        billingHandoffs: snapshot.data.billingHandoffs,
+        roster: snapshot.data.roster,
+      });
+      setError(null);
     } catch (err) {
       console.error("Frontdesk refresh failed:", err);
-      setError(parseActionError(err).message);
+      if (!silent || !hasWorkspaceData(stateRef.current)) {
+        setError(parseActionError(err).message);
+      }
     } finally {
       setReady(true);
     }
@@ -210,7 +249,7 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
       await sleep(400 * attempt);
       if (cancelled) return;
       try {
-        const snapshot = await getClinicalSnapshotAction();
+        const snapshot = await loadClinicalSnapshot();
         if (cancelled) return;
         if (snapshot.ok) {
           setState({
@@ -344,13 +383,28 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
     async (visitId: string, data: JuniorExamInput): Promise<{ ok: boolean; error?: string }> => {
       try {
         await completeJuniorExamAction(visitId, data);
-        await refresh();
+        update((prev) => ({
+          ...prev,
+          visits: prev.visits.map((visit) =>
+            visit.id === visitId
+              ? {
+                  ...visit,
+                  stage: "with_doctor",
+                  exam: "done",
+                  routingNote: data.redFlags
+                    ? `RED FLAG ESCALATION${data.redFlagNotes ? `: ${String(data.redFlagNotes)}` : ""}`
+                    : visit.routingNote,
+                }
+              : visit,
+          ),
+        }));
+        await refresh({ silent: true });
         return { ok: true };
       } catch (err) {
         return { ok: false, error: parseActionError(err).message };
       }
     },
-    [refresh],
+    [refresh, update],
   );
 
   const bookAppointment = useCallback(

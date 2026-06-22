@@ -459,7 +459,7 @@ export async function getClinicalSnapshot(ctx: ServerContext): Promise<ClinicalS
     patientId: row.patientId ?? undefined,
     visitId: row.visitId ?? undefined,
     data: asUnknownRecord(row.data),
-    submittedAt: row.submittedAt,
+    submittedAt: String(row.submittedAt ?? new Date().toISOString()),
   }));
 
   const billingHandoffs: BillingHandoffPayload[] = handoffRows.map((row) => ({
