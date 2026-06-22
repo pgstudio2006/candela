@@ -23,15 +23,28 @@ function normalizeGender(value: unknown): "M" | "F" | "O" {
 export function normalizeRegisterPatientInput(
   data: Record<string, string | number | boolean>,
 ): Record<string, string | number | boolean> {
+  const fullName = asString(data.fullName ?? data.name);
+  const nameParts = fullName.split(/\s+/).filter(Boolean);
+  const firstFromFull = nameParts[0] ?? "";
+  const lastFromFull = nameParts.slice(1).join(" ");
+
   return {
     ...data,
-    firstName: asString(data.firstName ?? data.first_name),
-    lastName: asString(data.lastName ?? data.last_name),
+    fullName,
+    firstName: asString(data.firstName ?? data.first_name) || firstFromFull,
+    lastName: asString(data.lastName ?? data.last_name) || lastFromFull,
     phone: asString(data.phone ?? data.mobile),
+    alternatePhone: asString(data.alternatePhone ?? data.alternate_phone),
     email: data.email === undefined ? "" : asString(data.email),
     dob: asString(data.dob ?? data.dateOfBirth),
     gender: normalizeGender(data.gender),
     department: asString(data.department),
+    state: asString(data.state),
+    district: asString(data.district),
+    city: asString(data.city),
+    address: asString(data.address),
+    country: asString(data.country) || "India",
+    appointmentCentre: asString(data.appointmentCentre),
     age: data.age === undefined || data.age === "" ? 0 : Number(data.age),
   };
 }
@@ -74,6 +87,7 @@ export const billingSchema = z.object({
 });
 
 const FIELD_LABELS: Record<string, string> = {
+  fullName: "Full name",
   firstName: "First name",
   lastName: "Last name",
   phone: "Mobile",
@@ -81,6 +95,9 @@ const FIELD_LABELS: Record<string, string> = {
   dob: "Date of birth",
   gender: "Gender",
   department: "Department",
+  state: "State",
+  district: "District",
+  city: "City",
 };
 
 function validationMessage(issue: z.ZodIssue): string {

@@ -95,7 +95,14 @@ export function listFormSchemas(): FormSchema[] {
 }
 
 export function getFormSchema(id: FormSchemaId): FormSchema {
-  return structuredClone(schemaOverrides[id] ?? getDefaultSchema(id));
+  const override = schemaOverrides[id];
+  if (id === "registration" && override) {
+    const hasFullName = override.sections.some((section) =>
+      section.fields.some((field) => field.id === "fullName"),
+    );
+    if (!hasFullName) return getDefaultSchema(id);
+  }
+  return structuredClone(override ?? getDefaultSchema(id));
 }
 
 export function saveFormSchema(schema: FormSchema) {

@@ -16,6 +16,10 @@ import type { Patient } from "@/design-system/frontdesk-data";
 import { deptLabelFromRoster, resolveDoctorName, type ClinicalRoster } from "@/lib/clinical-roster";
 import { deptLabel } from "@/lib/frontdesk-workflow";
 import { validateFormValues } from "@/lib/schema-registry";
+import {
+  cascadeIndiaLocationChange,
+  resolveIndiaLocationOptions,
+} from "@/lib/india-locations";
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useState } from "react";
 
@@ -33,12 +37,14 @@ function SchemaFieldInput({
   onChange,
   searchPatients,
   roster,
+  allValues,
 }: {
   field: SchemaField;
   value: string | number | boolean;
   onChange: (v: string | number | boolean) => void;
   searchPatients?: Patient[];
   roster?: ClinicalRoster | null;
+  allValues?: Record<string, string | number | boolean>;
 }) {
   const base = cn(
     "rounded-md border border-[var(--attio-border)] bg-white text-[13px] text-[var(--attio-text)]",
@@ -76,13 +82,25 @@ function SchemaFieldInput({
 
   if (field.type === "radio") {
     return (
-      <div className="space-y-1">
-        {field.options?.map((o) => (
-          <label key={o.value} className="flex items-center gap-2 text-[12px]">
-            <input type="radio" name={field.id} checked={value === o.value} onChange={() => onChange(o.value)} />
-            {o.label}
-          </label>
-        ))}
+      <div className="flex flex-wrap gap-2">
+        {field.options?.map((o) => {
+          const selected = value === o.value;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => onChange(o.value)}
+              className={cn(
+                "h-9 rounded-md border px-4 text-[12px] font-medium transition-colors",
+                selected
+                  ? "border-zinc-900 bg-zinc-900 text-white"
+                  : "border-[var(--attio-border)] bg-white text-[var(--attio-text-secondary)] hover:bg-[var(--attio-hover)]",
+              )}
+            >
+              {o.label}
+            </button>
+          );
+        })}
       </div>
     );
   }
@@ -143,7 +161,8 @@ function SchemaFieldInput({
 
   if (field.type === "select") {
     const raw = String(value ?? "");
-    let options = [...(field.options ?? [])];
+    const indiaOptions = allValues ? resolveIndiaLocationOptions(field.id, allValues) : null;
+    let options = indiaOptions ?? [...(field.options ?? [])];
     if (raw && !options.some((o) => o.value === raw)) {
       options = [{ value: raw, label: humanizeSelectValue(raw, field.id, roster) }, ...options];
     }
@@ -152,7 +171,7 @@ function SchemaFieldInput({
         <SelectTrigger className={cn(base, "h-9 w-full")}>
           <SelectValue placeholder={field.placeholder ?? "Select…"} />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent className="max-h-72">
           {options.map((o) => (
             <SelectItem key={o.value} value={o.value}>
               {o.label}
@@ -269,7 +288,8 @@ export function SchemaForm({
 
   const set = (id: string, v: string | number | boolean) => {
     setValues((prev) => {
-      const next = { ...prev, [id]: v };
+      let next = { ...prev, [id]: v };
+      next = cascadeIndiaLocationChange(id, next);
       onValuesChange?.(next);
       return next;
     });
@@ -325,10 +345,24 @@ export function SchemaForm({
                   {field.required && <span className="text-red-500"> *</span>}
                 </Label>
                 {field.type !== "toggle" && (
-                  <SchemaFieldInput field={field} value={values[field.id]} onChange={(v) => set(field.id, v)} searchPatients={searchPatients} roster={roster} />
+                  <SchemaFieldInput
+                    field={field}
+                    value={values[field.id]}
+                    onChange={(v) => set(field.id, v)}
+                    searchPatients={searchPatients}
+                    roster={roster}
+                    allValues={values}
+                  />
                 )}
                 {field.type === "toggle" && (
-                  <SchemaFieldInput field={field} value={values[field.id]} onChange={(v) => set(field.id, v)} searchPatients={searchPatients} roster={roster} />
+                  <SchemaFieldInput
+                    field={field}
+                    value={values[field.id]}
+                    onChange={(v) => set(field.id, v)}
+                    searchPatients={searchPatients}
+                    roster={roster}
+                    allValues={values}
+                  />
                 )}
                 {field.hint && (
                   <p className="text-[11px] text-zinc-400">{field.hint}</p>

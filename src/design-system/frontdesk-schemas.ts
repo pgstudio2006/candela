@@ -58,30 +58,96 @@ export type FormSchema = {
   sections: { id: string; label: string; fields: SchemaField[] }[];
 };
 
+import {
+  APPOINTMENT_CENTRES,
+  HEAR_ABOUT_OPTIONS,
+  INDIA_COUNTRY,
+} from "@/lib/india-locations";
+
 export const REGISTRATION_SCHEMA: FormSchema = {
   id: "registration",
   title: "Patient registration",
   sections: [
     {
-      id: "identity",
-      label: "Identity",
+      id: "patient",
+      label: "Patient details",
       fields: [
-        { id: "firstName", type: "text", label: "First name", required: true, placeholder: "Suresh" },
-        { id: "lastName", type: "text", label: "Last name", required: true, placeholder: "Patel" },
-        { id: "phone", type: "phone", label: "Mobile", required: true, placeholder: "+91 98765 43210" },
+        {
+          id: "fullName",
+          type: "text",
+          label: "Full name",
+          required: true,
+          placeholder: "Patient full name",
+          span: 2,
+        },
+        {
+          id: "phone",
+          type: "phone",
+          label: "Mobile no",
+          required: true,
+          placeholder: "10-digit mobile",
+        },
+        {
+          id: "alternatePhone",
+          type: "phone",
+          label: "Alternate number",
+          placeholder: "Optional",
+        },
         { id: "email", type: "email", label: "Email", placeholder: "patient@email.com" },
-        { id: "dob", type: "date", label: "Date of birth", required: true },
         {
           id: "gender",
-          type: "select",
+          type: "radio",
           label: "Gender",
           required: true,
+          span: 2,
           options: [
             { value: "M", label: "Male" },
             { value: "F", label: "Female" },
             { value: "O", label: "Other" },
           ],
         },
+        { id: "dob", type: "date", label: "Date of birth", placeholder: "dd-mm-yyyy" },
+        { id: "age", type: "number", label: "Age", placeholder: "Optional" },
+        {
+          id: "appointmentCentre",
+          type: "select",
+          label: "Appointment centre",
+          defaultValue: "Navayu Gurgaon",
+          options: APPOINTMENT_CENTRES,
+        },
+        {
+          id: "country",
+          type: "select",
+          label: "Country",
+          defaultValue: INDIA_COUNTRY,
+          options: [{ value: INDIA_COUNTRY, label: INDIA_COUNTRY }],
+        },
+        {
+          id: "state",
+          type: "select",
+          label: "State",
+          required: true,
+          defaultValue: "Haryana",
+          options: [],
+        },
+        {
+          id: "district",
+          type: "select",
+          label: "District",
+          required: true,
+          defaultValue: "Gurugram",
+          options: [],
+        },
+        {
+          id: "city",
+          type: "select",
+          label: "City",
+          required: true,
+          defaultValue: "Gurugram",
+          options: [],
+        },
+        { id: "address", type: "textarea", label: "Address", span: 2, placeholder: "House no, street, locality…" },
+        { id: "pincode", type: "text", label: "Pincode", placeholder: "122001" },
       ],
     },
     {
@@ -114,33 +180,11 @@ export const REGISTRATION_SCHEMA: FormSchema = {
         {
           id: "referrer",
           type: "select",
-          label: "Referral source",
-          options: [
-            { value: "walkin", label: "Walk-in" },
-            { value: "google", label: "Google / Online" },
-            { value: "doctor", label: "Doctor referral" },
-            { value: "corporate", label: "Corporate" },
-            { value: "patient", label: "Patient referral" },
-          ],
+          label: "How did you hear about us?",
+          options: HEAR_ABOUT_OPTIONS,
         },
         { id: "referrerName", type: "text", label: "Referrer name", placeholder: "Optional" },
         { id: "corporateId", type: "text", label: "Corporate / insurance ID", placeholder: "TCS-XXXX" },
-        {
-          id: "city",
-          type: "select",
-          label: "City / locality",
-          options: [
-            { value: "Satellite", label: "Satellite" },
-            { value: "Navrangpura", label: "Navrangpura" },
-            { value: "Vastrapur", label: "Vastrapur" },
-            { value: "Bopal", label: "Bopal" },
-            { value: "Chandkheda", label: "Chandkheda" },
-            { value: "Maninagar", label: "Maninagar" },
-            { value: "Gurgaon", label: "Gurgaon" },
-            { value: "Other", label: "Other" },
-          ],
-        },
-        { id: "pincode", type: "text", label: "Pincode", placeholder: "380015", hint: "Used for geo intelligence mapping" },
       ],
     },
     {
