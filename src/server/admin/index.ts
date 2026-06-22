@@ -103,6 +103,12 @@ function branchScopedWhere(ctx: ServerContext) {
   };
 }
 
+function toIsoOrString(value: unknown): string | undefined {
+  if (value == null) return undefined;
+  if (value instanceof Date) return value.toISOString();
+  return String(value);
+}
+
 function toAudit(events: Awaited<ReturnType<typeof prisma.adminAuditLog.findMany>>): AdminAuditEvent[] {
   return events.map((x) => ({
     id: x.id,
@@ -231,8 +237,8 @@ export async function getAdminSnapshotForContext(
     prisma.adminMrdRequest.findMany({ where: branchScopedWhere(ctx), orderBy: { requestedAt: "desc" } }),
     prisma.adminMisReport.findMany({ orderBy: { label: "asc" } }),
     prisma.adminAuditLog.findMany({ orderBy: { at: "desc" }, take: 300 }),
-    prisma.patient.findMany({ where: clinicalWhere, orderBy: { fullName: "asc" } }),
-    prisma.opdVisit.findMany({ where: clinicalWhere, orderBy: { checkInAt: "desc" } }),
+    prisma.patient.findMany({ where: clinicalWhere, orderBy: { fullName: "asc" }, take: 3000 }),
+    prisma.opdVisit.findMany({ where: clinicalWhere, orderBy: { checkInAt: "desc" }, take: 5000 }),
     prisma.documentTemplate.findMany({ where: { kind: { startsWith: "admin:" } } }),
     prisma.formSubmission.findMany({ orderBy: { submittedAt: "desc" }, take: 500 }),
     prisma.consultation.findMany({ orderBy: { createdAt: "desc" }, take: 500 }),
@@ -250,7 +256,7 @@ export async function getAdminSnapshotForContext(
     departmentId: x.departmentId ?? "",
     tags: Array.isArray(x.tags) ? x.tags : parseArray<string>(x.tags),
     balance: Number(x.balance),
-    lastVisit: x.lastVisit ?? undefined,
+    lastVisit: toIsoOrString(x.lastVisit),
     referrer: x.referrer ?? undefined,
   })) as Patient[];
 
@@ -267,7 +273,7 @@ export async function getAdminSnapshotForContext(
     appointment: x.appointment,
     appointmentTime: x.appointmentTime ?? undefined,
     waitMin: x.waitMin,
-    checkInAt: x.checkInAt ?? undefined,
+    checkInAt: toIsoOrString(x.checkInAt),
     billAmount: x.billAmount === null ? undefined : Number(x.billAmount),
     amountPaid: x.amountPaid === null ? undefined : Number(x.amountPaid),
     balanceDue: x.balanceDue === null ? undefined : Number(x.balanceDue),
@@ -315,7 +321,7 @@ export async function getAdminSnapshotForContext(
     .map((row) => ({
       patientId: row.patientId,
       status: row.status,
-      completedAt: row.completedAt ?? null,
+      completedAt: toIsoOrString(row.completedAt) ?? null,
       diagnosis: (row.diagnosis ?? {}) as Record<string, string | number | boolean>,
     }));
 
@@ -417,7 +423,7 @@ export async function getAdminSnapshotForContext(
       category: x.category as MisReport["category"],
       schedule: x.schedule as MisReport["schedule"],
       format: x.format as MisReport["format"],
-      lastRun: x.lastRun ?? undefined,
+      lastRun: toIsoOrString(x.lastRun),
     })),
     settings,
     resolvedLeakageIds,

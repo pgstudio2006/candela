@@ -18,7 +18,15 @@ export function actionFail(code: string, error: string): ActionResult<never> {
 export async function runAction<T>(fn: () => Promise<T>): Promise<ActionResult<T>> {
   try {
     const data = await fn();
-    return actionOk(serializeForClient(data));
+    try {
+      return actionOk(serializeForClient(data));
+    } catch (serializeError) {
+      const msg =
+        serializeError instanceof Error
+          ? serializeError.message
+          : "Workspace data could not be serialized for the browser.";
+      return actionFail("INTERNAL_ERROR", msg);
+    }
   } catch (error) {
     try {
       throwIfPrismaError(error);
