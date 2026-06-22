@@ -112,9 +112,13 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
     const silent = opts?.silent ?? false;
     if (!silent) setReady(false);
     try {
-      const snapshot = await getAdminSnapshot();
-      setState(snapshot);
-      setError(null);
+      const result = await getAdminSnapshot();
+      if (result.ok) {
+        setState(result.data);
+        setError(null);
+      } else {
+        setError(result.error);
+      }
     } catch (err) {
       setError(parseActionError(err).message);
     } finally {
@@ -129,10 +133,14 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
     const load = async (attempt = 0) => {
       if (cancelled) return;
       try {
-        const snapshot = await getAdminSnapshot();
+        const result = await getAdminSnapshot();
         if (cancelled) return;
-        setState(snapshot);
-        setError(null);
+        if (result.ok) {
+          setState(result.data);
+          setError(null);
+        } else {
+          setError(result.error);
+        }
         setReady(true);
       } catch (err) {
         if (cancelled) return;

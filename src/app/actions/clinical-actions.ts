@@ -20,10 +20,14 @@ import {
   updatePatient,
 } from "@/server/clinical";
 import { requireModule } from "@/server/auth";
+import { runAction, type ActionResult } from "@/server/action-result";
+import type { ClinicalSnapshot } from "@/server/clinical";
 
-export async function getClinicalSnapshotAction() {
-  const ctx = await requireModule("frontdesk");
-  return getClinicalSnapshot(ctx);
+export async function getClinicalSnapshotAction(): Promise<ActionResult<ClinicalSnapshot>> {
+  return runAction(async () => {
+    const ctx = await requireModule("frontdesk");
+    return getClinicalSnapshot(ctx);
+  });
 }
 
 export async function registerPatientAction(input: {
@@ -32,9 +36,13 @@ export async function registerPatientAction(input: {
   visitId?: string;
   startVisit?: boolean;
   forceDuplicate?: boolean;
-}) {
-  const ctx = await requireModule("frontdesk");
-  return registerPatient(ctx, input);
+}): Promise<
+  ActionResult<{ patientId: string; visitId: string; uhid: string }>
+> {
+  return runAction(async () => {
+    const ctx = await requireModule("frontdesk");
+    return registerPatient(ctx, input);
+  });
 }
 
 export async function checkDuplicatePatientAction(phone: string, uhid?: string) {

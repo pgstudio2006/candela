@@ -37,6 +37,7 @@ import { ensureBootstrapData } from "@/server/bootstrap";
 import type { ServerContext } from "@/server/context";
 import { ServerActionError } from "@/server/errors";
 import { writePlatformAudit } from "@/server/platform-audit";
+import { withPrismaError } from "@/server/prisma-errors";
 
 export type AdminAuditEvent = {
   id: string;
@@ -190,6 +191,7 @@ export async function getAdminSnapshotForContext(
   ctx: ServerContext,
   operator: AdminOperator,
 ): Promise<AdminSnapshot> {
+  return withPrismaError(async () => {
   await ensureBootstrapData();
   const clinicalWhere = branchClinicalWhere(ctx);
   const { settings, resolvedLeakageIds } = await loadSettings(ctx);
@@ -418,6 +420,7 @@ export async function getAdminSnapshotForContext(
     isViewer: operator.isViewer,
     branchId: ctx.branchId,
   };
+  });
 }
 
 export async function listAdminPlatformAuditLogs(

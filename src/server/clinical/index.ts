@@ -18,6 +18,7 @@ import { writePlatformAudit } from "@/server/platform-audit";
 import { branchScope } from "@/server/tenancy";
 import { syncVisitFromOpdVisit } from "@/server/visit-sync";
 import { loadClinicalRoster } from "@/server/clinical/roster";
+import { withPrismaError } from "@/server/prisma-errors";
 import { DOCTOR_HR_EMAIL_MAP, resolveDoctorName, staffIdFromDoctorId } from "@/lib/clinical-roster";
 import type { ClinicalRoster } from "@/lib/clinical-roster";
 import { notifyAppointmentReminder } from "@/server/notifications";
@@ -394,6 +395,7 @@ function buildCounters(patients: Patient[], visits: Visit[], appointments: Appoi
 }
 
 export async function getClinicalSnapshot(ctx: ServerContext): Promise<ClinicalSnapshot> {
+  return withPrismaError(async () => {
   await ensureHospitalBootstrap();
   await ensureClinicalSeed();
   await backfillBranchScope(ctx);
@@ -480,6 +482,7 @@ export async function getClinicalSnapshot(ctx: ServerContext): Promise<ClinicalS
     billingHandoffs,
     roster,
   };
+  });
 }
 
 export async function saveSubmission(formId: string, data: PrimitiveRecord, ctx?: { patientId?: string; visitId?: string }) {

@@ -166,21 +166,29 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const applySnapshot = (snapshot: Awaited<ReturnType<typeof getClinicalSnapshotAction>>) => {
+    if (!snapshot.ok) {
+      setError(snapshot.error);
+      return false;
+    }
+    setState({
+      patients: snapshot.data.patients,
+      visits: snapshot.data.visits,
+      appointments: snapshot.data.appointments,
+      submissions: snapshot.data.submissions,
+      counters: snapshot.data.counters,
+      billingHandoffs: snapshot.data.billingHandoffs,
+      roster: snapshot.data.roster,
+    });
+    setError(null);
+    return true;
+  };
+
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent ?? false;
     if (!silent) setReady(false);
     try {
-      const snapshot = await getClinicalSnapshotAction();
-      setState({
-        patients: snapshot.patients,
-        visits: snapshot.visits,
-        appointments: snapshot.appointments,
-        submissions: snapshot.submissions,
-        counters: snapshot.counters,
-        billingHandoffs: snapshot.billingHandoffs,
-        roster: snapshot.roster,
-      });
-      setError(null);
+      applySnapshot(await getClinicalSnapshotAction());
     } catch (err) {
       console.error("Frontdesk refresh failed:", err);
       setError(parseActionError(err).message);
@@ -204,16 +212,20 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
       try {
         const snapshot = await getClinicalSnapshotAction();
         if (cancelled) return;
-        setState({
-          patients: snapshot.patients,
-          visits: snapshot.visits,
-          appointments: snapshot.appointments,
-          submissions: snapshot.submissions,
-          counters: snapshot.counters,
-          billingHandoffs: snapshot.billingHandoffs,
-          roster: snapshot.roster,
-        });
-        setError(null);
+        if (snapshot.ok) {
+          setState({
+            patients: snapshot.data.patients,
+            visits: snapshot.data.visits,
+            appointments: snapshot.data.appointments,
+            submissions: snapshot.data.submissions,
+            counters: snapshot.data.counters,
+            billingHandoffs: snapshot.data.billingHandoffs,
+            roster: snapshot.data.roster,
+          });
+          setError(null);
+        } else {
+          setError(snapshot.error);
+        }
         setReady(true);
       } catch (err) {
         if (cancelled) return;
@@ -254,12 +266,15 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
           startVisit: opts?.startVisit,
           forceDuplicate: opts?.forceDuplicate,
         });
+        if (!serverResult.ok) {
+          return { ok: false, error: serverResult.error, code: serverResult.code };
+        }
         await refresh();
         return {
           ok: true,
-          patientId: serverResult.patientId,
-          visitId: serverResult.visitId,
-          uhid: serverResult.uhid,
+          patientId: serverResult.data.patientId,
+          visitId: serverResult.data.visitId,
+          uhid: serverResult.data.uhid,
         };
       } catch (err) {
         const parsed = parseActionError(err);

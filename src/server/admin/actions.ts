@@ -11,6 +11,7 @@ import type {
 } from "@/design-system/admin-data";
 import type { FormSchema } from "@/design-system/frontdesk-schemas";
 import { resolveAdminOperator } from "@/server/module-operator";
+import { runAction, type ActionResult } from "@/server/action-result";
 import {
   addDepartment as addDepartmentCore,
   addDiseaseNode as addDiseaseNodeCore,
@@ -44,9 +45,11 @@ import {
 
 export type { AdminSnapshot };
 
-export async function getAdminSnapshot(): Promise<AdminSnapshot> {
-  const { ctx, operator } = await resolveAdminOperator();
-  return getAdminSnapshotForContext(ctx, operator);
+export async function getAdminSnapshot(): Promise<ActionResult<AdminSnapshot>> {
+  return runAction(async () => {
+    const { ctx, operator } = await resolveAdminOperator();
+    return getAdminSnapshotForContext(ctx, operator);
+  });
 }
 
 export async function listAdminAuditLogsAction(input?: { limit?: number; cursor?: string }) {
