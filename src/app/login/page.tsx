@@ -3,11 +3,14 @@
 import { GlassAuthShell } from "@/components/auth/glass-auth-shell";
 import { GlassIconField, glassButtonClass } from "@/components/auth/glass-form";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { Eye, EyeOff, Lock, LogIn, Mail } from "lucide-react";
+import { resolvePostAuthPath } from "@/lib/auth-redirect";
+import { readAuthDraft, readSavedEmail } from "@/lib/auth-storage";
 import type { CandelaRole } from "@/design-system/modules";
+import { Eye, EyeOff, Lock, LogIn, Mail } from "lucide-react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { cn } from "@/lib/utils";
+
 import { useEffect, useState } from "react";
 
 export default function LoginPage() {
@@ -20,15 +23,28 @@ export default function LoginPage() {
   const [checkingSession, setCheckingSession] = useState(true);
 
   useEffect(() => {
+    setEmail(readSavedEmail());
+  }, []);
+
+  useEffect(() => {
     let ignore = false;
     const hydrate = async () => {
       try {
         const res = await fetch("/api/session/compat", { cache: "no-store" });
         if (!res.ok) return;
-        const { session } = (await res.json()) as { session: { role: CandelaRole } | null };
-        if (!ignore && session) {
-          router.replace("/tenant");
-        }
+        const { session } = (await res.json()) as {
+          session: {
+            role: CandelaRole;
+            branchId?: string;
+            tenant?: string;
+            tenantName?: string;
+            branchName?: string;
+          } | null;
+        };
+        if (ignore) return;
+        const draft = readAuthDraft();
+        const next = resolvePostAuthPath(session, draft);
+        if (next) router.replace(next);
       } finally {
         if (!ignore) setCheckingSession(false);
       }
@@ -76,7 +92,9 @@ export default function LoginPage() {
 
           router.refresh();
           setLoading(false);
-          router.replace("/tenant");
+          const draft = readAuthDraft();
+          const next = resolvePostAuthPath(null, draft) ?? "/tenant";
+          router.replace(next);
         }}
       >
         <GlassIconField

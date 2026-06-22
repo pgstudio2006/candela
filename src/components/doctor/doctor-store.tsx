@@ -337,6 +337,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
     };
 
     const applyScribeDraft = (visitId: string, draft: ScribeDraft) => {
+      const c = getConsultation(visitId);
       if (draft.examination && Object.keys(draft.examination).length) {
         saveConsultSection(visitId, "examination", draft.examination);
       }
@@ -356,6 +357,9 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
         );
       }
       updateConsultation(visitId, { scribeAppliedAt: new Date().toISOString() });
+      if (c?.scribeTranscript?.trim()) {
+        persistScribeTranscript(visitId, c.scribeTranscript, c.scribeLanguage ?? "en");
+      }
     };
 
     const applyScribeToExamination = (visitId: string) => {
@@ -379,6 +383,13 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
       },
     ): Promise<{ ok: boolean; error?: string }> => {
       try {
+        const c = getConsultation(visitId);
+        if (c?.scribeTranscript?.trim()) {
+          await updateConsultationAction(visitId, {
+            scribeTranscript: c.scribeTranscript,
+            scribeLanguage: c.scribeLanguage ?? "en",
+          });
+        }
         await completeConsultationAction(visitId, opts);
         await refresh();
         return { ok: true };

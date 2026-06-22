@@ -9,6 +9,7 @@ import { CopilotPanel } from "@/components/frontdesk/copilot-panel";
 import { patientDisplayName } from "@/lib/frontdesk-workflow";
 import type { CopilotAction } from "@/lib/ai/scribe-types";
 import { getDoctorNavItem } from "@/design-system/doctor-nav";
+import { WORKSPACE_SIGN_IN_PATH } from "@/lib/auth-storage";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
@@ -49,7 +50,7 @@ export function DoctorShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!authReady) return;
-    if (!session) router.replace("/login");
+    if (!session) router.replace(WORKSPACE_SIGN_IN_PATH);
     else if (session.role !== "doctor") router.replace(`/app/${session.role}`);
   }, [session, authReady, router]);
 
@@ -110,7 +111,7 @@ export function DoctorShell({ children }: { children: ReactNode }) {
         onOpenCommand={() => setCommandOpen(true)}
         onSignOut={() => {
           signOut();
-          router.push("/login");
+          router.push(WORKSPACE_SIGN_IN_PATH);
         }}
       />
 

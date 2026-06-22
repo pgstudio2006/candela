@@ -28,6 +28,6 @@ export async function loginWithPassword(input: unknown) {
   }
 }
 
-export async function logoutFromServer(redirectTo = "/login") {
+export async function logoutFromServer(redirectTo = "/workspace") {
   await signOut({ redirectTo });
 }

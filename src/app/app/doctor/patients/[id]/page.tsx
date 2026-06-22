@@ -4,6 +4,7 @@ import { useDoctorStore } from "@/components/doctor/doctor-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { consultPrimaryDiagnosis, formatConsultDate } from "@/lib/doctor-records";
+import { parseScribeSessions } from "@/lib/scribe-transcript";
 import { formatStageStatus } from "@/lib/frontdesk-workflow";
 import { ArrowLeft, ChevronRight, FileText, Mic, Pill, Stethoscope } from "lucide-react";
 import Link from "next/link";
@@ -27,6 +28,7 @@ export default function DoctorPatientDetailPage() {
   const allVisits = visits.filter((v) => v.patientId === patientId);
   const todayVisit = allVisits.find((v) => v.stage !== "completed" && v.stage !== "registered") ?? allVisits[0];
   const history = getPatientConsultations(patientId);
+  const scribeHistory = history.filter((c) => c.scribeTranscript?.trim());
 
   if (!patient) {
     return (
@@ -47,6 +49,7 @@ export default function DoctorPatientDetailPage() {
       meta={`${patient.uhid} · ${patient.department} · ${patient.age}y ${patient.gender}`}
       tabs={[
         { id: "timeline", label: "Clinical timeline" },
+        { id: "scribe", label: "AI Scribe" },
         { id: "overview", label: "Overview" },
         { id: "documents", label: "Documents" },
       ]}
@@ -75,6 +78,68 @@ export default function DoctorPatientDetailPage() {
         <ArrowLeft className="size-4" />
         All patients
       </Link>
+
+      {tab === "scribe" && (
+        <Panel title="AI Scribe transcripts">
+          <p className="mb-4 text-[12px] text-[var(--attio-text-tertiary)]">
+            Every live scribe session is saved to this patient profile and linked to the consult visit.
+          </p>
+          {scribeHistory.length === 0 ? (
+            <p className="py-8 text-center text-[13px] text-[var(--attio-text-tertiary)]">
+              No AI scribe transcripts yet — use AI Scribe during a consultation to record conversations here.
+            </p>
+          ) : (
+            <ul className="space-y-4">
+              {scribeHistory.map((c) => {
+                const sessions = parseScribeSessions(c.scribeTranscript ?? "");
+                const v = getVisit(c.visitId);
+                return (
+                  <li
+                    key={c.visitId}
+                    className="rounded-xl border border-[var(--attio-border-subtle)] bg-[var(--attio-surface)] p-4"
+                  >
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-[14px] font-medium">{consultPrimaryDiagnosis(c)}</p>
+                        <p className="text-[12px] text-[var(--attio-text-tertiary)]">
+                          {formatConsultDate(c.completedAt ?? c.startedAt)}
+                          {v && ` · Token #${v.token}`}
+                          {c.scribeLanguage && ` · ${c.scribeLanguage}`}
+                        </p>
+                      </div>
+                      <Link
+                        href={`/app/doctor/patients/${patientId}/records/${c.visitId}`}
+                        className="text-[12px] font-medium text-[var(--attio-accent)]"
+                      >
+                        Full record →
+                      </Link>
+                    </div>
+                    <div className="space-y-3">
+                      {sessions.map((session, idx) => (
+                        <div
+                          key={`${c.visitId}-${idx}`}
+                          className="rounded-lg border border-[var(--attio-border-subtle)] bg-white px-3 py-2.5"
+                        >
+                          {(session.recordedAt || session.language) && (
+                            <p className="mb-1.5 flex items-center gap-1 text-[11px] font-medium text-blue-700">
+                              <Mic className="size-3" />
+                              {session.recordedAt || "Scribe session"}
+                              {session.language ? ` · ${session.language}` : ""}
+                            </p>
+                          )}
+                          <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-[var(--attio-text-secondary)]">
+                            {session.transcript}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Panel>
+      )}
 
       {tab === "overview" && (
         <div className="grid gap-4 lg:grid-cols-2">

@@ -1,6 +1,13 @@
 "use client";
 
 import type { CandelaRole } from "@/design-system/modules";
+import type { AuthDraft, CandelaClientSession } from "@/lib/auth-types";
+import {
+  readAuthDraft,
+  readClientSession,
+  writeAuthDraft,
+  writeClientSession,
+} from "@/lib/auth-storage";
 import { signOut as authSignOut } from "next-auth/react";
 import {
   createContext,
@@ -12,30 +19,9 @@ import {
   type ReactNode,
 } from "react";
 
-export type { CandelaRole };
+export type { AuthDraft, CandelaRole };
 
-export type AuthDraft = {
-  tenantId: string;
-  tenantName: string;
-  branchId?: string;
-  branchName?: string;
-};
-
-type Session = {
-  tenant: string;
-  tenantName: string;
-  branchId: string;
-  branchName: string;
-  role: CandelaRole;
-  userName: string;
-  userEmail: string;
-  /** Set when role is crm — maps login to manager or agent workspace */
-  crmOperatorId?: string;
-  /** Set when role is pharmacy */
-  pharmacyOperatorId?: string;
-  /** Set when role is hr */
-  hrOperatorId?: string;
-};
+type Session = CandelaClientSession;
 
 type SessionContextValue = {
   session: Session | null;
@@ -54,17 +40,13 @@ type SessionContextValue = {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
-const SESSION_KEY = "candela-session";
-const DRAFT_KEY = "candela-auth-draft";
-
-function readStorage<T>(key: string): T | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = sessionStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : null;
-  } catch {
-    return null;
-  }
+function draftFromSession(session: Session): AuthDraft {
+  return {
+    tenantId: session.tenant,
+    tenantName: session.tenantName,
+    branchId: session.branchId,
+    branchName: session.branchName,
+  };
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
@@ -76,8 +58,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [activePatientId, setActivePatientId] = useState<string | null>(null);
 
   useEffect(() => {
-    const fromStorageSession = readStorage<Session>(SESSION_KEY);
-    const fromStorageDraft = readStorage<AuthDraft>(DRAFT_KEY);
+    const fromStorageSession = readClientSession<Session>();
+    const fromStorageDraft = readAuthDraft();
 
     setAuthDraftState(fromStorageDraft);
 
@@ -100,7 +82,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
               }
             : apiSession ?? fromStorageSession;
         setSessionState(merged);
-        if (merged) sessionStorage.setItem(SESSION_KEY, JSON.stringify(merged));
+        if (merged) {
+          writeClientSession(merged);
+          const draft = fromStorageDraft ?? draftFromSession(merged);
+          setAuthDraftState(draft);
+          writeAuthDraft(draft);
+        }
       } catch {
         if (!ignore) setSessionState(fromStorageSession);
       } finally {
@@ -116,21 +103,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const setSession = useCallback((s: Session | null) => {
     setSessionState(s);
-    if (s) sessionStorage.setItem(SESSION_KEY, JSON.stringify(s));
-    else sessionStorage.removeItem(SESSION_KEY);
+    writeClientSession(s);
   }, []);
 
   const setAuthDraft = useCallback((draft: AuthDraft | null) => {
     setAuthDraftState(draft);
-    if (draft) sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-    else sessionStorage.removeItem(DRAFT_KEY);
+    writeAuthDraft(draft);
   }, []);
 
   const signOut = useCallback(async () => {
     await authSignOut({ redirect: false });
     setSession(null);
-    setAuthDraft(null);
-  }, [setSession, setAuthDraft]);
+  }, [setSession]);
 
   const value = useMemo(
     () => ({

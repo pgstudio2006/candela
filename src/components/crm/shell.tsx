@@ -11,6 +11,7 @@ import { useSession } from "@/components/candela/session-provider";
 import { CopilotPanel } from "@/components/frontdesk/copilot-panel";
 import { CRM_NAV } from "@/design-system/crm-nav";
 import { getCrmNavItem } from "@/design-system/crm-nav";
+import { WORKSPACE_SIGN_IN_PATH } from "@/lib/auth-storage";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -27,7 +28,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!authReady) return;
     if (!session) {
-      router.replace("/login");
+      router.replace(WORKSPACE_SIGN_IN_PATH);
       return;
     }
     if (session.role !== "crm") {
@@ -72,7 +73,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
         onOpenCommand={() => setCommandOpen(true)}
         onSignOut={() => {
           signOut();
-          router.push("/login");
+          router.push(WORKSPACE_SIGN_IN_PATH);
         }}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">

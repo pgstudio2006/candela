@@ -10,6 +10,7 @@ import { useSession } from "@/components/candela/session-provider";
 import { CopilotPanel } from "@/components/frontdesk/copilot-panel";
 import { getPharmacyNavItem } from "@/design-system/pharmacy-nav";
 import { PHARMACY_NAV } from "@/design-system/pharmacy-nav";
+import { WORKSPACE_SIGN_IN_PATH } from "@/lib/auth-storage";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -25,7 +26,7 @@ export function PharmacyShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!authReady) return;
     if (!session) {
-      router.replace("/login");
+      router.replace(WORKSPACE_SIGN_IN_PATH);
       return;
     }
     if (session.role !== "pharmacy") {
@@ -69,7 +70,7 @@ export function PharmacyShell({ children }: { children: ReactNode }) {
         onOpenCommand={() => setCommandOpen(true)}
         onSignOut={() => {
           signOut();
-          router.push("/login");
+          router.push(WORKSPACE_SIGN_IN_PATH);
         }}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">

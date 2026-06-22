@@ -4,6 +4,7 @@ import { useCrmStore } from "@/components/crm/crm-store";
 import { useSession } from "@/components/candela/session-provider";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel } from "@/components/frontdesk/ui";
+import { WORKSPACE_SIGN_IN_PATH } from "@/lib/auth-storage";
 import { useRouter } from "next/navigation";
 
 export default function CrmSettingsPage() {
@@ -37,7 +38,7 @@ export default function CrmSettingsPage() {
           className="mt-4"
           onClick={() => {
             signOut();
-            router.push("/login");
+            router.push(WORKSPACE_SIGN_IN_PATH);
           }}
         >
           Sign out

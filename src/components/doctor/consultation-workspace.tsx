@@ -26,7 +26,9 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { debounce } from "@/lib/debounce";
+import { appendScribeSessionHeader } from "@/lib/scribe-transcript";
 
 const TABS = [
   { id: "examination", label: "Examination" },
@@ -90,6 +92,17 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
   }, [visit, visitId, startConsultation]);
 
   const consult = getConsultation(visitId);
+  const scribeLang = consult?.scribeLanguage ?? "en";
+
+  const persistScribeDebounced = useMemo(
+    () =>
+      debounce((text: string, lang: string) => {
+        persistScribeTranscript(visitId, text, lang);
+      }, 1500),
+    [visitId, persistScribeTranscript],
+  );
+
+  useEffect(() => () => persistScribeDebounced.cancel(), [persistScribeDebounced]);
 
   useEffect(() => {
     if (consult) {
@@ -281,7 +294,7 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
             />
           </Panel>
           <AiScribePanel
-            language={consult?.scribeLanguage ?? "en"}
+            language={scribeLang}
             transcript={consult?.scribeTranscript ?? ""}
             patientContext={
               patient
@@ -289,15 +302,32 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
                 : undefined
             }
             applied={scribeApplied}
-            onLanguageChange={(lang) =>
-              setScribeTranscript(visitId, consult?.scribeTranscript ?? "", lang)
-            }
-            onTranscriptChange={(text) =>
-              setScribeTranscript(visitId, text, consult?.scribeLanguage ?? "en")
-            }
-            onRecordingStop={(text) =>
-              persistScribeTranscript(visitId, text, consult?.scribeLanguage ?? "en")
-            }
+            onLanguageChange={(lang) => {
+              const text = consult?.scribeTranscript ?? "";
+              setScribeTranscript(visitId, text, lang);
+              persistScribeDebounced.cancel();
+              persistScribeTranscript(visitId, text, lang);
+            }}
+            onTranscriptChange={(text) => {
+              setScribeTranscript(visitId, text, scribeLang);
+              persistScribeDebounced(text, scribeLang);
+            }}
+            onRecordingStart={() => {
+              const current = consult?.scribeTranscript ?? "";
+              const next = appendScribeSessionHeader(current, scribeLang);
+              if (next === current) return;
+              setScribeTranscript(visitId, next, scribeLang);
+              persistScribeDebounced.cancel();
+              persistScribeTranscript(visitId, next, scribeLang);
+            }}
+            onRecordingStop={(text) => {
+              persistScribeDebounced.cancel();
+              persistScribeTranscript(visitId, text, scribeLang);
+            }}
+            onPersistTranscript={(text) => {
+              persistScribeDebounced.cancel();
+              persistScribeTranscript(visitId, text, scribeLang);
+            }}
             onDraftAccepted={(draft) => {
               applyScribeDraft(visitId, draft);
               setScribeApplied(true);

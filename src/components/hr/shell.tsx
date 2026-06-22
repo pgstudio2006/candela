@@ -8,6 +8,7 @@ import { useHrStore } from "@/components/hr/hr-store";
 import { useSession } from "@/components/candela/session-provider";
 import { CopilotPanel } from "@/components/frontdesk/copilot-panel";
 import { HR_NAV, getHrNavItem } from "@/design-system/hr-nav";
+import { WORKSPACE_SIGN_IN_PATH } from "@/lib/auth-storage";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -24,7 +25,7 @@ export function HrShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!authReady) return;
     if (!session) {
-      router.replace("/login");
+      router.replace(WORKSPACE_SIGN_IN_PATH);
       return;
     }
     if (session.role !== "hr") {
@@ -65,7 +66,7 @@ export function HrShell({ children }: { children: ReactNode }) {
         onOpenCommand={() => setCommandOpen(true)}
         onSignOut={() => {
           signOut();
-          router.push("/login");
+          router.push(WORKSPACE_SIGN_IN_PATH);
         }}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">

@@ -18,7 +18,7 @@ function roleKeyFromUser(user: {
 }
 
 export const authConfig = {
-  session: { strategy: "jwt" },
+  session: { strategy: "jwt", maxAge: 30 * 24 * 60 * 60 },
   trustHost: true,
   pages: {
     signIn: "/login",

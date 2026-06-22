@@ -7,6 +7,7 @@ import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
 import { CopilotPanel } from "@/components/frontdesk/copilot-panel";
 import { WorkspaceSidebar } from "@/components/frontdesk/sidebar";
 import { getFrontdeskNavItem } from "@/design-system/frontdesk-nav";
+import { WORKSPACE_SIGN_IN_PATH } from "@/lib/auth-storage";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -22,7 +23,7 @@ export function FrontdeskShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!authReady) return;
-    if (!session) router.replace("/login");
+    if (!session) router.replace(WORKSPACE_SIGN_IN_PATH);
     else if (session.role !== "frontdesk") router.replace(`/app/${session.role}`);
   }, [session, authReady, router]);
 
@@ -66,7 +67,7 @@ export function FrontdeskShell({ children }: { children: ReactNode }) {
         settingsRef={settingsRef}
         onToggleCopilot={() => setCopilotOpen((o) => !o)}
         onOpenCommand={() => setCommandOpen(true)}
-        onSignOut={() => { signOut(); router.push("/login"); }}
+        onSignOut={() => { signOut(); router.push(WORKSPACE_SIGN_IN_PATH); }}
       />
 
       <div className="flex min-h-0 min-w-0 flex-1">

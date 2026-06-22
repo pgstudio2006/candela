@@ -3,20 +3,31 @@
 import { GlassAuthShell } from "@/components/auth/glass-auth-shell";
 import { GlassIconField, glassButtonClass } from "@/components/auth/glass-form";
 import { useSession } from "@/components/candela/session-provider";
+import { resolvePostAuthPath } from "@/lib/auth-redirect";
 import { Button } from "@/components/ui/button";
 import { validateTenantAction } from "@/server/platform-auth";
 import { cn } from "@/lib/utils";
 import { Building2, KeyRound } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 export default function TenantPage() {
   const router = useRouter();
-  const { setAuthDraft } = useSession();
+  const { authDraft, authReady, session, setAuthDraft } = useSession();
   const [orgId, setOrgId] = useState("");
   const [orgPassword, setOrgPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (authDraft?.tenantId && !orgId) setOrgId(authDraft.tenantId);
+  }, [authDraft?.tenantId, orgId]);
+
+  useEffect(() => {
+    if (!authReady) return;
+    const next = resolvePostAuthPath(session, authDraft);
+    if (next) router.replace(next);
+  }, [authDraft, authReady, session, router]);
 
   const continueToBranch = async (e: FormEvent) => {
     e.preventDefault();

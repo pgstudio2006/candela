@@ -16,7 +16,9 @@ type AiScribePanelProps = {
   patientContext?: string;
   onLanguageChange: (lang: string) => void;
   onTranscriptChange: (text: string) => void;
+  onRecordingStart?: () => void;
   onRecordingStop?: (text: string) => void;
+  onPersistTranscript?: (text: string) => void;
   onDraftAccepted: (draft: ScribeDraft) => void;
   applied?: boolean;
 };
@@ -27,7 +29,9 @@ export function AiScribePanel({
   patientContext,
   onLanguageChange,
   onTranscriptChange,
+  onRecordingStart,
   onRecordingStop,
+  onPersistTranscript,
   onDraftAccepted,
   applied,
 }: AiScribePanelProps) {
@@ -47,6 +51,7 @@ export function AiScribePanel({
 
   const analyzeTranscript = async () => {
     if (!transcript.trim()) return;
+    onPersistTranscript?.(transcript);
     setError("");
     setAnalyzing(true);
     try {
@@ -112,6 +117,7 @@ export function AiScribePanel({
             disabled={!speechSupported}
             onClick={() => {
               setError("");
+              if (!recording) onRecordingStart?.();
               recording ? stop() : start();
             }}
             className={cn(

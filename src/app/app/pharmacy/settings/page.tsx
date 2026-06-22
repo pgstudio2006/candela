@@ -4,6 +4,7 @@ import { useSession } from "@/components/candela/session-provider";
 import { usePharmacyStore } from "@/components/pharmacy/pharmacy-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel } from "@/components/frontdesk/ui";
+import { WORKSPACE_SIGN_IN_PATH } from "@/lib/auth-storage";
 import { useRouter } from "next/navigation";
 
 export default function PharmacySettingsPage() {
@@ -21,7 +22,7 @@ export default function PharmacySettingsPage() {
           <div className="flex justify-between"><dt className="text-[var(--attio-text-tertiary)]">Role</dt><dd className="capitalize">{getStaffRole()}</dd></div>
           <div className="flex justify-between"><dt className="text-[var(--attio-text-tertiary)]">License</dt><dd>{op?.licenseNo ?? "—"}</dd></div>
         </dl>
-        <AttioButton variant="secondary" className="mt-4" onClick={() => { signOut(); router.push("/login"); }}>
+        <AttioButton variant="secondary" className="mt-4" onClick={() => { signOut(); router.push(WORKSPACE_SIGN_IN_PATH); }}>
           Sign out
         </AttioButton>
       </Panel>

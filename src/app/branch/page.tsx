@@ -4,6 +4,8 @@ import { GlassAuthShell } from "@/components/auth/glass-auth-shell";
 import { glassInnerCardClass } from "@/components/auth/glass-form";
 import { useSession } from "@/components/candela/session-provider";
 import { listTenantBranchesAction } from "@/server/platform-auth";
+import { resolvePostAuthPath } from "@/lib/auth-redirect";
+import { WORKSPACE_SIGN_IN_PATH } from "@/lib/auth-storage";
 import { cn } from "@/lib/utils";
 import { ChevronRight, MapPin } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -19,8 +21,14 @@ export default function BranchPage() {
 
   useEffect(() => {
     if (!authReady) return;
+    const next = resolvePostAuthPath(session, authDraft);
+    if (next && next !== WORKSPACE_SIGN_IN_PATH) {
+      router.replace(next);
+      return;
+    }
     if (session) return;
     if (!authDraft?.tenantId) router.replace("/tenant");
+    else if (authDraft.branchId) router.replace(WORKSPACE_SIGN_IN_PATH);
   }, [authDraft, authReady, session, router]);
 
   useEffect(() => {
@@ -50,6 +58,16 @@ export default function BranchPage() {
       subtitle={authDraft?.tenantName ?? "Organization"}
       cardClassName="max-w-[440px]"
     >
+      <button
+        type="button"
+        onClick={() => {
+          setAuthDraft(null);
+          router.push("/tenant");
+        }}
+        className="mb-3 text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-800"
+      >
+        Use a different organization
+      </button>
       <div className="space-y-3">
         {loading && <p className="text-center text-sm text-zinc-500">Loading branches…</p>}
         {!loading && branches.length === 0 && (

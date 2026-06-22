@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 
@@ -8,7 +9,8 @@ export async function getSession() {
 export async function requireSession() {
   const session = await auth();
   if (!session?.user) {
-    redirect("/login");
+    const cookieStore = await cookies();
+    redirect(cookieStore.has("candela-auth-draft") ? "/workspace" : "/login");
   }
   return session;
 }

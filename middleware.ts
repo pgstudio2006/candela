@@ -7,7 +7,9 @@ export function middleware(request: NextRequest) {
     request.cookies.has("__Secure-authjs.session-token");
 
   if (!hasSession) {
-    const loginUrl = new URL("/login", request.url);
+    const hasDraft = request.cookies.has("candela-auth-draft");
+    const dest = hasDraft ? "/workspace" : "/login";
+    const loginUrl = new URL(dest, request.url);
     loginUrl.searchParams.set("next", request.nextUrl.pathname);
     return NextResponse.redirect(loginUrl);
   }

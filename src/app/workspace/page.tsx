@@ -6,6 +6,14 @@ import { useSession } from "@/components/candela/session-provider";
 import { Button } from "@/components/ui/button";
 import { getWorkspace } from "@/design-system/workspace-config";
 import type { CandelaRole } from "@/design-system/modules";
+import { resolvePostAuthPath } from "@/lib/auth-redirect";
+import {
+  isRememberMe,
+  readSavedEmail,
+  setRememberMe,
+  writeSavedEmail,
+  WORKSPACE_SIGN_IN_PATH,
+} from "@/lib/auth-storage";
 import { validateCounsellorLoginAction } from "@/server/counsellor/actions";
 import { validateCrmLoginAction } from "@/server/crm/actions";
 import { validatePharmacyLoginAction } from "@/server/pharmacy/actions";
@@ -19,14 +27,20 @@ import { useEffect, useState, type FormEvent } from "react";
 
 export default function WorkspacePage() {
   const router = useRouter();
-  const { authDraft, authReady, session, setAuthDraft, setSession } = useSession();
+  const { authDraft, authReady, session, setSession } = useSession();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMeState] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const [previewRole, setPreviewRole] = useState<CandelaRole | null>(null);
+
+  useEffect(() => {
+    setEmail(readSavedEmail());
+    setRememberMeState(isRememberMe());
+  }, []);
 
   useEffect(() => {
     void fetch("/api/session/compat", { cache: "no-store" })
@@ -54,8 +68,10 @@ export default function WorkspacePage() {
       }
       return;
     }
-    if (!authDraft?.tenantId) router.replace("/tenant");
-    else if (!authDraft.branchId) router.replace("/branch");
+    const next = resolvePostAuthPath(null, authDraft);
+    if (next && next !== WORKSPACE_SIGN_IN_PATH) {
+      router.replace(next);
+    }
   }, [authDraft, authReady, session, router, email]);
 
   const signInToWorkspace = async (e: FormEvent) => {
@@ -65,6 +81,9 @@ export default function WorkspacePage() {
     setLoading(true);
 
     try {
+      setRememberMe(rememberMe);
+      if (rememberMe) writeSavedEmail(email);
+
       const authResult = await signIn("credentials", {
         email: email.trim(),
         password,
@@ -143,7 +162,6 @@ export default function WorkspacePage() {
         pharmacyOperatorId,
         hrOperatorId,
       });
-      setAuthDraft(null);
       router.replace(getWorkspace(role).homePath);
     } finally {
       setLoading(false);
@@ -199,6 +217,16 @@ export default function WorkspacePage() {
             </button>
           }
         />
+
+        <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-600">
+          <input
+            type="checkbox"
+            checked={rememberMe}
+            onChange={(e) => setRememberMeState(e.target.checked)}
+            className="size-4 rounded border-zinc-300"
+          />
+          Remember me on this device
+        </label>
 
         {error && <p className="text-[12px] font-medium text-red-600">{error}</p>}
 

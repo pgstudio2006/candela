@@ -8,6 +8,7 @@ import { AdminSidebar } from "@/components/admin/sidebar";
 import { CopilotPanel } from "@/components/frontdesk/copilot-panel";
 import { useAdminPoll } from "@/hooks/use-admin-poll";
 import { ADMIN_NAV, getAdminNavItem, canAccessAdminNav } from "@/design-system/admin-nav";
+import { WORKSPACE_SIGN_IN_PATH } from "@/lib/auth-storage";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -23,7 +24,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!authReady) return;
-    if (!session) router.replace("/login");
+    if (!session) router.replace(WORKSPACE_SIGN_IN_PATH);
     else if (session.role !== "admin") router.replace(`/app/${session.role}`);
   }, [session, authReady, router]);
 
@@ -58,7 +59,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
         copilotOpen={copilotOpen}
         onToggleCopilot={() => setCopilotOpen((o) => !o)}
         onOpenCommand={() => setCommandOpen(true)}
-        onSignOut={() => { signOut(); router.push("/login"); }}
+        onSignOut={() => { signOut(); router.push(WORKSPACE_SIGN_IN_PATH); }}
       />
       <div className="flex min-h-0 min-w-0 flex-1">
         <main className="scrollbar-none min-w-0 flex-1 overflow-y-auto">

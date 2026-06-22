@@ -7,6 +7,7 @@ import { NurseCommandPalette } from "@/components/nurse/command-palette";
 import { NurseSidebar } from "@/components/nurse/sidebar";
 import { CopilotPanel } from "@/components/frontdesk/copilot-panel";
 import { getNurseNavItem } from "@/design-system/nurse-nav";
+import { WORKSPACE_SIGN_IN_PATH } from "@/lib/auth-storage";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -20,7 +21,7 @@ export function NurseShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!authReady) return;
-    if (!session) router.replace("/login");
+    if (!session) router.replace(WORKSPACE_SIGN_IN_PATH);
     else if (session.role !== "nurse") router.replace(`/app/${session.role}`);
   }, [session, authReady, router]);
 
@@ -47,7 +48,7 @@ export function NurseShell({ children }: { children: ReactNode }) {
         onOpenCommand={() => setCommandOpen(true)}
         onSignOut={() => {
           signOut();
-          router.push("/login");
+          router.push(WORKSPACE_SIGN_IN_PATH);
         }}
       />
       <div className="flex min-h-0 min-w-0 flex-1">
