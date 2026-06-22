@@ -32,7 +32,9 @@ SQL
 if [ -n "$DATABASE_URL" ]; then
   ensure_database
   echo "Applying database schema..."
-  npx prisma db push --skip-generate --accept-data-loss
+  if ! npx prisma db push --skip-generate --accept-data-loss; then
+    echo "WARNING: prisma db push failed — app will start but workspace loads may fail until schema is synced."
+  fi
   backfill_branch_scope
   if [ "$RUN_DB_SEED" = "true" ]; then
     echo "Seeding database..."
