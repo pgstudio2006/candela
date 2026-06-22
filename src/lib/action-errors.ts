@@ -5,7 +5,7 @@ export type ParsedActionError = {
 };
 
 const PROD_DIGEST_FALLBACK =
-  "Workspace data failed to load. Sign out, complete all four login steps (platform → org → branch → workspace), and try again. If it persists, open /api/health/db — a failed check means the server needs `npx prisma db push` inside the Candela container.";
+  "Workspace data could not be loaded. Sign out and sign in again (platform → org → branch → workspace).";
 
 export function parseActionError(error: unknown): ParsedActionError {
   if (error && typeof error === "object") {

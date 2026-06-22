@@ -17,7 +17,9 @@ export function actionFail(code: string, error: string): ActionResult<never> {
 export async function runAction<T>(fn: () => Promise<T>): Promise<ActionResult<T>> {
   try {
     const data = await fn();
-    return actionOk(data);
+    // Server actions must not return Date/BigInt/etc. — strip via JSON round-trip.
+    const safe = JSON.parse(JSON.stringify(data)) as T;
+    return actionOk(safe);
   } catch (error) {
     try {
       throwIfPrismaError(error);

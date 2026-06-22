@@ -105,7 +105,15 @@ function branchScopedWhere(ctx: ServerContext) {
 
 function toAudit(events: Awaited<ReturnType<typeof prisma.adminAuditLog.findMany>>): AdminAuditEvent[] {
   return events.map((x) => ({
-    ...x,
+    id: x.id,
+    at: x.at,
+    actor: x.actor,
+    actorRole: x.actorRole,
+    module: x.module,
+    action: x.action,
+    entityType: x.entityType,
+    entityId: x.entityId,
+    summary: x.summary,
     severity: x.severity as AdminAuditEvent["severity"],
   }));
 }
@@ -277,11 +285,16 @@ export async function getAdminSnapshotForContext(
   })) as DiseaseMapNode[];
 
   const baseGeo: GeoCluster[] = geo.map((x) => ({
-    ...x,
+    id: x.id,
+    pincode: x.pincode,
+    city: x.city,
+    lat: x.lat,
+    lng: x.lng,
     patientCount: Number(x.patientCount),
     opdCount: Number(x.opdCount),
     ipdCount: Number(x.ipdCount),
     revenue: Number(x.revenue),
+    topDiagnosis: x.topDiagnosis,
     severity: (x.severity as GeoCluster["severity"]) ?? undefined,
   }));
 
@@ -354,11 +367,18 @@ export async function getAdminSnapshotForContext(
       active: x.active,
     })),
     diseaseMap: mappedDiseaseMap,
-    diseaseClusters: (liveDiseaseClusters.length ? liveDiseaseClusters : diseaseClusters.map((x) => ({
-      ...x,
-      severity: x.severity as DiseaseCluster["severity"],
-      surgePercent: x.surgePercent ?? undefined,
-    }))) as DiseaseCluster[],
+    diseaseClusters: (liveDiseaseClusters.length
+      ? liveDiseaseClusters
+      : diseaseClusters.map((x) => ({
+          id: x.id,
+          locality: x.locality,
+          lat: x.lat,
+          lng: x.lng,
+          caseCount: x.caseCount,
+          severity: x.severity as DiseaseCluster["severity"],
+          topDisease: x.topDisease,
+          surgePercent: x.surgePercent ?? undefined,
+        }))) as DiseaseCluster[],
     geo: liveGeo,
     expenses: expenses.map((x) => ({
       id: x.id,
