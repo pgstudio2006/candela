@@ -21,7 +21,15 @@ ensure_database() {
 if [ -n "$DATABASE_URL" ]; then
   ensure_database
   echo "Applying database schema..."
-  npx prisma db push --skip-generate
+  npx prisma db push --skip-generate --accept-data-loss
+  echo "Backfilling branch scope on legacy rows..."
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=0 <<'SQL'
+UPDATE "AdminStaff" SET "branchId" = 'branch_gurgaon' WHERE "branchId" IS NULL OR "branchId" = '';
+UPDATE "AdminExpense" SET "branchId" = 'branch_gurgaon' WHERE "branchId" IS NULL;
+UPDATE "AdminMrdRequest" SET "branchId" = 'branch_gurgaon' WHERE "branchId" IS NULL;
+UPDATE "Patient" SET "tenantId" = 'tenant_navayu', "branchId" = 'branch_gurgaon' WHERE "tenantId" IS NULL OR "branchId" IS NULL;
+UPDATE "OpdVisit" SET "tenantId" = 'tenant_navayu', "branchId" = 'branch_gurgaon' WHERE "tenantId" IS NULL OR "branchId" IS NULL;
+SQL
   if [ "$RUN_DB_SEED" = "true" ]; then
     echo "Seeding database..."
     npx prisma db seed
