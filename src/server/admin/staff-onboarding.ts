@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import type { StaffMember } from "@/design-system/admin-data";
 import { validateAdminPassword, validateStaffInput } from "@/lib/admin-validation";
 import { doctorIdFromStaffId, moduleRoleForStaffRole, type HealthcareStaffRole, generateStaffPassword } from "@/lib/healthcare-roles";
+import { syncDoctorToDepartments } from "@/server/admin/doctor-department-sync";
 import type { ServerContext } from "@/server/context";
 import { branchScope } from "@/server/tenancy";
 import { ServerActionError } from "@/server/errors";
@@ -13,21 +14,7 @@ function newStaffId() {
   return `st_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 }
 
-export async function syncDoctorToDepartments(staffId: string, departmentIds: string[]) {
-  if (!departmentIds.length) return;
-  const drId = doctorIdFromStaffId(staffId);
-  for (const deptId of departmentIds) {
-    const dept = await prisma.adminDepartment.findUnique({ where: { id: deptId } });
-    if (!dept) continue;
-    const doctorIds = Array.isArray(dept.doctorIds) ? [...dept.doctorIds] : [];
-    if (!doctorIds.includes(drId)) {
-      await prisma.adminDepartment.update({
-        where: { id: deptId },
-        data: { doctorIds: [...doctorIds, drId] },
-      });
-    }
-  }
-}
+export { syncDoctorToDepartments } from "@/server/admin/doctor-department-sync";
 
 export async function addStaffWithLogin(
   ctx: ServerContext,

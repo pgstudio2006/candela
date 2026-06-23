@@ -91,7 +91,7 @@ export function StaffFormModal({ open, onClose, departments, branchId, initial, 
         {
           name: name.trim(),
           email: email.trim(),
-          phone: phone.trim() || "+91",
+          phone: phone.trim() || "+910000000000",
           role,
           departmentIds,
           branchId: initial?.branchId ?? branchId,

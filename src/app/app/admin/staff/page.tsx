@@ -10,7 +10,7 @@ import { staffRoleLabel } from "@/lib/healthcare-roles";
 import {
   createStaffWithLoginAction,
   resetStaffPasswordAction,
-} from "@/server/admin/settings-actions";
+} from "@/server/admin/actions";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 

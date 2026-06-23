@@ -25,7 +25,7 @@ import {
   computeLiveGeoClusters,
   type DataMiningSnapshot,
 } from "@/lib/admin-analytics";
-import { syncDoctorToDepartments } from "@/server/admin/staff-onboarding";
+import { syncDoctorToDepartments } from "@/server/admin/doctor-department-sync";
 import {
   assertConfigAccess,
   assertFinanceAccess,
@@ -208,10 +208,16 @@ export async function getAdminSnapshotForContext(
   return withPrismaError(async () => {
   await ensureBootstrapData();
   const clinicalWhere = branchClinicalWhere(ctx);
-  await prisma.adminStaff.updateMany({
-    where: { branchId: "" },
-    data: { branchId: ctx.branchId },
-  });
+  if (ctx.branchId?.trim()) {
+    try {
+      await prisma.adminStaff.updateMany({
+        where: { branchId: "" },
+        data: { branchId: ctx.branchId },
+      });
+    } catch {
+      /* best-effort — do not block admin workspace load */
+    }
+  }
   const { settings, resolvedLeakageIds } = await loadSettings(ctx);
 
   const [
@@ -231,7 +237,12 @@ export async function getAdminSnapshotForContext(
     formSubmissions,
     consultations,
   ] = await Promise.all([
-    prisma.adminStaff.findMany({ where: { branchId: ctx.branchId }, orderBy: { name: "asc" } }),
+    prisma.adminStaff.findMany({
+      where: {
+        OR: [{ branchId: ctx.branchId }, { branchId: "" }],
+      },
+      orderBy: { name: "asc" },
+    }),
     prisma.adminDepartment.findMany({ orderBy: { label: "asc" } }),
     prisma.adminDiseaseNode.findMany({ orderBy: { label: "asc" } }),
     prisma.adminDiseaseCluster.findMany({ orderBy: { caseCount: "desc" } }),

@@ -14,7 +14,17 @@ export async function GET() {
   try {
     const { ctx, operator } = await resolveAdminOperator();
     const snapshot = await getAdminSnapshotForContext(ctx, operator);
-    return NextResponse.json({ ok: true, data: serializeForClient(snapshot) });
+    let data: ReturnType<typeof serializeForClient<typeof snapshot>>;
+    try {
+      data = serializeForClient(snapshot);
+    } catch (serializeError) {
+      const message =
+        serializeError instanceof Error
+          ? serializeError.message
+          : "Admin workspace data could not be serialized.";
+      return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true, data });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load admin workspace.";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });

@@ -30,7 +30,6 @@ import {
   addStaff as addStaffAction,
   approveExpense as approveExpenseAction,
   exportRevenueShareCsvAction,
-  getAdminSnapshot,
   logAdminAction as logAdminActionMutation,
   removeDepartment as removeDepartmentAction,
   removeDiseaseNode as removeDiseaseNodeAction,
@@ -103,30 +102,32 @@ type AdminStoreValue = Omit<
 
 const AdminContext = createContext<AdminStoreValue | null>(null);
 
-async function loadAdminSnapshot(): Promise<
-  Awaited<ReturnType<typeof getAdminSnapshot>>
-> {
+type AdminSnapshotLoadResult =
+  | { ok: true; data: AdminSnapshot }
+  | { ok: false; code: string; error: string };
+
+async function loadAdminSnapshot(): Promise<AdminSnapshotLoadResult> {
   try {
-    const result = await getAdminSnapshot();
-    if (result.ok) return result;
+    const res = await fetch("/api/admin/snapshot", { cache: "no-store", credentials: "include" });
+    const json = (await res.json()) as AdminSnapshotLoadResult;
+    if (res.ok && json.ok) return json;
+    if (!res.ok) {
+      return {
+        ok: false,
+        code: "INTERNAL_ERROR",
+        error: (!json.ok && json.error) || "Failed to load admin workspace.",
+      };
+    }
+    if (!json.ok) return json;
   } catch {
-    /* Server actions can throw masked errors in production — fall through to API route. */
+    /* fall through */
   }
 
-  try {
-    const res = await fetch("/api/admin/snapshot", { cache: "no-store" });
-    if (res.ok) {
-      return (await res.json()) as Awaited<ReturnType<typeof getAdminSnapshot>>;
-    }
-    const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return { ok: false, code: "INTERNAL_ERROR", error: body?.error ?? "Failed to load admin workspace." };
-  } catch {
-    return {
-      ok: false,
-      code: "INTERNAL_ERROR",
-      error: "Workspace data could not be loaded. Sign out and sign in again (platform → org → branch → workspace).",
-    };
-  }
+  return {
+    ok: false,
+    code: "INTERNAL_ERROR",
+    error: "Workspace data could not be loaded. Sign out and sign in again (platform → org → branch → workspace).",
+  };
 }
 
 export function AdminStoreProvider({ children }: { children: ReactNode }) {
