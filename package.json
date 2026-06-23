@@ -15,7 +15,8 @@
     "db:push": "prisma db push",
     "db:health": "node scripts/db-health.mjs",
     "db:purge-demo": "node scripts/purge-demo-data.mjs",
-    "db:seed-admin": "node scripts/seed-admin-only.mjs"
+    "db:seed-admin": "node scripts/seed-admin-only.mjs",
+    "db:reset-admin-password": "node scripts/reset-admin-password.mjs"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.2",

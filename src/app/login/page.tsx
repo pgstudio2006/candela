@@ -44,14 +44,19 @@ export default function LoginPage() {
         if (ignore) return;
         const draft = readAuthDraft();
         const next = resolvePostAuthPath(session, draft);
-        if (next) router.replace(next);
+        if (next) {
+          window.location.replace(next);
+          return;
+        }
       } finally {
         if (!ignore) setCheckingSession(false);
       }
     };
     void hydrate();
+    const timeout = window.setTimeout(() => setCheckingSession(false), 10_000);
     return () => {
       ignore = true;
+      window.clearTimeout(timeout);
     };
   }, [router]);
 

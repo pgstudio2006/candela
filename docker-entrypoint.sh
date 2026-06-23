@@ -1,6 +1,17 @@
 #!/bin/sh
 set -e
 
+# Auth.js redirects and CSRF break when AUTH_URL points at localhost in production.
+if [ -n "$NEXT_PUBLIC_APP_URL" ]; then
+  case "${AUTH_URL:-}" in
+    ""|*localhost*|*127.0.0.1*)
+      export AUTH_URL="$NEXT_PUBLIC_APP_URL"
+      export NEXTAUTH_URL="$NEXT_PUBLIC_APP_URL"
+      echo "AUTH_URL set from NEXT_PUBLIC_APP_URL: $AUTH_URL"
+      ;;
+  esac
+fi
+
 backfill_branch_scope() {
   echo "Backfilling branch scope on legacy rows..."
   psql "$DATABASE_URL" -v ON_ERROR_STOP=0 <<'SQL' || true

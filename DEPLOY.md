@@ -47,7 +47,8 @@ Edit `.env`:
 ```env
 DATABASE_URL="postgresql://candela:your-strong-password@localhost:5432/candela?schema=public"
 AUTH_SECRET="generate-with-openssl-rand-base64-32"
-NEXT_PUBLIC_APP_URL="https://candela.adrine.in"
+NEXT_PUBLIC_APP_URL="https://os.candela.adrine.in"
+AUTH_URL="https://os.candela.adrine.in"
 NODE_ENV="production"
 ```
 
