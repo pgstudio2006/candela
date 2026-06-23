@@ -213,6 +213,7 @@ export async function getVisitReceipt(ctx: ServerContext, visitId: string): Prom
         label: line.label,
         quantity: line.quantity,
         lineTotal,
+        rate: line.quantity > 0 ? grossTaxable / line.quantity : grossTaxable,
         taxableAmount,
         sacCode: String(lp.sacCode ?? storedGst.sacCode),
         gstRatePercent: Number(line.taxPercent ?? 0),

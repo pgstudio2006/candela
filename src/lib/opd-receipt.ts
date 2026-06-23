@@ -4,6 +4,8 @@ export type OpdReceiptLine = {
   label: string;
   quantity: number;
   lineTotal: number;
+  /** Gross unit rate before discount (template RATE column). */
+  rate?: number;
   taxableAmount?: number;
   sacCode?: string;
   gstRatePercent?: number;
@@ -75,6 +77,7 @@ export function receiptFromGstBreakdown(
       label: l.label,
       quantity: l.quantity,
       lineTotal: l.lineTotal,
+      rate: l.quantity > 0 ? l.taxableAmount / l.quantity : l.taxableAmount,
       taxableAmount: l.taxableAmount,
       sacCode: l.sacCode,
       gstRatePercent: l.gstRatePercent,

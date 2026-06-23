@@ -5,22 +5,40 @@ import { formatReceiptDate } from "@/lib/opd-receipt";
 
 const TEMPLATE_URL = "/templates/navayu-invoice-template.pdf";
 
+/** Coordinates aligned to public/templates/navayu-invoice-template.pdf (A4, origin bottom-left). */
 const LAYOUT = {
   marginLeft: 42,
   marginRight: 553,
-  metaY: 578,
-  patientY: 558,
-  contactY: 542,
-  gstBlockY: 524,
-  tableHeaderY: 508,
-  tableRowStartY: 494,
-  rowHeight: 13,
-  maxRows: 12,
-  totalsY: 168,
+  /** Template already prints DATE / INVOICE NO labels — values only. */
+  dateValue: { x: 402, y: 586 },
+  invoiceNoValue: { x: 402, y: 557 },
+  /** BILL TO / SHIP TO blocks. */
+  billTo: { x: 42, y: 528 },
+  billToLine2: { x: 42, y: 514 },
+  shipTo: { x: 312, y: 528 },
+  shipToLine2: { x: 312, y: 514 },
+  tableFirstRowY: 486,
+  rowHeight: 13.5,
+  maxRows: 14,
+  col: {
+    idx: 44,
+    desc: 62,
+    sac: 228,
+    qty: 302,
+    rate: 350,
+    gst: 404,
+    amountRight: 550,
+  },
+  summaryLabelX: 392,
+  summaryGapBelowTable: 14,
+  summaryMaxY: 185,
+  summaryMinY: 139,
+  summaryRowHeight: 13,
+  totalAmountY: 111,
+  footerY: 82,
   tiny: 7,
   small: 8,
   body: 9,
-  heading: 9,
 } as const;
 
 /** Standard PDF fonts only support WinAnsi — strip/replace Unicode (e.g. ₹). */
@@ -40,8 +58,9 @@ function formatInrForPdf(amount: number): string {
   return `Rs.${value}`;
 }
 
-function lineTaxableAmount(line: OpdReceiptPayload["lines"][number]): number {
-  if (line.taxableAmount != null) return line.taxableAmount;
+function lineRate(line: OpdReceiptPayload["lines"][number]): number {
+  if (line.rate != null) return line.rate;
+  if (line.taxableAmount != null && line.quantity > 0) return line.taxableAmount;
   return line.lineTotal - (line.cgst ?? 0) - (line.sgst ?? 0) - (line.igst ?? 0);
 }
 
@@ -49,22 +68,20 @@ function drawText(page: PDFPage, text: string, x: number, y: number, font: PDFFo
   page.drawText(pdfSafeText(text), { x, y, size, font, color: rgb(0.12, 0.12, 0.14) });
 }
 
-function drawLabelValue(
+function drawRightText(
   page: PDFPage,
-  label: string,
-  value: string,
-  x: number,
+  text: string,
+  rightX: number,
   y: number,
   font: PDFFont,
-  bold: PDFFont,
+  size: number = LAYOUT.body,
 ) {
-  const labelText = pdfSafeText(`${label}: `);
-  drawText(page, labelText, x, y, bold, LAYOUT.body);
-  const labelWidth = bold.widthOfTextAtSize(labelText, LAYOUT.body);
-  drawText(page, value, x + labelWidth, y, font, LAYOUT.body);
+  const safe = pdfSafeText(text);
+  const width = font.widthOfTextAtSize(safe, size);
+  page.drawText(safe, { x: rightX - width, y, size, font, color: rgb(0.12, 0.12, 0.14) });
 }
 
-function truncate(text: string, max = 28): string {
+function truncate(text: string, max = 30): string {
   const trimmed = pdfSafeText(text).trim();
   if (trimmed.length <= max) return trimmed;
   return `${trimmed.slice(0, max - 1)}...`;
@@ -88,124 +105,103 @@ export async function generateInvoicePdf(receipt: OpdReceiptPayload): Promise<Ui
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-  drawLabelValue(page, "Invoice No", receipt.invoiceNumber, LAYOUT.marginLeft, LAYOUT.metaY, font, bold);
-  drawLabelValue(page, "Date", formatReceiptDate(receipt.issuedAt), 360, LAYOUT.metaY, font, bold);
+  drawText(page, formatReceiptDate(receipt.issuedAt), LAYOUT.dateValue.x, LAYOUT.dateValue.y, font, LAYOUT.body);
+  drawText(page, receipt.invoiceNumber, LAYOUT.invoiceNoValue.x, LAYOUT.invoiceNoValue.y, font, LAYOUT.body);
 
-  drawLabelValue(page, "Patient", receipt.patientName, LAYOUT.marginLeft, LAYOUT.patientY, font, bold);
-  drawLabelValue(page, "UHID", receipt.patientUhid, 300, LAYOUT.patientY, font, bold);
-  drawLabelValue(page, "Mobile", receipt.patientPhone, LAYOUT.marginLeft, LAYOUT.contactY, font, bold);
-  drawLabelValue(page, "Doctor", receipt.doctorName, 300, LAYOUT.contactY, font, bold);
-  drawLabelValue(
+  drawText(page, receipt.patientName, LAYOUT.billTo.x, LAYOUT.billTo.y, font, LAYOUT.body);
+  drawText(
     page,
-    "Token",
-    receipt.token != null ? `#${receipt.token}` : "-",
-    460,
-    LAYOUT.contactY,
+    `UHID ${receipt.patientUhid} · ${receipt.patientPhone}`,
+    LAYOUT.billToLine2.x,
+    LAYOUT.billToLine2.y,
     font,
-    bold,
+    LAYOUT.small,
   );
 
-  if (receipt.gst.gstin) {
-    drawText(page, `GSTIN: ${receipt.gst.gstin}`, LAYOUT.marginLeft, LAYOUT.gstBlockY, font, LAYOUT.tiny);
-    drawText(
-      page,
-      truncate(receipt.gst.legalName, 60),
-      LAYOUT.marginLeft,
-      LAYOUT.gstBlockY - 10,
-      font,
-      LAYOUT.tiny,
-    );
-    drawText(
-      page,
-      `Place of supply: ${receipt.placeOfSupply || receipt.gst.placeOfSupply}`,
-      300,
-      LAYOUT.gstBlockY - 10,
-      font,
-      LAYOUT.tiny,
-    );
-  }
-
-  const colX = {
-    idx: LAYOUT.marginLeft,
-    desc: LAYOUT.marginLeft + 14,
-    sac: 248,
-    qty: 292,
-    taxable: 318,
-    gst: 392,
-    amount: LAYOUT.marginRight - 62,
-  };
-
-  drawText(page, "#", colX.idx, LAYOUT.tableHeaderY, bold, LAYOUT.heading);
-  drawText(page, "Description", colX.desc, LAYOUT.tableHeaderY, bold, LAYOUT.heading);
-  drawText(page, "SAC", colX.sac, LAYOUT.tableHeaderY, bold, LAYOUT.heading);
-  drawText(page, "Qty", colX.qty, LAYOUT.tableHeaderY, bold, LAYOUT.heading);
-  drawText(page, "Taxable", colX.taxable, LAYOUT.tableHeaderY, bold, LAYOUT.heading);
-  drawText(page, "GST", colX.gst, LAYOUT.tableHeaderY, bold, LAYOUT.heading);
-  drawText(page, "Amount", colX.amount, LAYOUT.tableHeaderY, bold, LAYOUT.heading);
-
-  page.drawLine({
-    start: { x: LAYOUT.marginLeft, y: LAYOUT.tableHeaderY - 3 },
-    end: { x: LAYOUT.marginRight, y: LAYOUT.tableHeaderY - 3 },
-    thickness: 0.5,
-    color: rgb(0.75, 0.75, 0.78),
-  });
+  drawText(page, receipt.doctorName, LAYOUT.shipTo.x, LAYOUT.shipTo.y, font, LAYOUT.body);
+  drawText(
+    page,
+    receipt.token != null ? `Token #${receipt.token}` : "Walk-in",
+    LAYOUT.shipToLine2.x,
+    LAYOUT.shipToLine2.y,
+    font,
+    LAYOUT.small,
+  );
 
   const rows = receipt.lines.slice(0, LAYOUT.maxRows);
   rows.forEach((line, index) => {
-    const y = LAYOUT.tableRowStartY - index * LAYOUT.rowHeight;
-    const taxable = lineTaxableAmount(line);
-    drawText(page, String(index + 1), colX.idx, y, font, LAYOUT.small);
-    drawText(page, truncate(line.label, 26), colX.desc, y, font, LAYOUT.small);
-    drawText(page, line.sacCode ?? receipt.gst.sacCode, colX.sac, y, font, LAYOUT.tiny);
-    drawText(page, String(line.quantity), colX.qty, y, font, LAYOUT.small);
-    drawText(page, formatInrForPdf(taxable), colX.taxable, y, font, LAYOUT.tiny);
-    drawText(page, formatGstPercent(line.gstRatePercent ?? 0), colX.gst, y, font, LAYOUT.tiny);
-    drawText(page, formatInrForPdf(line.lineTotal), colX.amount, y, font, LAYOUT.small);
+    const y = LAYOUT.tableFirstRowY - index * LAYOUT.rowHeight;
+    const rate = lineRate(line);
+    drawText(page, String(index + 1), LAYOUT.col.idx, y, font, LAYOUT.small);
+    drawText(page, truncate(line.label), LAYOUT.col.desc, y, font, LAYOUT.small);
+    drawText(page, line.sacCode ?? receipt.gst.sacCode, LAYOUT.col.sac, y, font, LAYOUT.tiny);
+    drawText(page, String(line.quantity), LAYOUT.col.qty, y, font, LAYOUT.small);
+    drawRightText(page, formatInrForPdf(rate), LAYOUT.col.rate + 44, y, font, LAYOUT.tiny);
+    drawText(page, formatGstPercent(line.gstRatePercent ?? 0), LAYOUT.col.gst, y, font, LAYOUT.tiny);
+    drawRightText(page, formatInrForPdf(line.lineTotal), LAYOUT.col.amountRight, y, font, LAYOUT.small);
   });
 
   if (receipt.lines.length > LAYOUT.maxRows) {
-    const y = LAYOUT.tableRowStartY - rows.length * LAYOUT.rowHeight;
+    const y = LAYOUT.tableFirstRowY - rows.length * LAYOUT.rowHeight;
     drawText(
       page,
       `+ ${receipt.lines.length - LAYOUT.maxRows} more line(s)`,
-      colX.desc,
+      LAYOUT.col.desc,
       y,
       font,
       LAYOUT.tiny,
     );
   }
 
-  let totalsY = LAYOUT.totalsY;
-  const drawTotalRow = (label: string, value: string, emphasis = false) => {
-    drawText(page, label, 340, totalsY, emphasis ? bold : font, emphasis ? LAYOUT.body : LAYOUT.small);
-    drawText(page, value, colX.amount, totalsY, emphasis ? bold : font, emphasis ? LAYOUT.body : LAYOUT.small);
-    totalsY -= 13;
+  let summaryY = LAYOUT.tableFirstRowY - rows.length * LAYOUT.rowHeight - LAYOUT.summaryGapBelowTable;
+  if (summaryY > LAYOUT.summaryMaxY) summaryY = LAYOUT.summaryMaxY;
+  if (summaryY < LAYOUT.summaryMinY) summaryY = LAYOUT.summaryMinY;
+
+  const drawSummaryRow = (label: string, value: string, emphasis = false) => {
+    const rowFont = emphasis ? bold : font;
+    const size = emphasis ? LAYOUT.body : LAYOUT.small;
+    drawText(page, label, LAYOUT.summaryLabelX, summaryY, rowFont, size);
+    drawRightText(page, value, LAYOUT.col.amountRight, summaryY, rowFont, size);
+    summaryY -= LAYOUT.summaryRowHeight;
   };
 
-  drawTotalRow("Subtotal", formatInrForPdf(receipt.subtotal));
+  drawSummaryRow("Subtotal", formatInrForPdf(receipt.subtotal));
   if (receipt.discount > 0) {
-    drawTotalRow(discountLabel(receipt), `-${formatInrForPdf(receipt.discount)}`);
+    drawSummaryRow(discountLabel(receipt), `-${formatInrForPdf(receipt.discount)}`);
   }
-  if (receipt.cgstTotal > 0) drawTotalRow("CGST", formatInrForPdf(receipt.cgstTotal));
-  if (receipt.sgstTotal > 0) drawTotalRow("SGST", formatInrForPdf(receipt.sgstTotal));
-  if (receipt.igstTotal > 0) drawTotalRow("IGST", formatInrForPdf(receipt.igstTotal));
-  drawTotalRow("Grand total", formatInrForPdf(receipt.total), true);
-  drawTotalRow("Collected", formatInrForPdf(receipt.amountPaid));
-  if (receipt.balanceDue > 0) drawTotalRow("Balance due", formatInrForPdf(receipt.balanceDue), true);
+  if (receipt.cgstTotal > 0) drawSummaryRow("CGST", formatInrForPdf(receipt.cgstTotal));
+  if (receipt.sgstTotal > 0) drawSummaryRow("SGST", formatInrForPdf(receipt.sgstTotal));
+  if (receipt.igstTotal > 0) drawSummaryRow("IGST", formatInrForPdf(receipt.igstTotal));
 
-  const statusLine = `Payment: ${receipt.paymentMode.toUpperCase()} · Status: ${receipt.billingStatus.toUpperCase()}${
-    receipt.paymentScope ? ` · ${receipt.paymentScope}` : ""
-  }`;
-  drawText(page, statusLine, LAYOUT.marginLeft, totalsY - 2, font, LAYOUT.tiny);
+  drawRightText(page, formatInrForPdf(receipt.total), LAYOUT.col.amountRight, LAYOUT.totalAmountY, bold, LAYOUT.body);
+
+  let footerY = LAYOUT.footerY;
+  drawText(
+    page,
+    `Collected ${formatInrForPdf(receipt.amountPaid)} · ${receipt.paymentMode.toUpperCase()} · ${receipt.billingStatus.toUpperCase()}${
+      receipt.paymentScope ? ` · ${receipt.paymentScope}` : ""
+    }`,
+    LAYOUT.marginLeft,
+    footerY,
+    font,
+    LAYOUT.tiny,
+  );
+  footerY -= 10;
 
   const taxNote =
     receipt.taxTotal === 0
       ? "GST exempt healthcare service"
       : `Total tax ${formatInrForPdf(receipt.taxTotal)}`;
-  drawText(page, taxNote, LAYOUT.marginLeft, totalsY - 12, font, LAYOUT.tiny);
+  drawText(page, taxNote, LAYOUT.marginLeft, footerY, font, LAYOUT.tiny);
+  footerY -= 10;
+
+  if (receipt.balanceDue > 0) {
+    drawText(page, `Balance due ${formatInrForPdf(receipt.balanceDue)}`, LAYOUT.marginLeft, footerY, bold, LAYOUT.tiny);
+    footerY -= 10;
+  }
 
   if (receipt.routingNote) {
-    drawText(page, truncate(receipt.routingNote, 90), LAYOUT.marginLeft, totalsY - 22, font, LAYOUT.tiny);
+    drawText(page, truncate(receipt.routingNote, 95), LAYOUT.marginLeft, footerY, font, LAYOUT.tiny);
   }
 
   return pdfDoc.save();
