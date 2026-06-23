@@ -21,7 +21,7 @@ import {
   resolveIndiaLocationOptions,
 } from "@/lib/india-locations";
 import { cn } from "@/lib/utils";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 function humanizeSelectValue(value: string, fieldId: string, roster?: ClinicalRoster | null): string {
   if (fieldId === "department" || value.startsWith("dept_")) {
@@ -280,11 +280,15 @@ export function SchemaForm({
   const [values, setValues] = useState(() => defaultValues(schema, initialValues));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const initialKey = useMemo(() => JSON.stringify(initialValues ?? {}), [initialValues]);
+  const resetKey = formKey ?? `${schema.id}:${initialKey}`;
+  const lastResetKey = useRef(resetKey);
 
   useEffect(() => {
+    if (lastResetKey.current === resetKey) return;
+    lastResetKey.current = resetKey;
     setValues(defaultValues(schema, initialValues));
     setErrors({});
-  }, [formKey, schema.id, initialKey, initialValues, schema]);
+  }, [resetKey, schema, initialValues]);
 
   const set = (id: string, v: string | number | boolean) => {
     setValues((prev) => {

@@ -1055,14 +1055,14 @@ export async function completeJuniorExam(
   const redFlagNotes = String(data?.redFlagNotes ?? "").trim();
   const routingNote = hasRedFlags
     ? `RED FLAG ESCALATION${redFlagNotes ? `: ${redFlagNotes}` : ""}`
-    : undefined;
+    : "Junior exam complete — ready for consultant";
 
   await prisma.opdVisit.update({
     where: { id: visitId },
     data: {
       stage: "with_doctor",
       exam: "done",
-      ...(routingNote ? { routingNote } : {}),
+      routingNote,
       ...(hasRedFlags ? { notes: "[URGENT] Red flags reported at junior exam" } : {}),
     },
   });

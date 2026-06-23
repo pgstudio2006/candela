@@ -11,11 +11,38 @@ export function sortDoctorOpdQueue(visits: Visit[]): Visit[] {
   });
 }
 
-export function filterDoctorOpdQueue(visits: Visit[], doctorId?: string, includeDept = false): Visit[] {
+/** Whether a visit belongs in this doctor's workspace snapshot (not just queue ordering). */
+export function visitVisibleInDoctorWorkspace(
+  visit: Visit,
+  doctorId: string,
+  departmentIds: readonly string[],
+  consultVisitIds: ReadonlySet<string>,
+): boolean {
+  if (consultVisitIds.has(visit.id)) return true;
+  if (visit.doctorId === doctorId) return true;
+  if (visit.stage !== "with_doctor") return false;
+  if (visit.exam !== "done") return false;
+  const deptSet = new Set(departmentIds);
+  return deptSet.has(visit.departmentId);
+}
+
+export function filterDoctorOpdQueue(
+  visits: Visit[],
+  doctorId?: string,
+  includeDept = false,
+  departmentIds: readonly string[] = [],
+): Visit[] {
+  const deptSet = new Set(departmentIds);
   const filtered = visits.filter((v) => {
     if (v.stage !== "with_doctor") return false;
-    if (!doctorId || includeDept) return true;
-    return v.doctorId === doctorId;
+    if (includeDept || !doctorId) return true;
+    if (v.doctorId === doctorId) return true;
+    if (v.exam === "done" && deptSet.has(v.departmentId)) return true;
+    return false;
   });
   return sortDoctorOpdQueue(filtered);
+}
+
+export function isJuniorHandoffReady(visit: Visit): boolean {
+  return visit.stage === "with_doctor" && visit.exam === "done";
 }

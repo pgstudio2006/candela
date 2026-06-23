@@ -156,8 +156,14 @@ export async function getDoctorSnapshot(
     ]);
 
   const doctorConsultVisitIds = new Set(consultRows.map((row) => row.visitId));
+  const deptIds = profile.departmentIds;
   const scopedVisits = clinical.visits.filter(
-    (v) => v.doctorId === doctorId || doctorConsultVisitIds.has(v.id),
+    (v) =>
+      v.doctorId === doctorId ||
+      doctorConsultVisitIds.has(v.id) ||
+      (v.stage === "with_doctor" &&
+        v.exam === "done" &&
+        (deptIds.length === 0 || deptIds.includes(v.departmentId))),
   );
   const branchVisitIds = new Set(scopedVisits.map((v) => v.id));
   const scopedPatientIds = new Set([

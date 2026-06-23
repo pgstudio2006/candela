@@ -92,6 +92,11 @@ type DoctorStoreValue = {
     section: "examination" | "diagnosis" | "treatment",
     data: Record<string, string | number | boolean>,
   ) => void;
+  patchConsultSectionLocal: (
+    visitId: string,
+    section: "examination" | "diagnosis" | "treatment",
+    data: Record<string, string | number | boolean>,
+  ) => void;
   setPrescription: (visitId: string, lines: PrescriptionLine[]) => void;
   applyTemplate: (visitId: string, templateId: string) => void;
   setScribeTranscript: (visitId: string, transcript: string, language: string) => void;
@@ -253,7 +258,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
     const getVisit = (id: string) => visits.find((v) => v.id === id);
 
     const getOpdQueue = (id = doctorId, includeDept = false) =>
-      filterDoctorOpdQueue(visits, includeDept ? undefined : id, includeDept);
+      filterDoctorOpdQueue(visits, includeDept ? undefined : id, includeDept, doctor.profile.departmentIds);
 
     const getJuniorSubmission = (visitId: string) => doctor.juniorSubmissions[visitId];
 
@@ -313,6 +318,19 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
         ),
       }));
       void saveConsultSectionAction(visitId, section, data).then(() => scheduleRefresh());
+    };
+
+    const patchConsultSectionLocal = (
+      visitId: string,
+      section: "examination" | "diagnosis" | "treatment",
+      data: Record<string, string | number | boolean>,
+    ) => {
+      syncDoctor((prev) => ({
+        ...prev,
+        consultations: prev.consultations.map((c) =>
+          c.visitId === visitId ? { ...c, [section]: { ...c[section], ...data } } : c,
+        ),
+      }));
     };
 
     const setPrescription = (visitId: string, lines: PrescriptionLine[]) => {
@@ -532,6 +550,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
       startConsultation,
       updateConsultation,
       saveConsultSection,
+      patchConsultSectionLocal,
       setPrescription,
       applyTemplate,
       setScribeTranscript,

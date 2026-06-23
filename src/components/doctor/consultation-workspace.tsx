@@ -55,6 +55,7 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
     getJuniorSubmission,
     startConsultation,
     saveConsultSection,
+    patchConsultSectionLocal,
     setPrescription,
     applyTemplate,
     setScribeTranscript,
@@ -87,8 +88,13 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
   const txSchema = useDoctorFormSchema("doctor-treatment");
   const handoffSchema = useDoctorFormSchema("doctor-handoff");
 
+  const startedRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (visit) void startConsultation(visitId);
+    if (!visit) return;
+    if (startedRef.current === visitId) return;
+    startedRef.current = visitId;
+    void startConsultation(visitId);
   }, [visit, visitId, startConsultation]);
 
   const consult = getConsultation(visitId);
@@ -289,6 +295,7 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
               schema={examSchema}
               formKey={`exam-${visitId}-${consult?.startedAt ?? ""}`}
               initialValues={consult?.examination}
+              onValuesChange={(data) => patchConsultSectionLocal(visitId, "examination", data)}
               submitLabel="Save examination"
               onSubmit={(data) => saveConsultSection(visitId, "examination", data)}
             />
@@ -342,8 +349,9 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
           <Panel title="Diagnosis">
             <SchemaForm
               schema={dxSchema}
-              formKey={`dx-${visitId}`}
+              formKey={`dx-${visitId}-${consult?.startedAt ?? ""}`}
               initialValues={consult?.diagnosis}
+              onValuesChange={(data) => patchConsultSectionLocal(visitId, "diagnosis", data)}
               submitLabel="Save diagnosis"
               onSubmit={(data) => saveConsultSection(visitId, "diagnosis", data)}
             />
@@ -383,8 +391,9 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
           <Panel title="Treatment plan">
             <SchemaForm
               schema={txSchema}
-              formKey={`tx-${visitId}`}
+              formKey={`tx-${visitId}-${consult?.startedAt ?? ""}`}
               initialValues={consult?.treatment}
+              onValuesChange={(data) => patchConsultSectionLocal(visitId, "treatment", data)}
               submitLabel="Save treatment"
               onSubmit={(data) => saveConsultSection(visitId, "treatment", data)}
             />
