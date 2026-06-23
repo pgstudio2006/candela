@@ -234,3 +234,93 @@ export async function resetStaffLoginPassword(
 
   return { loginEmail: email, initialPassword };
 }
+
+function parseDeptDoctorIds(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String) : [];
+}
+
+/** Sync name/role/branch on linked User — never changes passwordHash. */
+export async function syncStaffUserProfile(
+  ctx: ServerContext,
+  staff: { id: string; name: string; email: string; role: string },
+) {
+  const scope = branchScope(ctx);
+  const email = staff.email.trim().toLowerCase();
+  const roleKey = moduleRoleForStaffRole(staff.role as HealthcareStaffRole);
+  if (!roleKey) return;
+
+  const tenantUser = await db.user.findFirst({
+    where: { email, tenantId: scope.tenantId },
+  });
+  if (!tenantUser) return;
+
+  const role = await db.role.findFirst({
+    where: { key: roleKey, tenantId: scope.tenantId },
+  });
+
+  await db.user.update({
+    where: { id: tenantUser.id },
+    data: {
+      name: staff.name,
+      branchId: scope.branchId,
+      activeRoleId: role?.id ?? tenantUser.activeRoleId,
+      status: "ACTIVE",
+    },
+  });
+
+  if (role) {
+    const existingRole = await db.userRole.findFirst({
+      where: { userId: tenantUser.id, roleId: role.id, branchId: scope.branchId },
+    });
+    if (!existingRole) {
+      await db.userRole.create({
+        data: {
+          userId: tenantUser.id,
+          roleId: role.id,
+          branchId: scope.branchId,
+        },
+      });
+    }
+  }
+}
+
+export async function removeStaffMember(ctx: ServerContext, staffId: string) {
+  const scope = branchScope(ctx);
+  const staff = await prisma.adminStaff.findFirst({
+    where: { id: staffId, branchId: scope.branchId },
+  });
+  if (!staff) {
+    throw new ServerActionError("NOT_FOUND", "Staff member not found in this branch.");
+  }
+
+  const drId = staff.role === "doctor" ? doctorIdFromStaffId(staffId) : null;
+  const email = staff.email.trim().toLowerCase();
+
+  const departments = await prisma.adminDepartment.findMany();
+  for (const dept of departments) {
+    const doctorIds = parseDeptDoctorIds(dept.doctorIds).filter((id) => id !== drId);
+    const headStaffId = dept.headStaffId === staffId ? null : dept.headStaffId;
+    if (headStaffId !== dept.headStaffId || doctorIds.length !== parseDeptDoctorIds(dept.doctorIds).length) {
+      await prisma.adminDepartment.update({
+        where: { id: dept.id },
+        data: { headStaffId, doctorIds },
+      });
+    }
+  }
+
+  await prisma.adminStaff.delete({ where: { id: staffId } });
+
+  const tenantUser = await db.user.findFirst({
+    where: { email, tenantId: scope.tenantId },
+  });
+  if (tenantUser) {
+    await db.session.updateMany({
+      where: { userId: tenantUser.id, status: "ACTIVE" },
+      data: { status: "REVOKED", revokedAt: new Date() },
+    });
+    await db.user.update({
+      where: { id: tenantUser.id },
+      data: { status: "INACTIVE" },
+    });
+  }
+}

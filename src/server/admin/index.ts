@@ -508,6 +508,11 @@ export async function updateStaff(
       if (role === "doctor" && departmentIds?.length) {
         await syncDoctorToDepartments(id, departmentIds);
       }
+      const updated = await prisma.adminStaff.findUnique({ where: { id } });
+      if (updated) {
+        const { syncStaffUserProfile } = await import("@/server/admin/staff-onboarding");
+        await syncStaffUserProfile(ctx, updated);
+      }
     },
     {
       module: "admin",
@@ -560,26 +565,21 @@ export async function addStaff(
 export async function removeStaff(ctx: ServerContext, operator: AdminOperator, idValue: string) {
   assertConfigAccess(operator);
   await requireStaffInBranch(ctx, idValue);
+  const staff = await prisma.adminStaff.findUnique({ where: { id: idValue } });
+  const staffName = staff?.name ?? idValue;
   return auditedMutation(
     ctx,
     operator,
     async () => {
-      await prisma.adminStaff.delete({ where: { id: idValue } });
-      const deps = await prisma.adminDepartment.findMany();
-      for (const dept of deps) {
-        const head = dept.headStaffId === idValue ? null : dept.headStaffId;
-        await prisma.adminDepartment.update({
-          where: { id: dept.id },
-          data: { headStaffId: head },
-        });
-      }
+      const { removeStaffMember } = await import("@/server/admin/staff-onboarding");
+      await removeStaffMember(ctx, idValue);
     },
     {
       module: "admin",
       action: "staff_removed",
       entityType: "staff",
       entityId: idValue,
-      summary: `Staff removed: ${idValue}`,
+      summary: `Staff removed: ${staffName}`,
       severity: "warning",
     },
   );

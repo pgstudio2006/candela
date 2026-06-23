@@ -238,6 +238,11 @@ export function StaffFormModal({ open, onClose, departments, branchId, initial, 
                   </AttioButton>
                 </div>
               )}
+              {resetPassword && (
+                <p className="text-[11px] text-amber-800">
+                  Password changes only when you check this box and save. Editing other fields does not reset the login password.
+                </p>
+              )}
             </div>
           )}
 

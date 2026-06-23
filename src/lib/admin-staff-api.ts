@@ -69,3 +69,19 @@ export async function resetStaffPasswordApi(
   if (res.ok && json.ok && json.data) return { ok: true, data: json.data };
   return { ok: false, error: json.error ?? "Failed to reset password." };
 }
+
+export async function deleteStaffApi(
+  staffId: string,
+): Promise<{ ok: true; data: { snapshot: AdminSnapshot } } | { ok: false; error: string }> {
+  const res = await fetch(`/api/admin/staff/${encodeURIComponent(staffId)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  const json = (await res.json()) as {
+    ok: boolean;
+    data?: { snapshot: AdminSnapshot };
+    error?: string;
+  };
+  if (res.ok && json.ok && json.data) return { ok: true, data: json.data };
+  return { ok: false, error: json.error ?? "Failed to remove staff member." };
+}

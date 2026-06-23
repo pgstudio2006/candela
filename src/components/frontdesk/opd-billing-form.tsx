@@ -73,17 +73,23 @@ export function OpdBillingForm({
   const branchGroup = resolveBillingBranchGroup(branchId);
 
   const [lines, setLines] = useState<SelectedLine[]>([]);
+  const [discountMode, setDiscountMode] = useState<"amount" | "percent">("amount");
   const [discount, setDiscount] = useState(0);
+  const [discountPercent, setDiscountPercent] = useState(0);
   const [gstRatePercent, setGstRatePercent] = useState(0);
   const [gstTaxMode, setGstTaxMode] = useState<"exempt" | "cgst_sgst" | "igst">("exempt");
   const [paymentScope, setPaymentScope] = useState<PaymentScope>("full");
   const [skipBilling, setSkipBilling] = useState(false);
   const [deferReason, setDeferReason] = useState("");
   const [paymentSplits, setPaymentSplits] = useState<PaymentSplit[]>([
-    { mode: "upi", amount: 0 },
+    { mode: "cash", amount: 0 },
   ]);
 
   const subtotal = lines.reduce((s, l) => s + l.amount * l.quantity, 0);
+  const discountAmount =
+    discountMode === "percent"
+      ? Math.min(subtotal, Math.round((subtotal * discountPercent) / 100))
+      : Math.min(subtotal, discount);
   const effectiveGstMode = gstRatePercent > 0 && gstTaxMode === "exempt" ? "cgst_sgst" : gstTaxMode;
   const gstBreakdown = computeGstInvoice({
     settings: {
@@ -100,7 +106,7 @@ export function OpdBillingForm({
       quantity: l.quantity,
       taxableAmount: l.amount * l.quantity,
     })),
-    discount,
+    discount: discountAmount,
   });
   const net = gstBreakdown.grandTotal;
 
@@ -125,7 +131,9 @@ export function OpdBillingForm({
 
     const payload: Record<string, string | number | boolean> = {
       packageLines: JSON.stringify(lines),
-      discount,
+      discount: discountAmount,
+      discountMode,
+      discountPercent: discountMode === "percent" ? discountPercent : 0,
       gstRatePercent,
       gstTaxMode: effectiveGstMode,
       paymentScope: skipBilling ? "defer" : paymentScope,
@@ -136,11 +144,11 @@ export function OpdBillingForm({
           ? []
           : paymentScope === "partial"
             ? paymentSplits.filter((p) => p.amount > 0)
-            : [{ mode: paymentSplits[0]?.mode ?? "upi", amount: net }],
+            : [{ mode: paymentSplits[0]?.mode ?? "cash", amount: net }],
       ),
       amount: subtotal,
       collectedAmount: splitTotal,
-      mode: paymentSplits.length > 1 ? "split" : (paymentSplits[0]?.mode ?? "upi"),
+      mode: paymentSplits.length > 1 ? "split" : (paymentSplits[0]?.mode ?? "cash"),
     };
     onSubmit(payload);
   };
@@ -297,15 +305,57 @@ export function OpdBillingForm({
               )}
 
               <div className="grid gap-4 sm:grid-cols-3">
-                <div className="space-y-1.5">
-                  <Label className="text-[12px]">Discount (₹)</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={discount}
-                    onChange={(e) => setDiscount(Math.max(0, Number(e.target.value) || 0))}
-                    className="h-9 text-[13px]"
-                  />
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label className="text-[12px]">Discount</Label>
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    {(
+                      [
+                        { id: "amount" as const, label: "₹ Amount" },
+                        { id: "percent" as const, label: "% Percent" },
+                      ] as const
+                    ).map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setDiscountMode(opt.id)}
+                        className={cn(
+                          "h-8 rounded-md border px-3 text-[12px] font-medium",
+                          discountMode === opt.id
+                            ? "border-zinc-900 bg-zinc-900 text-white"
+                            : "border-[var(--attio-border)] bg-white",
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  {discountMode === "percent" ? (
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={0.5}
+                      value={discountPercent}
+                      onChange={(e) =>
+                        setDiscountPercent(Math.max(0, Math.min(100, Number(e.target.value) || 0)))
+                      }
+                      className="h-9 text-[13px]"
+                      placeholder="e.g. 10"
+                    />
+                  ) : (
+                    <Input
+                      type="number"
+                      min={0}
+                      value={discount}
+                      onChange={(e) => setDiscount(Math.max(0, Number(e.target.value) || 0))}
+                      className="h-9 text-[13px]"
+                    />
+                  )}
+                  {discountAmount > 0 && discountMode === "percent" && (
+                    <p className="text-[11px] text-[var(--attio-text-tertiary)]">
+                      = ₹{discountAmount.toLocaleString("en-IN")} off subtotal
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-[12px]">GST rate (%)</Label>
@@ -347,10 +397,12 @@ export function OpdBillingForm({
                     <span className="text-[var(--attio-text-secondary)]">Subtotal</span>
                     <span className="tabular-nums">₹{subtotal.toLocaleString("en-IN")}</span>
                   </div>
-                  {discount > 0 && (
+                  {discountAmount > 0 && (
                     <div className="flex justify-between">
-                      <span className="text-[var(--attio-text-secondary)]">Discount</span>
-                      <span className="tabular-nums">−₹{discount.toLocaleString("en-IN")}</span>
+                      <span className="text-[var(--attio-text-secondary)]">
+                        Discount{discountMode === "percent" ? ` (${discountPercent}%)` : ""}
+                      </span>
+                      <span className="tabular-nums">−₹{discountAmount.toLocaleString("en-IN")}</span>
                     </div>
                   )}
                   {gstBreakdown.taxTotal > 0 && (
@@ -463,7 +515,7 @@ export function OpdBillingForm({
                     <div>
                       <Label className="text-[11px]">Payment mode</Label>
                       <Select
-                        value={paymentSplits[0]?.mode ?? "upi"}
+                        value={paymentSplits[0]?.mode ?? "cash"}
                         onValueChange={(v) => v && updateSplit(0, { mode: v, amount: net })}
                       >
                         <SelectTrigger className="mt-1 h-9 text-[13px]">

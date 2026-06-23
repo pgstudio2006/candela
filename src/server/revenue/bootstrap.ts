@@ -121,7 +121,9 @@ export async function ensureRevenueSeeded() {
   await Promise.all(
     Object.entries(SEED_AGENT_PASSWORDS).map(async ([id, plain]) => {
       const cred = await prisma.crmOperatorCredential.findUnique({ where: { id } });
-      if (!cred || (await verifyPassword(plain, cred.passwordHash))) return;
+      if (!cred) return;
+      if (await verifyPassword(plain, cred.passwordHash)) return;
+      // Only migrate legacy welcome123 hashes — never overwrite admin-set passwords.
       if (!(await verifyPassword("welcome123", cred.passwordHash))) return;
       await prisma.crmOperatorCredential.update({
         where: { id },

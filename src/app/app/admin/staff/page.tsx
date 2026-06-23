@@ -7,7 +7,7 @@ import { AttioButton, DataTable, Panel, StatusBadge } from "@/components/frontde
 import type { StaffMember } from "@/design-system/admin-data";
 import { parseActionError } from "@/lib/action-errors";
 import { staffRoleLabel } from "@/lib/healthcare-roles";
-import { createStaffWithLoginApi, resetStaffPasswordApi } from "@/lib/admin-staff-api";
+import { createStaffWithLoginApi, deleteStaffApi, resetStaffPasswordApi } from "@/lib/admin-staff-api";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
@@ -19,7 +19,6 @@ export default function AdminStaffPage() {
     canManageConfig,
     updateStaff,
     addStaff,
-    removeStaff,
     logAdminAction,
     hydrateSnapshot,
   } = useAdminStore();
@@ -113,10 +112,17 @@ export default function AdminStaffPage() {
                   className="rounded p-1 text-red-600 hover:bg-red-50"
                   aria-label="Remove"
                   onClick={() => {
-                    if (confirm(`Remove ${s.name} from staff?`)) {
-                      removeStaff(s.id);
-                      logAdminAction(`Removed staff: ${s.name}`);
-                    }
+                    if (!confirm(`Remove ${s.name} from staff? Their login will be deactivated.`)) return;
+                    void (async () => {
+                      const result = await deleteStaffApi(s.id);
+                      if (!result.ok) {
+                        showToast(result.error, "err");
+                        return;
+                      }
+                      hydrateSnapshot(result.data.snapshot);
+                      showToast(`Removed ${s.name}`, "ok");
+                      void logAdminAction(`Removed staff: ${s.name}`);
+                    })();
                   }}
                 >
                   <Trash2 className="size-3.5" />
