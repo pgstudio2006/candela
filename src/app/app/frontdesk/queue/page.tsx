@@ -4,7 +4,7 @@ import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { useFrontdeskPoll } from "@/hooks/use-frontdesk-poll";
-import { isAwaitingJuniorExam, isRedFlagVisit, patientDisplayName, sortQueueVisits } from "@/lib/frontdesk-workflow";
+import { isAwaitingConsultant, isAwaitingJuniorExam, isRedFlagVisit, patientDisplayName, sortQueueVisits } from "@/lib/frontdesk-workflow";
 import { cn } from "@/lib/utils";
 import { Clock } from "lucide-react";
 import Link from "next/link";
@@ -29,7 +29,7 @@ export default function QueuePage() {
         { label: "Queue" },
       ]}
       title="Reception queue"
-      meta="Grouped by doctor · FIFO by token · junior exam pending"
+      meta="Grouped by doctor · FIFO by token · through consultant handoff"
       actions={<AttioButton variant="secondary" onClick={callNext}>Call next</AttioButton>}
     >
       <div className="grid gap-4 lg:grid-cols-3">
@@ -68,6 +68,9 @@ export default function QueuePage() {
                       <div className="mt-2 flex flex-wrap gap-1">
                         <StatusBadge label={v.billing} variant={v.billing === "paid" ? "success" : "warning"} />
                         <StatusBadge label={`Exam ${v.exam}`} variant={v.exam === "done" ? "success" : "info"} />
+                        {isAwaitingConsultant(v) && (
+                          <StatusBadge label="Awaiting doctor" variant="info" />
+                        )}
                         {v.appointment && <StatusBadge label="Appt" variant="info" />}
                         {isRedFlagVisit(v) && <StatusBadge label="RED FLAG" variant="warning" />}
                       </div>

@@ -17,11 +17,11 @@ export default function JuniorExamListPage() {
         { label: "Junior exam" },
       ]}
       title="Junior doctor exam"
-      meta="MSK intake before senior consultation — full handoff payload to doctor"
+      meta="MSK intake before senior consultation — completed exams stay visible until doctor consult"
     >
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {exams.length === 0 && (
-          <p className="text-[13px] text-[var(--attio-text-tertiary)]">No patients in junior exam queue</p>
+          <p className="text-[13px] text-[var(--attio-text-tertiary)]">No patients in junior exam pipeline</p>
         )}
         {exams.map((v) => {
           const p = getPatient(v.patientId);

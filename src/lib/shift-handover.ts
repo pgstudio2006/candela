@@ -2,6 +2,7 @@ import type { Patient, Visit } from "@/design-system/frontdesk-data";
 import type { Appointment as StoreAppointment } from "@/lib/frontdesk-workflow";
 import {
   computeWaitMinutes,
+  isInReceptionQueue,
   isRedFlagVisit,
   patientDisplayName,
   sortQueueVisits,
@@ -33,9 +34,7 @@ export function buildShiftHandoverReport(
 ): ShiftHandoverReport {
   const today = new Date().toISOString().slice(0, 10);
   const todayVisits = visits.filter((v) => v.checkInAt || v.stage !== "registered");
-  const inQueue = sortQueueVisits(
-    visits.filter((v) => ["queued", "junior_exam"].includes(v.stage)),
-  );
+  const inQueue = sortQueueVisits(visits.filter(isInReceptionQueue));
   const getPatient = (id: string) => patients.find((p) => p.id === id);
 
   const doctorMap = new Map<string, Visit[]>();

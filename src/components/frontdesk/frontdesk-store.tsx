@@ -4,7 +4,7 @@ import {
   type Patient,
   type Visit,
 } from "@/design-system/frontdesk-data";
-import { buildActionItems, computeKpis, computeWaitMinutes, findDuplicatePatients, matchPatientByQuery, nextUhid, nowTime, patientDisplayName, sortQueueVisits, sortVisitsByToken, type Appointment, type FormSubmission, type FrontdeskCounters } from "@/lib/frontdesk-workflow";
+import { buildActionItems, computeKpis, computeWaitMinutes, findDuplicatePatients, isInReceptionQueue, matchPatientByQuery, nextUhid, nowTime, patientDisplayName, sortQueueVisits, sortVisitsByToken, type Appointment, type FormSubmission, type FrontdeskCounters } from "@/lib/frontdesk-workflow";
 import type { PaymentScope } from "@/lib/billing-routing";
 import type { BillingHandoffPayload } from "@/design-system/counsellor-data";
 import {
@@ -551,7 +551,7 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
         sortQueueVisits(
           state.visits.filter(
             (v) =>
-              ["queued", "junior_exam"].includes(v.stage) &&
+              isInReceptionQueue(v) &&
               (!doctorId || v.doctorId === doctorId),
           ),
         ).map((v) => ({
@@ -559,7 +559,9 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
           waitMin: v.checkInAt ? computeWaitMinutes(v.checkInAt) : v.waitMin,
         })),
       getJuniorExamVisits: () =>
-        state.visits.filter((v) => ["queued", "junior_exam"].includes(v.stage)),
+        state.visits.filter(
+          (v) => v.stage === "junior_exam" || (v.stage === "with_doctor" && v.exam === "done"),
+        ),
       getDashboardKpis: () => computeKpis(state.visits),
       getActionItems: () => buildActionItems(state.visits, state.patients),
       resetStore: () => {

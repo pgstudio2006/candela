@@ -1,7 +1,7 @@
 "use client";
 
 import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
-import { isRedFlagVisit, patientDisplayName, sortQueueVisits } from "@/lib/frontdesk-workflow";
+import { isAwaitingConsultant, isRedFlagVisit, patientDisplayName, sortQueueVisits } from "@/lib/frontdesk-workflow";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/components/candela/session-provider";
 import Link from "next/link";
@@ -26,7 +26,7 @@ export default function QueueDisplayPage() {
   const doctors = roster.allDoctors;
   const nowServing = useMemo(() => {
     const serving = visits.filter((v) => v.stage === "with_doctor" && v.token != null);
-    return sortQueueVisits(serving).pop();
+    return sortQueueVisits(serving)[0];
   }, [visits]);
 
   const timeLabel = clock.toLocaleTimeString("en-IN", {
@@ -85,7 +85,7 @@ export default function QueueDisplayPage() {
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {doctors.map((doc) => {
             const queue = sortQueueVisits(getQueueVisits(doc.id)).filter(
-              (v) => v.stage !== "with_doctor",
+              (v) => v.id !== nowServing?.id,
             );
             const next = queue[0];
             const rest = queue.slice(1, 4);
@@ -111,6 +111,9 @@ export default function QueueDisplayPage() {
                       #{next.token ?? "—"}
                     </p>
                     <p className="mt-1 truncate text-sm">{nextPatient ? patientDisplayName(nextPatient) : "—"}</p>
+                    {isAwaitingConsultant(next) && (
+                      <p className="mt-1 text-xs font-medium text-emerald-400">Junior exam done</p>
+                    )}
                     {isRedFlagVisit(next) && (
                       <p className="mt-1 text-xs font-medium text-red-400">RED FLAG</p>
                     )}

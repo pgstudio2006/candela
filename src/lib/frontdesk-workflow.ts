@@ -74,6 +74,15 @@ export function isAwaitingJuniorExam(visit: { stage: string; exam?: string }) {
   return visit.stage === "junior_exam" && visit.exam !== "done";
 }
 
+/** Reception + display-board queue through consultant handoff (excludes completed visits). */
+export function isInReceptionQueue(visit: { stage: string }) {
+  return ["queued", "junior_exam", "with_doctor"].includes(visit.stage);
+}
+
+export function isAwaitingConsultant(visit: { stage: string; exam?: string }) {
+  return visit.stage === "with_doctor" && visit.exam === "done";
+}
+
 export function nextUhid(counter: number) {
   return `NV-2026-${String(counter).padStart(4, "0")}`;
 }
@@ -297,7 +306,7 @@ export function computeKpis(visits: Visit[]) {
   const todayVisits = visits.filter((v) => v.checkInAt || v.stage !== "registered");
   const checkedIn = todayVisits.filter((v) => v.stage !== "registered").length;
   const billed = todayVisits.filter((v) => v.billing === "paid" || v.billing === "deferred").length;
-  const inQueue = visits.filter((v) => ["queued", "junior_exam"].includes(v.stage)).length;
+  const inQueue = visits.filter((v) => isInReceptionQueue(v)).length;
   const junior = visits.filter((v) => v.stage === "junior_exam").length;
   const withDoctor = visits.filter((v) => v.stage === "with_doctor").length;
   const collected = todayVisits
