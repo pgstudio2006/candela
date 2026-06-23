@@ -54,22 +54,38 @@ export async function runDatabaseBackup(): Promise<DatabaseBackupResult> {
   const filename = `candela-${stamp}.sql.gz`;
   const filepath = path.join(backupDir, filename);
 
-  await execFileAsync(
-    "sh",
-    ["-c", `pg_dump "$DATABASE_URL" --no-owner --no-acl | gzip > "$BACKUP_FILE"`],
-    {
-      env: {
-        ...process.env,
-        DATABASE_URL: databaseUrl,
-        BACKUP_FILE: filepath,
+  try {
+    await execFileAsync(
+      "sh",
+      [
+        "-ec",
+        `pg_dump "$DATABASE_URL" --no-owner --no-acl | gzip > "$BACKUP_FILE"`,
+      ],
+      {
+        env: {
+          ...process.env,
+          DATABASE_URL: databaseUrl,
+          BACKUP_FILE: filepath,
+        },
+        maxBuffer: 10 * 1024 * 1024,
       },
-    },
-  );
+    );
+  } catch (error) {
+    await fs.unlink(filepath).catch(() => undefined);
+    const detail =
+      error && typeof error === "object" && "stderr" in error
+        ? String((error as { stderr?: string }).stderr ?? "").trim()
+        : "";
+    throw new Error(detail || (error instanceof Error ? error.message : "pg_dump failed."));
+  }
 
   const stat = await fs.stat(filepath);
-  if (!stat.size) {
+  if (stat.size < 512) {
+    const sample = await fs.readFile(filepath);
     await fs.unlink(filepath).catch(() => undefined);
-    throw new Error("Backup file is empty — check DATABASE_URL and pg_dump access.");
+    throw new Error(
+      `Backup file too small (${stat.size} bytes) — pg_dump likely failed. Sample: ${sample.toString("hex").slice(0, 40)}`,
+    );
   }
 
   const retentionDays = Number(process.env.BACKUP_RETENTION_DAYS ?? 14);
