@@ -52,11 +52,12 @@ export function QueueSplit({
   );
 }
 
-export function BillingBadge({ status }: { status: "paid" | "deferred" | "pending" }) {
+export function BillingBadge({ status }: { status: "paid" | "deferred" | "pending" | "partial" }) {
   const map = {
     paid: { label: "Paid", variant: "success" as const },
     deferred: { label: "Deferred", variant: "warning" as const },
     pending: { label: "Pending", variant: "neutral" as const },
+    partial: { label: "Partial", variant: "warning" as const },
   };
   const m = map[status];
   return <StatusPill variant={m.variant}>{m.label}</StatusPill>;

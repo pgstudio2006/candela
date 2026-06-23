@@ -159,36 +159,9 @@ export const DOCTOR_TEMPLATES: DoctorTemplate[] = [
   },
 ];
 
-export const IPD_PATIENTS: IpdPatient[] = [
-  {
-    id: "ipd1",
-    patientId: "p1",
-    ward: "MSK Ward A",
-    bed: "A-12",
-    admittedAt: "2026-06-15",
-    diagnosis: "Lumbar disc — IPD rehab",
-    attendingDoctorId: "dr_1",
-    lastRoundAt: "2026-06-17 08:30",
-    lastRoundNote: "Pain 4/10. Physio tolerated. Continue protocol.",
-    status: "admitted",
-  },
-  {
-    id: "ipd2",
-    patientId: "p3",
-    ward: "Wellness Unit",
-    bed: "W-03",
-    admittedAt: "2026-06-16",
-    diagnosis: "Metabolic reset program",
-    attendingDoctorId: "dr_3",
-    status: "admitted",
-  },
-];
+export const IPD_PATIENTS: IpdPatient[] = [];
 
-export const DOCTOR_SCHEDULE_BLOCKS = [
-  { doctorId: "dr_1", date: "2026-06-18", slots: ["09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00"] },
-  { doctorId: "dr_2", date: "2026-06-18", slots: ["10:00", "10:30", "11:00", "11:30"] },
-  { doctorId: "dr_3", date: "2026-06-18", slots: ["09:00", "09:30", "10:00", "11:00", "11:30", "12:00", "12:30"] },
-];
+export const DOCTOR_SCHEDULE_BLOCKS: { doctorId: string; date: string; slots: string[] }[] = [];
 
 export const SCRIBE_LANGUAGES = [
   { id: "en", label: "English" },

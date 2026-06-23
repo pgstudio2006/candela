@@ -188,5 +188,5 @@ pm2 restart candela
 |-------|-----|
 | 502 Bad Gateway | Check `pm2 logs candela` — app may not be running |
 | Database connection | Verify `DATABASE_URL` and PostgreSQL is running |
-| Auth errors | Ensure `AUTH_SECRET` is set and `NEXT_PUBLIC_APP_URL` matches domain |
+| Auth errors | Ensure `AUTH_SECRET` is set. Set `AUTH_URL` and `NEXT_PUBLIC_APP_URL` to your exact public URL (e.g. `https://os.candela.adrine.in`). If sign-in redirects to `localhost:3000`, auth URL is misconfigured — check `GET /api/health/auth`. |
 | Build fails | Run `npm run db:generate` before `npm run build` |

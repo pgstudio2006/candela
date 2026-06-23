@@ -143,8 +143,15 @@ export function FrontdeskAppointmentsView() {
 }
 
 export function FrontdeskBillingView() {
-  const [selected, setSelected] = useState(QUEUE_PATIENTS[0].id);
-  const patient = QUEUE_PATIENTS.find((p) => p.id === selected)!;
+  const [selected, setSelected] = useState(QUEUE_PATIENTS[0]?.id ?? "");
+  const patient = QUEUE_PATIENTS.find((p) => p.id === selected);
+  if (!patient) {
+    return (
+      <Card className="p-4 text-[13px] text-[var(--c-text-secondary)]">
+        No patients in billing queue.
+      </Card>
+    );
+  }
   return (
     <QueueSplit
       listTitle="Billing queue"
@@ -170,8 +177,15 @@ export function FrontdeskBillingView() {
 }
 
 export function FrontdeskQueueView() {
-  const [selected, setSelected] = useState(QUEUE_PATIENTS[0].id);
-  const patient = QUEUE_PATIENTS.find((p) => p.id === selected)!;
+  const [selected, setSelected] = useState(QUEUE_PATIENTS[0]?.id ?? "");
+  const patient = QUEUE_PATIENTS.find((p) => p.id === selected);
+  if (!patient) {
+    return (
+      <Card className="p-4 text-[13px] text-[var(--c-text-secondary)]">
+        No patients in queue.
+      </Card>
+    );
+  }
   return (
     <QueueSplit
       listTitle="By doctor · FIFO"
@@ -283,8 +297,15 @@ export function NurseConsentView() {
 
 /* ─── Doctor ─── */
 export function DoctorQueueView() {
-  const [selected, setSelected] = useState(QUEUE_PATIENTS[0].id);
-  const patient = QUEUE_PATIENTS.find((p) => p.id === selected)!;
+  const [selected, setSelected] = useState(QUEUE_PATIENTS[0]?.id ?? "");
+  const patient = QUEUE_PATIENTS.find((p) => p.id === selected);
+  if (!patient) {
+    return (
+      <Card className="p-4 text-[13px] text-[var(--c-text-secondary)]">
+        No patients in doctor queue.
+      </Card>
+    );
+  }
   return (
     <QueueSplit
       listTitle="Doctor queue"

@@ -1,9 +1,11 @@
 "use client";
 
+import { getVisitReceiptAction } from "@/app/actions/clinical-actions";
 import { PrintableConsultRecord } from "@/components/doctor/print/printable-consult-record";
-import { PrintableInvoice } from "@/components/doctor/print/printable-invoice";
+import { InvoicePdfPreviewModal } from "@/components/doctor/print/invoice-pdf-preview-modal";
 import { PrintablePrescription } from "@/components/doctor/print/printable-prescription";
 import { PrintPreviewModal } from "@/components/doctor/print/print-preview-modal";
+import type { OpdReceiptPayload } from "@/lib/opd-receipt";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import type { Patient, Visit } from "@/design-system/frontdesk-data";
 import type { ConsultationRecord } from "@/design-system/doctor-data";
@@ -15,7 +17,7 @@ import {
   scribeLanguageLabel,
 } from "@/lib/doctor-records";
 import { FileText, Printer, Receipt } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type ConsultRecordViewProps = {
   patient: Patient;
@@ -33,7 +35,42 @@ export function ConsultRecordView({
   compact,
 }: ConsultRecordViewProps) {
   const [printKind, setPrintKind] = useState<"rx" | "invoice" | "record" | null>(null);
-  const invoiceNo = `NV-INV-${visit.id.toUpperCase()}-${new Date().getFullYear()}`;
+  const [invoiceReceipt, setInvoiceReceipt] = useState<OpdReceiptPayload | null>(null);
+  const [invoiceLoading, setInvoiceLoading] = useState(false);
+  const [invoiceError, setInvoiceError] = useState("");
+
+  useEffect(() => {
+    if (printKind !== "invoice") {
+      setInvoiceReceipt(null);
+      setInvoiceError("");
+      return;
+    }
+
+    let cancelled = false;
+    setInvoiceLoading(true);
+    setInvoiceError("");
+
+    void getVisitReceiptAction(visit.id)
+      .then((data) => {
+        if (cancelled) return;
+        if ("error" in data) {
+          setInvoiceError(data.error ?? "Could not load invoice.");
+          setInvoiceReceipt(null);
+        } else {
+          setInvoiceReceipt(data.receipt);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setInvoiceError("Could not load invoice.");
+      })
+      .finally(() => {
+        if (!cancelled) setInvoiceLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [printKind, visit.id]);
 
   return (
     <>
@@ -180,20 +217,14 @@ export function ConsultRecordView({
         <PrintablePrescription patient={patient} visit={visit} consult={consult} doctorName={doctorName} />
       </PrintPreviewModal>
 
-      <PrintPreviewModal
+      <InvoicePdfPreviewModal
         open={printKind === "invoice"}
         onClose={() => setPrintKind(null)}
-        title="Invoice"
-        printId="print-inv"
-      >
-        <PrintableInvoice
-          patient={patient}
-          visit={visit}
-          consult={consult}
-          doctorName={doctorName}
-          invoiceNo={invoiceNo}
-        />
-      </PrintPreviewModal>
+        title="Tax invoice"
+        receipt={invoiceReceipt}
+        loading={invoiceLoading}
+        error={invoiceError}
+      />
 
       <PrintPreviewModal
         open={printKind === "record"}
