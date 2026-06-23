@@ -1,4 +1,6 @@
-/** Department + doctor roster resolved from admin DB (with legacy seed fallbacks) */
+/** Department + doctor roster resolved from admin DB */
+
+import { stripLegacyDemoDoctorIds } from "@/lib/legacy-demo-doctors";
 
 export type DoctorOption = { id: string; name: string };
 export type DeptOption = { id: string; label: string };
@@ -8,25 +10,6 @@ export type ClinicalRoster = {
   doctorsByDept: Record<string, DoctorOption[]>;
   doctorNames: Record<string, string>;
   allDoctors: DoctorOption[];
-};
-
-const LEGACY_DOCTOR_NAMES: Record<string, string> = {
-  dr_1: "Dr. Rajesh Mehta",
-  dr_2: "Dr. Priya Nair",
-  dr_3: "Dr. Anil Verma",
-};
-
-/** Demo / legacy login email → OPD doctor queue id */
-export const DOCTOR_LOGIN_EMAIL_MAP: Record<string, string> = {
-  "doctor@navayu.in": "dr_1",
-  "dr.mehta@navayu.in": "dr_1",
-};
-
-/** Legacy doctor id → HR employee email for leave checks */
-export const DOCTOR_HR_EMAIL_MAP: Record<string, string> = {
-  dr_1: "dr.mehta@navayu.in",
-  dr_2: "priya@navayu.in",
-  dr_3: "anita@navayu.in",
 };
 
 export function doctorIdFromStaffId(staffId: string) {
@@ -39,7 +22,12 @@ export function staffIdFromDoctorId(doctorId: string) {
 
 export function resolveDoctorName(doctorId: string, roster?: ClinicalRoster | null) {
   if (roster?.doctorNames[doctorId]) return roster.doctorNames[doctorId];
-  return LEGACY_DOCTOR_NAMES[doctorId] ?? doctorId.replace(/^dr_/, "Dr. ");
+  const staffId = staffIdFromDoctorId(doctorId);
+  if (staffId && roster) {
+    const match = roster.allDoctors.find((d) => d.id === doctorId);
+    if (match) return match.name;
+  }
+  return doctorId.replace(/^dr_/, "Dr. ");
 }
 
 export function deptLabelFromRoster(deptId: string, roster?: ClinicalRoster | null): string {
@@ -52,7 +40,7 @@ export function buildClinicalRoster(
   departments: { id: string; label: string; doctorIds: string[]; active?: boolean }[],
   staff: { id: string; name: string; role: string; departmentIds?: string[] }[],
 ): ClinicalRoster {
-  const doctorNames: Record<string, string> = { ...LEGACY_DOCTOR_NAMES };
+  const doctorNames: Record<string, string> = {};
 
   for (const member of staff) {
     if (member.role === "doctor") {
@@ -64,9 +52,10 @@ export function buildClinicalRoster(
   const doctorsByDept: Record<string, DoctorOption[]> = {};
 
   for (const dept of activeDepts) {
-    doctorsByDept[dept.id] = dept.doctorIds.map((id) => ({
+    const ids = stripLegacyDemoDoctorIds(dept.doctorIds);
+    doctorsByDept[dept.id] = ids.map((id) => ({
       id,
-      name: doctorNames[id] ?? id,
+      name: doctorNames[id] ?? resolveDoctorName(id),
     }));
   }
 
@@ -82,10 +71,15 @@ export function buildClinicalRoster(
   }
 
   const allFromDepts = Object.values(doctorsByDept).flat();
-  const allDoctors = [...allFromDepts, ...staff.filter((s) => s.role === "doctor").map((s) => ({
-    id: doctorIdFromStaffId(s.id),
-    name: s.name,
-  }))].filter((d, i, arr) => arr.findIndex((x) => x.id === d.id) === i);
+  const allDoctors = [
+    ...allFromDepts,
+    ...staff
+      .filter((s) => s.role === "doctor")
+      .map((s) => ({
+        id: doctorIdFromStaffId(s.id),
+        name: s.name,
+      })),
+  ].filter((d, i, arr) => arr.findIndex((x) => x.id === d.id) === i);
 
   return {
     departments: activeDepts.map((d) => ({ id: d.id, label: d.label })),
@@ -101,8 +95,8 @@ export function doctorsForDepartment(roster: ClinicalRoster, deptId: string): Do
 
 export const EMPTY_ROSTER: ClinicalRoster = buildClinicalRoster(
   [
-    { id: "dept_spine", label: "Spine & Joint Care", doctorIds: ["dr_1", "dr_2"], active: true },
-    { id: "dept_wellness", label: "Wellness & Metabolic", doctorIds: ["dr_3"], active: true },
+    { id: "dept_spine", label: "Spine & Joint Care", doctorIds: [], active: true },
+    { id: "dept_wellness", label: "Wellness & Metabolic", doctorIds: [], active: true },
   ],
   [],
 );

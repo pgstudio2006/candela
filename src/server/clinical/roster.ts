@@ -2,12 +2,12 @@ import { prisma } from "@/lib/prisma";
 import {
   buildClinicalRoster,
   doctorIdFromStaffId,
-  DOCTOR_LOGIN_EMAIL_MAP,
   type ClinicalRoster,
 } from "@/lib/clinical-roster";
 import type { DoctorProfile } from "@/design-system/doctor-data";
 import type { ServerContext } from "@/server/context";
 import { ServerActionError } from "@/server/errors";
+import { stripLegacyDemoDoctorIds } from "@/lib/legacy-demo-doctors";
 
 function parseArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : [];
@@ -20,35 +20,18 @@ export async function resolveDoctorProfile(ctx: ServerContext): Promise<DoctorPr
     throw new ServerActionError("UNAUTHORIZED", "Doctor login not linked to a user account.");
   }
 
-  const legacyDoctorId = DOCTOR_LOGIN_EMAIL_MAP[email];
   const departments = await prisma.adminDepartment.findMany({
     where: { active: true },
     orderBy: { label: "asc" },
   });
 
-  let staff = await prisma.adminStaff.findFirst({
-    where: { email, role: "doctor", branchId: ctx.branchId },
-  });
-  if (!staff) {
-    staff = await prisma.adminStaff.findFirst({
+  const staff =
+    (await prisma.adminStaff.findFirst({
+      where: { email, role: "doctor", branchId: ctx.branchId },
+    })) ??
+    (await prisma.adminStaff.findFirst({
       where: { email, role: "doctor" },
-    });
-  }
-
-  if (legacyDoctorId) {
-    const departmentIds = staff ? parseArray(staff.departmentIds) : [];
-    const departmentLabels = departmentIds.map(
-      (id) => departments.find((d) => d.id === id)?.label ?? id,
-    );
-    return {
-      doctorId: legacyDoctorId,
-      staffId: staff?.id ?? "",
-      name: staff?.name ?? user?.name ?? "Doctor",
-      email,
-      departmentIds,
-      departmentLabels,
-    };
-  }
+    }));
 
   if (!staff) {
     throw new ServerActionError(
@@ -88,7 +71,7 @@ export async function loadClinicalRoster(_ctx: ServerContext): Promise<ClinicalR
     departments.map((d) => ({
       id: d.id,
       label: d.label,
-      doctorIds: parseArray(d.doctorIds),
+      doctorIds: stripLegacyDemoDoctorIds(parseArray(d.doctorIds)),
       active: d.active,
     })),
     staff.map((s) => ({

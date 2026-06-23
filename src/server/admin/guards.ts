@@ -64,10 +64,13 @@ export function assertFinanceAccess(operator: AdminOperator) {
 
 export async function requireStaffInBranch(ctx: ServerContext, staffId: string) {
   const staff = await prisma.adminStaff.findFirst({
-    where: { id: staffId, branchId: ctx.branchId },
+    where: {
+      id: staffId,
+      OR: [{ branchId: ctx.branchId }, { branchId: "" }],
+    },
   });
   if (!staff) {
-    throw new ServerActionError("NOT_FOUND", "Staff member not found in this branch.");
+    throw new ServerActionError("NOT_FOUND", "Staff member not found.");
   }
   return staff;
 }

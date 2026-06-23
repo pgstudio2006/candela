@@ -33,7 +33,7 @@ import { backfillBranchScope } from "@/server/branch-scope";
 import { syncVisitFromOpdVisit } from "@/server/visit-sync";
 import { loadClinicalRoster } from "@/server/clinical/roster";
 import { withPrismaError } from "@/server/prisma-errors";
-import { DOCTOR_HR_EMAIL_MAP, resolveDoctorName, staffIdFromDoctorId } from "@/lib/clinical-roster";
+import { resolveDoctorName, staffIdFromDoctorId } from "@/lib/clinical-roster";
 import type { ClinicalRoster } from "@/lib/clinical-roster";
 import { notifyAppointmentReminder } from "@/server/notifications";
 
@@ -1262,7 +1262,10 @@ export async function bookAppointment(
   if (!patient) return { appointmentId: "", visitId: "", error: "Patient not found" };
 
   const roster = await loadClinicalRoster(ctx);
-  const doctorId = String(data.doctor ?? roster.allDoctors[0]?.id ?? "dr_1");
+  const doctorId = String(data.doctor ?? roster.allDoctors[0]?.id ?? "");
+  if (!doctorId) {
+    throw new ServerActionError("VALIDATION", "Select a doctor — add doctors under Admin → Staff first.");
+  }
   const deptId = String(data.department ?? "dept_spine");
   const resolvedDoctorName = resolveDoctorName(doctorId, roster);
 
@@ -1359,24 +1362,6 @@ export async function bookAppointment(
 }
 
 async function isDoctorOnLeave(doctorId: string, date: string): Promise<boolean> {
-  const hrEmail = DOCTOR_HR_EMAIL_MAP[doctorId];
-  if (hrEmail) {
-    const hrEmp = await prisma.hrEmployee.findFirst({
-      where: { email: hrEmail.trim().toLowerCase(), active: true },
-    });
-    if (hrEmp) {
-      const leave = await prisma.hrLeaveRequest.findFirst({
-        where: {
-          employeeId: hrEmp.id,
-          status: "approved",
-          fromDate: { lte: date },
-          toDate: { gte: date },
-        },
-      });
-      if (leave) return true;
-    }
-  }
-
   const staffId = staffIdFromDoctorId(doctorId);
   if (!staffId) return false;
   const staff = await prisma.adminStaff.findUnique({ where: { id: staffId } });

@@ -253,17 +253,42 @@ export const FIELD_TYPE_CATALOG: {
   { type: "help", label: "Help text", category: "layout" },
 ];
 
+/** Demo bundle only — production uses admin-only seed or manual staff onboarding. */
 export const SEED_STAFF: StaffMember[] = [
-  { id: "st_1", name: "Admin User", email: "admin@navayu.in", phone: "+91 98765 00001", role: "super_admin", departmentIds: ["dept_spine", "dept_wellness"], branchId: "branch_gurgaon", onDuty: true, joinedAt: "2024-01-15" },
-  { id: "st_2", name: "Anita Desai", email: "anita@navayu.in", phone: "+91 98765 00002", role: "branch_admin", departmentIds: ["dept_spine"], branchId: "branch_gurgaon", licenseNo: "RN-4421", onDuty: true, joinedAt: "2024-03-01" },
-  { id: "st_3", name: "Priya Sharma", email: "priya@navayu.in", phone: "+91 98765 00003", role: "viewer", departmentIds: ["dept_spine"], branchId: "branch_gurgaon", onDuty: true, joinedAt: "2024-06-10" },
-  { id: "st_4", name: "Finance Lead", email: "finance@navayu.in", phone: "+91 98765 00004", role: "finance", departmentIds: ["dept_spine", "dept_wellness"], branchId: "branch_gurgaon", onDuty: false, joinedAt: "2023-11-20" },
-  { id: "st_5", name: "MRD Officer", email: "mrd@navayu.in", phone: "+91 98765 00005", role: "mrd", departmentIds: [], branchId: "branch_gurgaon", onDuty: true, joinedAt: "2025-01-05" },
+  {
+    id: "st_1",
+    name: "Admin User",
+    email: "admin@navayu.in",
+    phone: "+91 98765 00001",
+    role: "super_admin",
+    departmentIds: ["dept_spine", "dept_wellness"],
+    branchId: "branch_gurgaon",
+    onDuty: true,
+    joinedAt: "2024-01-15",
+  },
 ];
 
 export const SEED_DEPARTMENTS: DepartmentConfig[] = [
-  { id: "dept_spine", label: "Spine & Joint Care", headStaffId: "st_2", doctorIds: ["dr_1", "dr_2"], defaultPackageIds: ["pkg_basic", "pkg_regen"], revenuePolicyId: "rsp_1", bays: ["Physio Bay 1", "Physio Bay 2", "Procedure Room"], active: true },
-  { id: "dept_wellness", label: "Wellness & Metabolic", headStaffId: "st_2", doctorIds: ["dr_3"], defaultPackageIds: ["pkg_wellness"], revenuePolicyId: "rsp_2", bays: ["Wellness Studio"], active: true },
+  {
+    id: "dept_spine",
+    label: "Spine & Joint Care",
+    headStaffId: "st_1",
+    doctorIds: [],
+    defaultPackageIds: ["pkg_basic", "pkg_regen"],
+    revenuePolicyId: "rsp_1",
+    bays: ["Physio Bay 1", "Physio Bay 2", "Procedure Room"],
+    active: true,
+  },
+  {
+    id: "dept_wellness",
+    label: "Wellness & Metabolic",
+    headStaffId: "st_1",
+    doctorIds: [],
+    defaultPackageIds: ["pkg_wellness"],
+    revenuePolicyId: "rsp_2",
+    bays: ["Wellness Studio"],
+    active: true,
+  },
 ];
 
 export const SEED_DISEASE_MAP: DiseaseMapNode[] = [
@@ -366,7 +391,7 @@ export const SEED_EXPENSES: ExpenseEntry[] = [
 ];
 
 export const SEED_REVENUE_POLICIES: RevenueSharePolicy[] = [
-  { id: "rsp_1", label: "Spine — senior consultant", departmentId: "dept_spine", doctorId: "dr_1", opdConsultPercent: 40, packageNetPercent: 8, ipdDayFixed: 2500, appliesToPartial: false, active: true },
+  { id: "rsp_1", label: "Spine — consultant share", departmentId: "dept_spine", doctorId: "", opdConsultPercent: 40, packageNetPercent: 8, ipdDayFixed: 2500, appliesToPartial: false, active: true },
   { id: "rsp_2", label: "Wellness — default", departmentId: "dept_wellness", doctorId: "dr_3", opdConsultPercent: 35, packageNetPercent: 10, ipdDayFixed: 2000, appliesToPartial: true, active: true },
   { id: "rsp_3", label: "Spine — associate", departmentId: "dept_spine", doctorId: "dr_2", opdConsultPercent: 30, packageNetPercent: 6, ipdDayFixed: 1800, appliesToPartial: false, active: true },
 ];

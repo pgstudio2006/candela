@@ -16,14 +16,14 @@ export async function DELETE(
   try {
     const { staffId } = await context.params;
     const { ctx, operator } = await resolveAdminOperator();
-    const { assertConfigAccess } = await import("@/server/admin/guards");
-    assertConfigAccess(operator);
-    const { removeStaffMember } = await import("@/server/admin/staff-onboarding");
-    await removeStaffMember(ctx, staffId);
+    const { removeStaff } = await import("@/server/admin/index");
+    await removeStaff(ctx, operator, staffId);
     const snapshot = await getAdminSnapshotForContext(ctx, operator);
     return NextResponse.json({ ok: true, data: { snapshot: serializeForClient(snapshot) } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to remove staff.";
-    return NextResponse.json({ ok: false, error: message }, { status: 400 });
+    const status =
+      message.includes("not found") || message.includes("Not found") ? 404 : 400;
+    return NextResponse.json({ ok: false, error: message }, { status });
   }
 }

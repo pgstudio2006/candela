@@ -21,6 +21,8 @@ export default function AdminStaffPage() {
     addStaff,
     logAdminAction,
     hydrateSnapshot,
+    removeStaffLocal,
+    refresh,
   } = useAdminStore();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<StaffMember | undefined>();
@@ -114,9 +116,11 @@ export default function AdminStaffPage() {
                   onClick={() => {
                     if (!confirm(`Remove ${s.name} from staff? Their login will be deactivated.`)) return;
                     void (async () => {
+                      removeStaffLocal(s.id);
                       const result = await deleteStaffApi(s.id);
                       if (!result.ok) {
                         showToast(result.error, "err");
+                        void refresh();
                         return;
                       }
                       hydrateSnapshot(result.data.snapshot);

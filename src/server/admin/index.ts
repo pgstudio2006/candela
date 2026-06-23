@@ -25,7 +25,8 @@ import {
   computeLiveGeoClusters,
   type DataMiningSnapshot,
 } from "@/lib/admin-analytics";
-import { syncDoctorToDepartments } from "@/server/admin/doctor-department-sync";
+import { doctorIdFromStaffId } from "@/lib/healthcare-roles";
+import { syncDoctorToDepartments, removeDoctorFromAllDepartments } from "@/server/admin/doctor-department-sync";
 import {
   assertConfigAccess,
   assertFinanceAccess,
@@ -505,8 +506,10 @@ export async function updateStaff(
       const role = patch.role ?? existing?.role;
       const departmentIds =
         patch.departmentIds ?? parseArray<string>(existing?.departmentIds);
-      if (role === "doctor" && departmentIds?.length) {
-        await syncDoctorToDepartments(id, departmentIds);
+      if (role === "doctor") {
+        await syncDoctorToDepartments(id, departmentIds ?? []);
+      } else if (existing?.role === "doctor") {
+        await removeDoctorFromAllDepartments(doctorIdFromStaffId(id));
       }
       const updated = await prisma.adminStaff.findUnique({ where: { id } });
       if (updated) {

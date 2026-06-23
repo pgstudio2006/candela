@@ -20,6 +20,7 @@ import {
 } from "@/lib/admin-platform";
 import type { DataMiningSnapshot } from "@/lib/admin-analytics";
 import { parseActionError } from "@/lib/action-errors";
+import { doctorIdFromStaffId } from "@/lib/healthcare-roles";
 import { sleep } from "@/lib/session-retry";
 import {
   isRetryableWorkspaceError,
@@ -73,6 +74,7 @@ type AdminStoreValue = Omit<
   visits: Visit[];
   refresh: (opts?: { silent?: boolean }) => Promise<void>;
   hydrateSnapshot: (snapshot: AdminSnapshot) => void;
+  removeStaffLocal: (staffId: string) => void;
   getAuditLog: () => AdminSnapshot["auditEvents"];
   getCommandKpis: () => ReturnType<typeof computeCommandKpis>;
   getHawkEye: () => ReturnType<typeof computeHawkEye>;
@@ -147,7 +149,12 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
   stateRef.current = state;
 
   const hasAdminData = (snapshot: AdminSnapshot | null) =>
-    Boolean(snapshot && (snapshot.staff.length > 0 || snapshot.patients.length > 0));
+    Boolean(
+      snapshot &&
+        (snapshot.staff.length > 0 ||
+          snapshot.patients.length > 0 ||
+          snapshot.departments.length > 0),
+    );
 
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent ?? false;
@@ -225,6 +232,14 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
     setReady(true);
   }, []);
 
+  const removeStaffLocal = useCallback((staffId: string) => {
+    setState((prev) =>
+      prev ? { ...prev, staff: prev.staff.filter((s) => s.id !== staffId) } : prev,
+    );
+    setError(null);
+    setReady(true);
+  }, []);
+
   const run = useCallback(
     async (fn: () => Promise<AdminSnapshot>) => {
       try {
@@ -291,6 +306,7 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
       visits,
       refresh,
       hydrateSnapshot,
+      removeStaffLocal,
       getAuditLog: () => data.auditEvents,
       getCommandKpis: () =>
         computeCommandKpis(visits, data.staff, data.mrdRequests, patients, data.auditEvents.length),
@@ -301,13 +317,12 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
       getPrevalence: () => data.dataMining.livePrevalence,
       simulateShare: (policyId) => {
         const policy = data.revenuePolicies.find((p) => p.id === policyId)!;
-        const doctorId = policy.doctorId ?? "dr_1";
-        const name =
-          doctorId === "dr_1"
-            ? "Dr. Rajesh Mehta"
-            : doctorId === "dr_2"
-              ? "Dr. Priya Nair"
-              : "Dr. Anil Verma";
+        const doctorStaff =
+          data.staff.find(
+            (s) => s.role === "doctor" && doctorIdFromStaffId(s.id) === policy.doctorId,
+          ) ?? data.staff.find((s) => s.role === "doctor");
+        const doctorId = policy.doctorId || (doctorStaff ? doctorIdFromStaffId(doctorStaff.id) : "");
+        const name = doctorStaff?.name ?? policy.label;
         return simulateRevenueShare(doctorId, name, policy, visits);
       },
       updateStaff: (id, patch) => run(() => updateStaffAction(id, patch)),
@@ -342,7 +357,7 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
         exportRevenueShareCsvAction(policyId, doctorName, gross, share, packagesClosed),
       logAdminAction: (summary) => run(() => logAdminActionMutation(summary)),
     };
-  }, [state, ready, error, refresh, hydrateSnapshot, run, session?.branchId]);
+  }, [state, ready, error, refresh, hydrateSnapshot, removeStaffLocal, run, session?.branchId]);
 
   return <AdminContext.Provider value={value}>{children}</AdminContext.Provider>;
 }

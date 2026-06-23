@@ -92,7 +92,10 @@ export async function resolveAdminOperator() {
   }
   const email = user.email.toLowerCase();
   const staff = await prisma.adminStaff.findFirst({
-    where: { email, branchId: ctx.branchId },
+    where: {
+      email,
+      OR: [{ branchId: ctx.branchId }, { branchId: "" }],
+    },
   });
   if (staff) {
     const { buildAdminOperator } = await import("@/server/admin/guards");

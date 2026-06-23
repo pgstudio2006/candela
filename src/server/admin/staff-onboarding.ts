@@ -3,7 +3,10 @@ import { prisma } from "@/lib/prisma";
 import type { StaffMember } from "@/design-system/admin-data";
 import { validateAdminPassword, validateStaffInput } from "@/lib/admin-validation";
 import { doctorIdFromStaffId, moduleRoleForStaffRole, type HealthcareStaffRole, generateStaffPassword } from "@/lib/healthcare-roles";
-import { syncDoctorToDepartments } from "@/server/admin/doctor-department-sync";
+import {
+  removeDoctorFromAllDepartments,
+  syncDoctorToDepartments,
+} from "@/server/admin/doctor-department-sync";
 import type { ServerContext } from "@/server/context";
 import { branchScope } from "@/server/tenancy";
 import { ServerActionError } from "@/server/errors";
@@ -235,10 +238,6 @@ export async function resetStaffLoginPassword(
   return { loginEmail: email, initialPassword };
 }
 
-function parseDeptDoctorIds(value: unknown): string[] {
-  return Array.isArray(value) ? value.map(String) : [];
-}
-
 /** Sync name/role/branch on linked User — never changes passwordHash. */
 export async function syncStaffUserProfile(
   ctx: ServerContext,
@@ -287,25 +286,29 @@ export async function syncStaffUserProfile(
 export async function removeStaffMember(ctx: ServerContext, staffId: string) {
   const scope = branchScope(ctx);
   const staff = await prisma.adminStaff.findFirst({
-    where: { id: staffId, branchId: scope.branchId },
+    where: {
+      id: staffId,
+      OR: [{ branchId: scope.branchId }, { branchId: "" }],
+    },
   });
   if (!staff) {
-    throw new ServerActionError("NOT_FOUND", "Staff member not found in this branch.");
+    throw new ServerActionError("NOT_FOUND", "Staff member not found.");
   }
 
   const drId = staff.role === "doctor" ? doctorIdFromStaffId(staffId) : null;
   const email = staff.email.trim().toLowerCase();
 
+  if (drId) {
+    await removeDoctorFromAllDepartments(drId);
+  }
+
   const departments = await prisma.adminDepartment.findMany();
   for (const dept of departments) {
-    const doctorIds = parseDeptDoctorIds(dept.doctorIds).filter((id) => id !== drId);
-    const headStaffId = dept.headStaffId === staffId ? null : dept.headStaffId;
-    if (headStaffId !== dept.headStaffId || doctorIds.length !== parseDeptDoctorIds(dept.doctorIds).length) {
-      await prisma.adminDepartment.update({
-        where: { id: dept.id },
-        data: { headStaffId, doctorIds },
-      });
-    }
+    if (dept.headStaffId !== staffId) continue;
+    await prisma.adminDepartment.update({
+      where: { id: dept.id },
+      data: { headStaffId: null },
+    });
   }
 
   await prisma.adminStaff.delete({ where: { id: staffId } });
