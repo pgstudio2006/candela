@@ -55,6 +55,10 @@ if [ -n "$DATABASE_URL" ]; then
     echo "Seeding database..."
     npx prisma db seed || echo "Seed skipped or failed (non-fatal)."
   fi
+  if [ -n "$ADMIN_BOOTSTRAP_PASSWORD" ]; then
+    echo "Ensuring admin login from ADMIN_BOOTSTRAP_PASSWORD..."
+    ADMIN_PASSWORD="$ADMIN_BOOTSTRAP_PASSWORD" node scripts/seed-admin-only.mjs || echo "Admin bootstrap skipped or failed."
+  fi
 else
   echo "WARNING: DATABASE_URL is not set — skipping database setup."
 fi
