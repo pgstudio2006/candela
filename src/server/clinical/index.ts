@@ -28,7 +28,8 @@ import {
 } from "@/lib/frontdesk-validation";
 import { ensureHospitalBootstrap } from "@/server/hospital-bootstrap";
 import { writePlatformAudit } from "@/server/platform-audit";
-import { branchScope } from "@/server/tenancy";
+import { branchClinicalWhere, branchScope } from "@/server/tenancy";
+import { backfillBranchScope } from "@/server/branch-scope";
 import { syncVisitFromOpdVisit } from "@/server/visit-sync";
 import { loadClinicalRoster } from "@/server/clinical/roster";
 import { withPrismaError } from "@/server/prisma-errors";
@@ -156,11 +157,16 @@ async function ensureClinicalSeed() {
   const patientCount = await prisma.patient.count();
   if (patientCount > 0) return;
 
+  const tenantId = process.env.DEFAULT_TENANT_ID ?? "tenant_navayu";
+  const branchId = process.env.DEFAULT_BRANCH_ID ?? "branch_gurgaon";
+
   await prisma.$transaction(async (tx) => {
     for (const patient of SEED_PATIENTS) {
       await tx.patient.create({
         data: {
           id: patient.id,
+          tenantId,
+          branchId,
           uhid: patient.uhid,
           name: patient.name,
           phone: patient.phone,
@@ -181,6 +187,8 @@ async function ensureClinicalSeed() {
       await tx.opdVisit.create({
         data: {
           id: visit.id,
+          tenantId,
+          branchId,
           patientId: visit.patientId,
           token: visit.token,
           stage: visit.stage,
@@ -263,52 +271,6 @@ async function ensureClinicalSeed() {
       await tx.documentTemplate.create({ data: template });
     }
   });
-}
-
-async function backfillBranchScope(ctx: ServerContext) {
-  const scope = branchScope(ctx);
-  const unscopedPatient = {
-    OR: [
-      { tenantId: null },
-      { branchId: null },
-      { tenantId: "" },
-      { branchId: "" },
-    ],
-  };
-  await prisma.patient.updateMany({
-    where: unscopedPatient,
-    data: scope,
-  });
-  await prisma.opdVisit.updateMany({
-    where: unscopedPatient,
-    data: scope,
-  });
-
-  const branchVisitIds = (
-    await prisma.opdVisit.findMany({ where: scope, select: { id: true } })
-  ).map((v) => v.id);
-  if (branchVisitIds.length > 0) {
-    await prisma.appointment.updateMany({
-      where: {
-        visitId: { in: branchVisitIds },
-        OR: [{ branchId: null }, { tenantId: null }],
-      },
-      data: scope,
-    });
-  }
-
-  const nullNamePatients = await prisma.patient.findMany({
-    where: {
-      tenantId: scope.tenantId,
-      branchId: scope.branchId,
-      OR: [{ name: null }, { name: "" }],
-    },
-    select: { id: true, fullName: true, uhid: true },
-  });
-  for (const row of nullNamePatients) {
-    const name = patientDisplayName(row);
-    await prisma.patient.update({ where: { id: row.id }, data: { name } });
-  }
 }
 
 async function requireVisitInBranch(ctx: ServerContext, visitId: string) {
@@ -420,16 +382,16 @@ export async function getClinicalSnapshot(ctx: ServerContext): Promise<ClinicalS
   await ensureHospitalBootstrap();
   await ensureClinicalSeed();
   await backfillBranchScope(ctx);
-  const scope = branchScope(ctx);
+  const clinicalWhere = branchClinicalWhere(ctx);
 
   const [patientsRows, visitsRows, appointmentRows, handoffRows, roster] = await Promise.all([
-    prisma.patient.findMany({ where: scope, orderBy: { createdAt: "asc" } }),
-    prisma.opdVisit.findMany({ where: scope, orderBy: { createdAt: "asc" } }),
+    prisma.patient.findMany({ where: clinicalWhere, orderBy: { createdAt: "asc" } }),
+    prisma.opdVisit.findMany({ where: clinicalWhere, orderBy: { createdAt: "asc" } }),
     prisma.appointment.findMany({
-      where: { tenantId: scope.tenantId, branchId: scope.branchId },
+      where: { tenantId: ctx.tenantId, branchId: ctx.branchId },
       orderBy: { createdAt: "asc" },
     }),
-    prisma.billingHandoff.findMany({ where: { branchId: scope.branchId }, orderBy: { createdAt: "asc" } }),
+    prisma.billingHandoff.findMany({ where: { branchId: ctx.branchId }, orderBy: { createdAt: "asc" } }),
     loadClinicalRoster(ctx),
   ]);
 
@@ -1439,7 +1401,8 @@ export async function searchPatientsPaginated(
   input: { q?: string; page?: number; pageSize?: number; view?: "all" | "balance" | "today" },
 ) {
   await ensureHospitalBootstrap();
-  const scope = branchScope(ctx);
+  await backfillBranchScope(ctx);
+  const clinicalWhere = branchClinicalWhere(ctx);
   const page = Math.max(1, input.page ?? 1);
   const pageSize = Math.min(100, Math.max(10, input.pageSize ?? 25));
   const q = input.q?.trim();
@@ -1450,7 +1413,7 @@ export async function searchPatientsPaginated(
     todayStart.setHours(0, 0, 0, 0);
     const visits = await prisma.opdVisit.findMany({
       where: {
-        ...scope,
+        ...clinicalWhere,
         checkInAt: { not: null },
         updatedAt: { gte: todayStart },
       },
@@ -1463,20 +1426,23 @@ export async function searchPatientsPaginated(
   }
 
   const where = {
-    tenantId: scope.tenantId,
-    branchId: scope.branchId,
-    ...(input.view === "balance" ? { balance: { gt: 0 } } : {}),
-    ...(patientIdsFilter ? { id: { in: patientIdsFilter } } : {}),
-    ...(q
-      ? {
-          OR: [
-            { uhid: { contains: q, mode: "insensitive" as const } },
-            { name: { contains: q, mode: "insensitive" as const } },
-            { fullName: { contains: q, mode: "insensitive" as const } },
-            { phone: { contains: q, mode: "insensitive" as const } },
-          ],
-        }
-      : {}),
+    AND: [
+      clinicalWhere,
+      ...(input.view === "balance" ? [{ balance: { gt: 0 } }] : []),
+      ...(patientIdsFilter ? [{ id: { in: patientIdsFilter } }] : []),
+      ...(q
+        ? [
+            {
+              OR: [
+                { uhid: { contains: q, mode: "insensitive" as const } },
+                { name: { contains: q, mode: "insensitive" as const } },
+                { fullName: { contains: q, mode: "insensitive" as const } },
+                { phone: { contains: q, mode: "insensitive" as const } },
+              ],
+            },
+          ]
+        : []),
+    ],
   };
 
   const [rows, total] = await Promise.all([

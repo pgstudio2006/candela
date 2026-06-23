@@ -144,8 +144,10 @@ export async function searchPatientsPaginatedAction(input: {
   pageSize?: number;
   view?: "all" | "balance" | "today";
 }) {
-  const ctx = await requireModule("frontdesk");
-  return searchPatientsPaginated(ctx, input);
+  return runAction(async () => {
+    const ctx = await requireModule("frontdesk");
+    return searchPatientsPaginated(ctx, input);
+  });
 }
 
 export async function listFrontdeskAuditLogsAction(input?: { limit?: number; cursor?: string }) {

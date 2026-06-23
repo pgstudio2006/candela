@@ -11,19 +11,32 @@ export function sortDoctorOpdQueue(visits: Visit[]): Visit[] {
   });
 }
 
-/** Whether a visit belongs in this doctor's workspace snapshot (not just queue ordering). */
+/** Match visit to logged-in consultant (handles legacy dr_1 vs staff dr_* ids). */
+export function visitAssignedToDoctor(
+  visit: Visit,
+  doctorId: string,
+  doctorName: string,
+  departmentIds: readonly string[],
+): boolean {
+  if (visit.doctorId === doctorId) return true;
+  if (doctorName && visit.doctorName && visit.doctorName === doctorName) return true;
+  const deptSet = new Set(departmentIds);
+  if (visit.exam === "done" && (deptSet.size === 0 || deptSet.has(visit.departmentId))) return true;
+  if (!visit.doctorId && (deptSet.size === 0 || deptSet.has(visit.departmentId))) return true;
+  return false;
+}
+
+/** Whether a visit belongs in this doctor's workspace snapshot. */
 export function visitVisibleInDoctorWorkspace(
   visit: Visit,
   doctorId: string,
   departmentIds: readonly string[],
   consultVisitIds: ReadonlySet<string>,
+  doctorName = "",
 ): boolean {
   if (consultVisitIds.has(visit.id)) return true;
-  if (visit.doctorId === doctorId) return true;
   if (visit.stage !== "with_doctor") return false;
-  if (visit.exam !== "done") return false;
-  const deptSet = new Set(departmentIds);
-  return deptSet.has(visit.departmentId);
+  return visitAssignedToDoctor(visit, doctorId, doctorName, departmentIds);
 }
 
 export function filterDoctorOpdQueue(
@@ -31,14 +44,12 @@ export function filterDoctorOpdQueue(
   doctorId?: string,
   includeDept = false,
   departmentIds: readonly string[] = [],
+  doctorName = "",
 ): Visit[] {
-  const deptSet = new Set(departmentIds);
   const filtered = visits.filter((v) => {
     if (v.stage !== "with_doctor") return false;
     if (includeDept || !doctorId) return true;
-    if (v.doctorId === doctorId) return true;
-    if (v.exam === "done" && deptSet.has(v.departmentId)) return true;
-    return false;
+    return visitAssignedToDoctor(v, doctorId, doctorName, departmentIds);
   });
   return sortDoctorOpdQueue(filtered);
 }

@@ -50,7 +50,7 @@ export function deptLabelFromRoster(deptId: string, roster?: ClinicalRoster | nu
 
 export function buildClinicalRoster(
   departments: { id: string; label: string; doctorIds: string[]; active?: boolean }[],
-  staff: { id: string; name: string; role: string }[],
+  staff: { id: string; name: string; role: string; departmentIds?: string[] }[],
 ): ClinicalRoster {
   const doctorNames: Record<string, string> = { ...LEGACY_DOCTOR_NAMES };
 
@@ -68,6 +68,17 @@ export function buildClinicalRoster(
       id,
       name: doctorNames[id] ?? id,
     }));
+  }
+
+  for (const member of staff) {
+    if (member.role !== "doctor") continue;
+    const drId = doctorIdFromStaffId(member.id);
+    for (const deptId of member.departmentIds ?? []) {
+      if (!doctorsByDept[deptId]) doctorsByDept[deptId] = [];
+      if (!doctorsByDept[deptId].some((d) => d.id === drId)) {
+        doctorsByDept[deptId].unshift({ id: drId, name: member.name });
+      }
+    }
   }
 
   const allFromDepts = Object.values(doctorsByDept).flat();

@@ -21,16 +21,10 @@ export async function resolveDoctorProfile(ctx: ServerContext): Promise<DoctorPr
   }
 
   const legacyDoctorId = DOCTOR_LOGIN_EMAIL_MAP[email];
-  if (legacyDoctorId) {
-    return {
-      doctorId: legacyDoctorId,
-      staffId: "",
-      name: user?.name ?? "Doctor",
-      email,
-      departmentIds: [],
-      departmentLabels: [],
-    };
-  }
+  const departments = await prisma.adminDepartment.findMany({
+    where: { active: true },
+    orderBy: { label: "asc" },
+  });
 
   let staff = await prisma.adminStaff.findFirst({
     where: { email, role: "doctor", branchId: ctx.branchId },
@@ -40,6 +34,22 @@ export async function resolveDoctorProfile(ctx: ServerContext): Promise<DoctorPr
       where: { email, role: "doctor" },
     });
   }
+
+  if (legacyDoctorId) {
+    const departmentIds = staff ? parseArray(staff.departmentIds) : [];
+    const departmentLabels = departmentIds.map(
+      (id) => departments.find((d) => d.id === id)?.label ?? id,
+    );
+    return {
+      doctorId: legacyDoctorId,
+      staffId: staff?.id ?? "",
+      name: staff?.name ?? user?.name ?? "Doctor",
+      email,
+      departmentIds,
+      departmentLabels,
+    };
+  }
+
   if (!staff) {
     throw new ServerActionError(
       "FORBIDDEN",
@@ -47,10 +57,6 @@ export async function resolveDoctorProfile(ctx: ServerContext): Promise<DoctorPr
     );
   }
 
-  const departments = await prisma.adminDepartment.findMany({
-    where: { active: true },
-    orderBy: { label: "asc" },
-  });
   const departmentIds = parseArray(staff.departmentIds);
   const departmentLabels = departmentIds.map(
     (id) => departments.find((d) => d.id === id)?.label ?? id,
@@ -85,6 +91,11 @@ export async function loadClinicalRoster(_ctx: ServerContext): Promise<ClinicalR
       doctorIds: parseArray(d.doctorIds),
       active: d.active,
     })),
-    staff.map((s) => ({ id: s.id, name: s.name, role: s.role })),
+    staff.map((s) => ({
+      id: s.id,
+      name: s.name,
+      role: s.role,
+      departmentIds: parseArray(s.departmentIds),
+    })),
   );
 }

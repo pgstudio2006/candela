@@ -15,6 +15,13 @@ import {
 import { parseActionError } from "@/lib/action-errors";
 import { isTransientSessionError, sleep } from "@/lib/session-retry";
 import {
+  isRetryableWorkspaceError,
+  retryWorkspaceLoad,
+  WORKSPACE_LOAD_FAILED,
+  WORKSPACE_SYNC_MESSAGE,
+  workspaceErrorMessage,
+} from "@/lib/workspace-load";
+import {
   bookAppointmentAction,
   cancelAppointmentAction,
   checkInVisitAction,
@@ -157,7 +164,7 @@ async function loadClinicalSnapshot(): Promise<ClinicalSnapshotResult> {
     return {
       ok: false,
       code: "INTERNAL_ERROR",
-      error: "Workspace data could not be loaded. Sign out and sign in again (platform → org → branch → workspace).",
+      error: WORKSPACE_LOAD_FAILED,
     };
   }
 }
@@ -207,13 +214,19 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
     const silent = opts?.silent ?? false;
     if (!silent) setReady(false);
     try {
-      const snapshot = await loadClinicalSnapshot();
+      const snapshot = await retryWorkspaceLoad(() => loadClinicalSnapshot(), {
+        attempts: silent ? 3 : 5,
+      });
       if (!snapshot.ok) {
         if (silent && hasWorkspaceData(stateRef.current)) {
           console.warn("Frontdesk refresh failed — keeping cached workspace data.", snapshot.error);
           return;
         }
-        setError(snapshot.error);
+        setError(
+          isRetryableWorkspaceError({ message: snapshot.error })
+            ? WORKSPACE_SYNC_MESSAGE
+            : snapshot.error,
+        );
         return;
       }
       setState({
@@ -228,9 +241,11 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
       setError(null);
     } catch (err) {
       console.error("Frontdesk refresh failed:", err);
-      if (!silent || !hasWorkspaceData(stateRef.current)) {
-        setError(parseActionError(err).message);
+      if (silent && hasWorkspaceData(stateRef.current)) {
+        console.warn("Frontdesk refresh failed — keeping cached workspace data.");
+        return;
       }
+      setError(workspaceErrorMessage(err));
     } finally {
       setReady(true);
     }
@@ -249,7 +264,7 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
       await sleep(400 * attempt);
       if (cancelled) return;
       try {
-        const snapshot = await loadClinicalSnapshot();
+        const snapshot = await retryWorkspaceLoad(() => loadClinicalSnapshot(), { attempts: 3 });
         if (cancelled) return;
         if (snapshot.ok) {
           setState({
@@ -262,18 +277,24 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
             roster: snapshot.data.roster,
           });
           setError(null);
-        } else {
-          setError(snapshot.error);
+        } else if (!hasWorkspaceData(stateRef.current)) {
+          setError(
+            isRetryableWorkspaceError({ message: snapshot.error })
+              ? WORKSPACE_SYNC_MESSAGE
+              : snapshot.error,
+          );
         }
         setReady(true);
       } catch (err) {
         if (cancelled) return;
-        if (attempt < 2 && isTransientSessionError(err)) {
+        if (attempt < 4 && isRetryableWorkspaceError(err)) {
           await load(attempt + 1);
           return;
         }
         console.error("Frontdesk refresh failed:", err);
-        setError(parseActionError(err).message);
+        if (!hasWorkspaceData(stateRef.current)) {
+          setError(workspaceErrorMessage(err));
+        }
         setReady(true);
       }
     };

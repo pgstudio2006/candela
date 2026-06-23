@@ -29,7 +29,21 @@ export async function getServerContext(): Promise<ServerContext> {
       },
     });
     if (!dbSession) {
-      throw new ServerActionError("UNAUTHORIZED", "Your session has expired. Please sign in again.");
+      // After deploy/db push the Session table may be empty while the JWT cookie is still valid.
+      try {
+        await db.session.create({
+          data: {
+            userId: session.user.id,
+            tenantId: session.user.tenantId,
+            branchId: session.user.branchId,
+            sessionToken: session.user.sessionToken,
+            expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7),
+            status: "ACTIVE",
+          },
+        });
+      } catch {
+        throw new ServerActionError("UNAUTHORIZED", "Your session has expired. Please sign in again.");
+      }
     }
   }
 

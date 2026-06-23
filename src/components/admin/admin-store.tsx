@@ -20,7 +20,14 @@ import {
 } from "@/lib/admin-platform";
 import type { DataMiningSnapshot } from "@/lib/admin-analytics";
 import { parseActionError } from "@/lib/action-errors";
-import { isTransientSessionError, sleep } from "@/lib/session-retry";
+import { sleep } from "@/lib/session-retry";
+import {
+  isRetryableWorkspaceError,
+  retryWorkspaceLoad,
+  WORKSPACE_LOAD_FAILED,
+  WORKSPACE_SYNC_MESSAGE,
+  workspaceErrorMessage,
+} from "@/lib/workspace-load";
 import {
   addDepartment as addDepartmentAction,
   addDiseaseNode as addDiseaseNodeAction,
@@ -51,6 +58,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -126,7 +134,7 @@ async function loadAdminSnapshot(): Promise<AdminSnapshotLoadResult> {
   return {
     ok: false,
     code: "INTERNAL_ERROR",
-    error: "Workspace data could not be loaded. Sign out and sign in again (platform → org → branch → workspace).",
+    error: WORKSPACE_LOAD_FAILED,
   };
 }
 
@@ -135,20 +143,37 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AdminSnapshot | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  const hasAdminData = (snapshot: AdminSnapshot | null) =>
+    Boolean(snapshot && (snapshot.staff.length > 0 || snapshot.patients.length > 0));
 
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent ?? false;
     if (!silent) setReady(false);
     try {
-      const result = await loadAdminSnapshot();
+      const result = await retryWorkspaceLoad(() => loadAdminSnapshot(), {
+        attempts: silent ? 3 : 5,
+      });
       if (result.ok) {
         setState(result.data);
         setError(null);
+      } else if (silent && hasAdminData(stateRef.current)) {
+        console.warn("Admin refresh failed — keeping cached workspace data.", result.error);
       } else {
-        setError(result.error);
+        setError(
+          isRetryableWorkspaceError({ message: result.error })
+            ? WORKSPACE_SYNC_MESSAGE
+            : result.error,
+        );
       }
     } catch (err) {
-      setError(parseActionError(err).message);
+      if (silent && hasAdminData(stateRef.current)) {
+        console.warn("Admin refresh failed — keeping cached workspace data.");
+        return;
+      }
+      setError(workspaceErrorMessage(err));
     } finally {
       setReady(true);
     }
@@ -161,23 +186,29 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
     const load = async (attempt = 0) => {
       if (cancelled) return;
       try {
-        const result = await loadAdminSnapshot();
+        const result = await retryWorkspaceLoad(() => loadAdminSnapshot(), { attempts: 3 });
         if (cancelled) return;
         if (result.ok) {
           setState(result.data);
           setError(null);
-        } else {
-          setError(result.error);
+        } else if (!hasAdminData(stateRef.current)) {
+          setError(
+            isRetryableWorkspaceError({ message: result.error })
+              ? WORKSPACE_SYNC_MESSAGE
+              : result.error,
+          );
         }
         setReady(true);
       } catch (err) {
         if (cancelled) return;
-        if (attempt < 2 && isTransientSessionError(err)) {
+        if (attempt < 4 && isRetryableWorkspaceError(err)) {
           await sleep(400 * (attempt + 1));
           await load(attempt + 1);
           return;
         }
-        setError(parseActionError(err).message);
+        if (!hasAdminData(stateRef.current)) {
+          setError(workspaceErrorMessage(err));
+        }
         setReady(true);
       }
     };

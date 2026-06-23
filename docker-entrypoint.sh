@@ -40,6 +40,7 @@ if [ -n "$DATABASE_URL" ]; then
   apply_schema || true
   backfill_branch_scope
   if [ "$RUN_DB_SEED" = "true" ]; then
+    echo "WARNING: RUN_DB_SEED=true wipes all patients, visits, and sessions before re-seeding."
     echo "Seeding database..."
     npx prisma db seed || echo "Seed skipped or failed (non-fatal)."
   fi

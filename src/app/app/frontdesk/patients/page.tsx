@@ -35,8 +35,10 @@ export default function PatientsPage() {
       pageSize,
       view: view === "all" ? "all" : view,
     });
-    setPatients(result.patients);
-    setTotal(result.total);
+    if (result.ok) {
+      setPatients(result.data.patients);
+      setTotal(result.data.total);
+    }
   }, [q, page, view]);
 
   useEffect(() => {

@@ -38,6 +38,8 @@ import type { ServerContext } from "@/server/context";
 import { ServerActionError } from "@/server/errors";
 import { writePlatformAudit } from "@/server/platform-audit";
 import { withPrismaError } from "@/server/prisma-errors";
+import { backfillBranchScope } from "@/server/branch-scope";
+import { branchClinicalWhere } from "@/server/tenancy";
 
 export type AdminAuditEvent = {
   id: string;
@@ -89,12 +91,6 @@ function parseArray<T>(value: unknown): T[] {
 
 function settingsId(ctx: ServerContext) {
   return `admin_settings_${ctx.tenantId}_${ctx.branchId}`;
-}
-
-function branchClinicalWhere(ctx: ServerContext) {
-  return {
-    OR: [{ branchId: ctx.branchId }, { branchId: null, tenantId: ctx.tenantId }],
-  };
 }
 
 function branchScopedWhere(ctx: ServerContext) {
@@ -207,6 +203,7 @@ export async function getAdminSnapshotForContext(
 ): Promise<AdminSnapshot> {
   return withPrismaError(async () => {
   await ensureBootstrapData();
+  await backfillBranchScope(ctx);
   const clinicalWhere = branchClinicalWhere(ctx);
   if (ctx.branchId?.trim()) {
     try {

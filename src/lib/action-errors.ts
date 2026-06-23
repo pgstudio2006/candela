@@ -5,7 +5,7 @@ export type ParsedActionError = {
 };
 
 const PROD_DIGEST_FALLBACK =
-  "Workspace data could not be loaded. Sign out and sign in again (platform → org → branch → workspace).";
+  "Workspace is syncing after an update. Retrying automatically…";
 
 export function parseActionError(error: unknown): ParsedActionError {
   if (error && typeof error === "object") {

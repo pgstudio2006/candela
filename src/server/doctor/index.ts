@@ -11,6 +11,7 @@ import { CARE_PACKAGES, DEMO_DOCTOR_ID } from "@/design-system/doctor-data";
 import type { Patient, Visit } from "@/design-system/frontdesk-data";
 import type { DocumentTemplate } from "@/design-system/document-templates";
 import { validateCompleteConsultation } from "@/lib/doctor-validation";
+import { visitVisibleInDoctorWorkspace } from "@/lib/doctor-queue";
 import { isRedFlagVisit } from "@/lib/frontdesk-workflow";
 import { prisma } from "@/lib/prisma";
 import { getClinicalSnapshot } from "@/server/clinical";
@@ -157,13 +158,8 @@ export async function getDoctorSnapshot(
 
   const doctorConsultVisitIds = new Set(consultRows.map((row) => row.visitId));
   const deptIds = profile.departmentIds;
-  const scopedVisits = clinical.visits.filter(
-    (v) =>
-      v.doctorId === doctorId ||
-      doctorConsultVisitIds.has(v.id) ||
-      (v.stage === "with_doctor" &&
-        v.exam === "done" &&
-        (deptIds.length === 0 || deptIds.includes(v.departmentId))),
+  const scopedVisits = clinical.visits.filter((v) =>
+    visitVisibleInDoctorWorkspace(v, doctorId, deptIds, doctorConsultVisitIds, profile.name),
   );
   const branchVisitIds = new Set(scopedVisits.map((v) => v.id));
   const scopedPatientIds = new Set([

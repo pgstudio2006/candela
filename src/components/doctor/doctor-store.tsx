@@ -33,7 +33,15 @@ import { computeDoctorChartAnalytics } from "@/lib/doctor-analytics-data";
 import { filterDoctorOpdQueue } from "@/lib/doctor-queue";
 import { patientDisplayName } from "@/lib/frontdesk-workflow";
 import { parseActionError } from "@/lib/action-errors";
-import { isTransientSessionError, sleep } from "@/lib/session-retry";
+import { sleep } from "@/lib/session-retry";
+import {
+  isRetryableWorkspaceError,
+  retryWorkspaceLoad,
+  WORKSPACE_LOAD_FAILED,
+  WORKSPACE_SYNC_MESSAGE,
+  workspaceErrorMessage,
+} from "@/lib/workspace-load";
+import type { ActionResult } from "@/server/action-result";
 import {
   createContext,
   useCallback,
@@ -172,26 +180,74 @@ function applySnapshot(snapshot: DoctorSnapshot): DoctorState {
   };
 }
 
+type DoctorSnapshotResult = ActionResult<DoctorSnapshot>;
+
+async function loadDoctorSnapshot(): Promise<DoctorSnapshotResult> {
+  try {
+    const result = await getDoctorSnapshotAction();
+    if (result.ok) return result;
+  } catch {
+    /* Server actions can throw masked errors in production — fall through to API route. */
+  }
+
+  try {
+    const res = await fetch("/api/doctor/snapshot", { cache: "no-store" });
+    if (res.ok) {
+      return (await res.json()) as DoctorSnapshotResult;
+    }
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    return {
+      ok: false,
+      code: "INTERNAL_ERROR",
+      error: body?.error ?? "Failed to load doctor workspace.",
+    };
+  } catch {
+    return {
+      ok: false,
+      code: "INTERNAL_ERROR",
+      error: WORKSPACE_LOAD_FAILED,
+    };
+  }
+}
+
+function hasDoctorWorkspaceData(state: DoctorState) {
+  return state.patients.length > 0 || state.visits.length > 0 || state.consultations.length > 0;
+}
+
 export function DoctorStoreProvider({ children }: { children: ReactNode }) {
   const { authReady, session } = useSession();
   const [doctor, setDoctor] = useState<DoctorState>(initialDoctorState);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const doctorRef = useRef(doctor);
+  doctorRef.current = doctor;
 
   const refresh = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent ?? false;
     if (!silent) setReady(false);
     try {
-      const result = await getDoctorSnapshotAction();
+      const result = await retryWorkspaceLoad(() => loadDoctorSnapshot(), {
+        attempts: silent ? 3 : 5,
+      });
       if (result.ok) {
         setDoctor(applySnapshot(result.data));
         setError(null);
+      } else if (silent && hasDoctorWorkspaceData(doctorRef.current)) {
+        console.warn("Doctor refresh failed — keeping cached workspace data.", result.error);
       } else {
-        setError(result.error);
+        setError(
+          isRetryableWorkspaceError({ message: result.error })
+            ? WORKSPACE_SYNC_MESSAGE
+            : result.error,
+        );
       }
     } catch (err) {
-      setError(parseActionError(err).message);
+      if (silent && hasDoctorWorkspaceData(doctorRef.current)) {
+        console.warn("Doctor refresh failed — keeping cached workspace data.");
+        return;
+      }
+      setError(workspaceErrorMessage(err));
     } finally {
       setReady(true);
     }
@@ -217,22 +273,28 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
       await sleep(400 * attempt);
       if (cancelled) return;
       try {
-        const result = await getDoctorSnapshotAction();
+        const result = await retryWorkspaceLoad(() => loadDoctorSnapshot(), { attempts: 3 });
         if (cancelled) return;
         if (result.ok) {
           setDoctor(applySnapshot(result.data));
           setError(null);
-        } else {
-          setError(result.error);
+        } else if (!hasDoctorWorkspaceData(doctorRef.current)) {
+          setError(
+            isRetryableWorkspaceError({ message: result.error })
+              ? WORKSPACE_SYNC_MESSAGE
+              : result.error,
+          );
         }
         setReady(true);
       } catch (err) {
         if (cancelled) return;
-        if (attempt < 2 && isTransientSessionError(err)) {
+        if (attempt < 4 && isRetryableWorkspaceError(err)) {
           await load(attempt + 1);
           return;
         }
-        setError(parseActionError(err).message);
+        if (!hasDoctorWorkspaceData(doctorRef.current)) {
+          setError(workspaceErrorMessage(err));
+        }
         setReady(true);
       }
     };
@@ -258,7 +320,13 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
     const getVisit = (id: string) => visits.find((v) => v.id === id);
 
     const getOpdQueue = (id = doctorId, includeDept = false) =>
-      filterDoctorOpdQueue(visits, includeDept ? undefined : id, includeDept, doctor.profile.departmentIds);
+      filterDoctorOpdQueue(
+        visits,
+        includeDept ? undefined : id,
+        includeDept,
+        doctor.profile.departmentIds,
+        doctor.profile.name,
+      );
 
     const getJuniorSubmission = (visitId: string) => doctor.juniorSubmissions[visitId];
 

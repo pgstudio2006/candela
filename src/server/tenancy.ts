@@ -8,6 +8,14 @@ export function branchScope(ctx: ServerContext) {
   };
 }
 
+/** Reads include unscoped rows for this tenant until backfill assigns branchId. */
+export function branchClinicalWhere(ctx: ServerContext) {
+  return {
+    tenantId: ctx.tenantId,
+    OR: [{ branchId: ctx.branchId }, { branchId: null }, { branchId: "" }],
+  };
+}
+
 export function tenantScope(ctx: ServerContext) {
   return { tenantId: ctx.tenantId };
 }
