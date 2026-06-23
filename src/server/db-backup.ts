@@ -53,24 +53,17 @@ export async function runDatabaseBackup(): Promise<DatabaseBackupResult> {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const filename = `candela-${stamp}.sql.gz`;
   const filepath = path.join(backupDir, filename);
+  const sqlPath = filepath.replace(/\.gz$/, "");
 
   try {
     await execFileAsync(
-      "sh",
-      [
-        "-ec",
-        `pg_dump "$DATABASE_URL" --no-owner --no-acl | gzip > "$BACKUP_FILE"`,
-      ],
-      {
-        env: {
-          ...process.env,
-          DATABASE_URL: databaseUrl,
-          BACKUP_FILE: filepath,
-        },
-        maxBuffer: 10 * 1024 * 1024,
-      },
+      "pg_dump",
+      ["--dbname", databaseUrl, "--no-owner", "--no-acl", "-f", sqlPath],
+      { maxBuffer: 10 * 1024 * 1024 },
     );
+    await execFileAsync("gzip", ["-f", sqlPath]);
   } catch (error) {
+    await fs.unlink(sqlPath).catch(() => undefined);
     await fs.unlink(filepath).catch(() => undefined);
     const detail =
       error && typeof error === "object" && "stderr" in error
