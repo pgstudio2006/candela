@@ -1,6 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import type { OpdReceiptPayload } from "@/lib/opd-receipt";
-import { formatInr, formatReceiptDate } from "@/lib/opd-receipt";
+import { formatReceiptDate } from "@/lib/opd-receipt";
 
 const TEMPLATE_URL = "/templates/navayu-invoice-template.pdf";
 
@@ -20,8 +20,25 @@ const LAYOUT = {
   heading: 10,
 } as const;
 
+/** Standard PDF fonts only support WinAnsi — strip/replace Unicode (e.g. ₹). */
+function pdfSafeText(text: string): string {
+  return String(text)
+    .replace(/₹/g, "Rs.")
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/\u2026/g, "...")
+    .replace(/[^\t\n\r\u0020-\u00FF]/g, "");
+}
+
+function formatInrForPdf(amount: number): string {
+  const value = amount.toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `Rs.${value}`;
+}
+
 function drawText(page: PDFPage, text: string, x: number, y: number, font: PDFFont, size: number = LAYOUT.body) {
-  page.drawText(text, { x, y, size, font, color: rgb(0.12, 0.12, 0.14) });
+  page.drawText(pdfSafeText(text), { x, y, size, font, color: rgb(0.12, 0.12, 0.14) });
 }
 
 function drawLabelValue(
@@ -33,15 +50,16 @@ function drawLabelValue(
   font: PDFFont,
   bold: PDFFont,
 ) {
-  drawText(page, `${label}: `, x, y, bold, LAYOUT.body);
-  const labelWidth = bold.widthOfTextAtSize(`${label}: `, LAYOUT.body);
+  const labelText = pdfSafeText(`${label}: `);
+  drawText(page, labelText, x, y, bold, LAYOUT.body);
+  const labelWidth = bold.widthOfTextAtSize(labelText, LAYOUT.body);
   drawText(page, value, x + labelWidth, y, font, LAYOUT.body);
 }
 
 function truncate(text: string, max = 52): string {
-  const trimmed = text.trim();
+  const trimmed = pdfSafeText(text).trim();
   if (trimmed.length <= max) return trimmed;
-  return `${trimmed.slice(0, max - 1)}…`;
+  return `${trimmed.slice(0, max - 1)}...`;
 }
 
 export async function generateInvoicePdf(receipt: OpdReceiptPayload): Promise<Uint8Array> {
@@ -73,7 +91,7 @@ export async function generateInvoicePdf(receipt: OpdReceiptPayload): Promise<Ui
   drawLabelValue(
     page,
     "Token",
-    receipt.token != null ? `#${receipt.token}` : "—",
+    receipt.token != null ? `#${receipt.token}` : "-",
     460,
     LAYOUT.contactY,
     font,
@@ -90,7 +108,7 @@ export async function generateInvoicePdf(receipt: OpdReceiptPayload): Promise<Ui
   drawText(page, "#", colX.idx, LAYOUT.tableHeaderY, bold, LAYOUT.heading);
   drawText(page, "Description", colX.desc, LAYOUT.tableHeaderY, bold, LAYOUT.heading);
   drawText(page, "Qty", colX.qty, LAYOUT.tableHeaderY, bold, LAYOUT.heading);
-  drawText(page, "Amount (₹)", colX.amount, LAYOUT.tableHeaderY, bold, LAYOUT.heading);
+  drawText(page, "Amount (Rs.)", colX.amount, LAYOUT.tableHeaderY, bold, LAYOUT.heading);
 
   page.drawLine({
     start: { x: LAYOUT.marginLeft, y: LAYOUT.tableHeaderY - 4 },
@@ -105,7 +123,7 @@ export async function generateInvoicePdf(receipt: OpdReceiptPayload): Promise<Ui
     drawText(page, String(index + 1), colX.idx, y, font);
     drawText(page, truncate(line.label), colX.desc, y, font);
     drawText(page, String(line.quantity), colX.qty, y, font);
-    drawText(page, formatInr(line.lineTotal).replace("₹", ""), colX.amount, y, font);
+    drawText(page, formatInrForPdf(line.lineTotal), colX.amount, y, font);
   });
 
   if (receipt.lines.length > LAYOUT.maxRows) {
@@ -127,13 +145,13 @@ export async function generateInvoicePdf(receipt: OpdReceiptPayload): Promise<Ui
     totalsY -= 14;
   };
 
-  if (receipt.discount > 0) drawTotalRow("Discount", `-${formatInr(receipt.discount)}`);
-  if (receipt.cgstTotal > 0) drawTotalRow("CGST", formatInr(receipt.cgstTotal));
-  if (receipt.sgstTotal > 0) drawTotalRow("SGST", formatInr(receipt.sgstTotal));
-  if (receipt.igstTotal > 0) drawTotalRow("IGST", formatInr(receipt.igstTotal));
-  drawTotalRow("Grand total", formatInr(receipt.total), true);
-  drawTotalRow("Collected", formatInr(receipt.amountPaid));
-  if (receipt.balanceDue > 0) drawTotalRow("Balance due", formatInr(receipt.balanceDue), true);
+  if (receipt.discount > 0) drawTotalRow("Discount", `-${formatInrForPdf(receipt.discount)}`);
+  if (receipt.cgstTotal > 0) drawTotalRow("CGST", formatInrForPdf(receipt.cgstTotal));
+  if (receipt.sgstTotal > 0) drawTotalRow("SGST", formatInrForPdf(receipt.sgstTotal));
+  if (receipt.igstTotal > 0) drawTotalRow("IGST", formatInrForPdf(receipt.igstTotal));
+  drawTotalRow("Grand total", formatInrForPdf(receipt.total), true);
+  drawTotalRow("Collected", formatInrForPdf(receipt.amountPaid));
+  if (receipt.balanceDue > 0) drawTotalRow("Balance due", formatInrForPdf(receipt.balanceDue), true);
 
   const statusLine = `Payment: ${receipt.paymentMode.toUpperCase()} · Status: ${receipt.billingStatus.toUpperCase()}${
     receipt.paymentScope ? ` · ${receipt.paymentScope}` : ""
