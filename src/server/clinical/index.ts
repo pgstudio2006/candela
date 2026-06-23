@@ -776,6 +776,8 @@ export async function processBilling(
           label: lineLabel,
           subtotal,
           discount: payload.discount,
+          discountMode: payload.discountMode,
+          discountPercent: payload.discountPercent,
           collected,
           mode,
           paymentScope,

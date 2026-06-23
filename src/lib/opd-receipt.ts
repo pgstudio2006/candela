@@ -4,6 +4,7 @@ export type OpdReceiptLine = {
   label: string;
   quantity: number;
   lineTotal: number;
+  taxableAmount?: number;
   sacCode?: string;
   gstRatePercent?: number;
   cgst?: number;
@@ -25,6 +26,8 @@ export type OpdReceiptPayload = {
   lines: OpdReceiptLine[];
   subtotal: number;
   discount: number;
+  discountMode?: "amount" | "percent";
+  discountPercent?: number;
   total: number;
   amountPaid: number;
   balanceDue: number;
@@ -72,6 +75,7 @@ export function receiptFromGstBreakdown(
       label: l.label,
       quantity: l.quantity,
       lineTotal: l.lineTotal,
+      taxableAmount: l.taxableAmount,
       sacCode: l.sacCode,
       gstRatePercent: l.gstRatePercent,
       cgst: l.cgst,

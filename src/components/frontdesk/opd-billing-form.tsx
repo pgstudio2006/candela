@@ -12,6 +12,7 @@ import {
 } from "@/lib/billing-packages";
 import { computeGstInvoice } from "@/lib/gst-invoicing";
 import type { BillingPackageLine, PaymentSplit } from "@/lib/opd-billing";
+import { resolveBillingDiscount } from "@/lib/opd-billing";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -86,10 +87,12 @@ export function OpdBillingForm({
   ]);
 
   const subtotal = lines.reduce((s, l) => s + l.amount * l.quantity, 0);
-  const discountAmount =
-    discountMode === "percent"
-      ? Math.min(subtotal, Math.round((subtotal * discountPercent) / 100))
-      : Math.min(subtotal, discount);
+  const discountResolved = resolveBillingDiscount(subtotal, {
+    discountMode,
+    discount,
+    discountPercent,
+  });
+  const discountAmount = discountResolved.discount;
   const effectiveGstMode = gstRatePercent > 0 && gstTaxMode === "exempt" ? "cgst_sgst" : gstTaxMode;
   const gstBreakdown = computeGstInvoice({
     settings: {

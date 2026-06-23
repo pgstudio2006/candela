@@ -60,17 +60,25 @@ export function PrintableOpdReceipt({ receipt }: PrintableOpdReceiptProps) {
               <td style={s.td}>{line.label}</td>
               <td style={s.td}>{line.sacCode ?? receipt.gst.sacCode}</td>
               <td style={s.td}>{line.quantity}</td>
-              <td style={s.td}>{formatInr(line.lineTotal - (line.cgst ?? 0) - (line.sgst ?? 0) - (line.igst ?? 0))}</td>
+              <td style={s.td}>{formatInr(line.taxableAmount ?? line.lineTotal - (line.cgst ?? 0) - (line.sgst ?? 0) - (line.igst ?? 0))}</td>
               <td style={s.td}>{formatGstPercent(line.gstRatePercent ?? 0)}</td>
               <td style={{ ...s.td, textAlign: "right" }}>{formatInr(line.lineTotal)}</td>
             </tr>
           ))}
         </tbody>
         <tfoot>
+          <tr>
+            <td style={s.td} colSpan={6}>
+              Subtotal
+            </td>
+            <td style={{ ...s.td, textAlign: "right" }}>{formatInr(receipt.subtotal)}</td>
+          </tr>
           {receipt.discount > 0 && (
             <tr>
               <td style={s.td} colSpan={6}>
-                Discount
+                {receipt.discountMode === "percent" && receipt.discountPercent
+                  ? `Discount (${receipt.discountPercent}%)`
+                  : "Discount"}
               </td>
               <td style={{ ...s.td, textAlign: "right" }}>-{formatInr(receipt.discount)}</td>
             </tr>

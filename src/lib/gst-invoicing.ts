@@ -67,6 +67,8 @@ export function parseBranchGstSettings(meta: unknown): GstSettings {
   };
 }
 
+const round2 = (value: number) => Math.round(value * 100) / 100;
+
 export function computeGstLine(
   label: string,
   quantity: number,
@@ -74,16 +76,16 @@ export function computeGstLine(
   settings: GstSettings,
 ): GstLineBreakdown {
   const rate = settings.taxMode === "exempt" ? 0 : settings.gstRatePercent;
-  const taxBase = Math.max(0, taxableAmount);
-  const taxAmount = (taxBase * rate) / 100;
+  const taxBase = Math.max(0, round2(taxableAmount));
+  const taxAmount = round2((taxBase * rate) / 100);
 
   let cgst = 0;
   let sgst = 0;
   let igst = 0;
 
   if (settings.taxMode === "cgst_sgst" && rate > 0) {
-    cgst = taxAmount / 2;
-    sgst = taxAmount / 2;
+    cgst = round2(taxAmount / 2);
+    sgst = round2(taxAmount - cgst);
   } else if (settings.taxMode === "igst" && rate > 0) {
     igst = taxAmount;
   }
@@ -97,7 +99,7 @@ export function computeGstLine(
     cgst,
     sgst,
     igst,
-    lineTotal: taxBase + cgst + sgst + igst,
+    lineTotal: round2(taxBase + cgst + sgst + igst),
   };
 }
 
@@ -119,11 +121,11 @@ export function computeGstInvoice(input: {
     return computeGstLine(l.label, l.quantity, adjustedTaxable, input.settings);
   });
 
-  const cgstTotal = lines.reduce((s, l) => s + l.cgst, 0);
-  const sgstTotal = lines.reduce((s, l) => s + l.sgst, 0);
-  const igstTotal = lines.reduce((s, l) => s + l.igst, 0);
-  const taxTotal = cgstTotal + sgstTotal + igstTotal;
-  const grandTotal = lines.reduce((s, l) => s + l.lineTotal, 0);
+  const cgstTotal = round2(lines.reduce((s, l) => s + l.cgst, 0));
+  const sgstTotal = round2(lines.reduce((s, l) => s + l.sgst, 0));
+  const igstTotal = round2(lines.reduce((s, l) => s + l.igst, 0));
+  const taxTotal = round2(cgstTotal + sgstTotal + igstTotal);
+  const grandTotal = round2(lines.reduce((s, l) => s + l.lineTotal, 0));
 
   return {
     settings: input.settings,

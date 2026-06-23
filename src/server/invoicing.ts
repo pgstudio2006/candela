@@ -16,6 +16,8 @@ export async function upsertVisitInvoice(
     label: string;
     subtotal: number;
     discount: number;
+    discountMode?: "amount" | "percent";
+    discountPercent?: number;
     collected: number;
     mode: string;
     paymentScope: string;
@@ -72,23 +74,8 @@ export async function upsertVisitInvoice(
         sgstTotal: gstInvoice.sgstTotal,
         igstTotal: gstInvoice.igstTotal,
         paymentSplits: input.paymentSplits ?? [],
-      },
-      lines: {
-        create: gstInvoice.lines.map((line, i) => ({
-          id: `line_${input.visitId}_${i}`,
-          label: line.label,
-          category: "opd",
-          quantity: line.quantity,
-          unitPrice: line.taxableAmount,
-          taxPercent: line.gstRatePercent,
-          lineTotal: line.lineTotal,
-          payload: {
-            sacCode: line.sacCode,
-            cgst: line.cgst,
-            sgst: line.sgst,
-            igst: line.igst,
-          },
-        })),
+        discountMode: input.discountMode,
+        discountPercent: input.discountPercent,
       },
     },
     update: {
@@ -106,9 +93,35 @@ export async function upsertVisitInvoice(
         sgstTotal: gstInvoice.sgstTotal,
         igstTotal: gstInvoice.igstTotal,
         paymentSplits: input.paymentSplits ?? [],
+        discountMode: input.discountMode,
+        discountPercent: input.discountPercent,
       },
     },
   });
+
+  await tx.invoiceLine.deleteMany({ where: { invoiceId } });
+  for (const [i, line] of gstInvoice.lines.entries()) {
+    await tx.invoiceLine.create({
+      data: {
+        id: `line_${input.visitId}_${i}`,
+        invoiceId,
+        label: line.label,
+        category: "opd",
+        quantity: line.quantity,
+        unitPrice: invoiceLines[i]?.taxableAmount ?? line.taxableAmount,
+        taxPercent: line.gstRatePercent,
+        lineTotal: line.lineTotal,
+        payload: {
+          sacCode: line.sacCode,
+          cgst: line.cgst,
+          sgst: line.sgst,
+          igst: line.igst,
+          taxableAmount: line.taxableAmount,
+          grossTaxable: invoiceLines[i]?.taxableAmount ?? line.taxableAmount,
+        },
+      },
+    });
+  }
 
   const splits =
     input.paymentSplits?.filter((p) => p.amount > 0) ??
@@ -147,7 +160,7 @@ export async function getVisitReceipt(ctx: ServerContext, visitId: string): Prom
   }
 
   const branch = await prisma.branch.findUnique({ where: { id: ctx.branchId } });
-  const gstSettings = parseBranchGstSettings(branch?.meta);
+  const branchGst = parseBranchGstSettings(branch?.meta);
 
   const invoice = await prisma.invoice.findUnique({
     where: { visitId },
@@ -157,49 +170,96 @@ export async function getVisitReceipt(ctx: ServerContext, visitId: string): Prom
     },
   });
 
-  const payload = invoice?.payload as Record<string, unknown> | null;
-  const discount = Number(invoice?.discount ?? 0);
-  const lineInputs =
-    invoice?.lines.length
-      ? invoice.lines.map((line) => ({
-          label: line.label,
-          quantity: line.quantity,
-          taxableAmount: Number(line.unitPrice),
-        }))
-      : [
-          {
-            label: visit.counselPackageLabel ?? "OPD consultation & services",
-            quantity: 1,
-            taxableAmount: Number(visit.billAmount ?? 0),
-          },
-        ];
-
-  const gstInvoice = computeGstInvoice({
-    settings: gstSettings,
-    lines: lineInputs,
-    discount,
-  });
-
   const amountPaid = Number(invoice?.amountPaid ?? visit.amountPaid ?? 0);
   const balanceDue = Number(invoice?.balanceAmount ?? visit.balanceDue ?? 0);
   const latestPayment = invoice?.payments[0];
 
+  const base = {
+    invoiceNumber: invoice?.invoiceNumber ?? `NV-${visitId.slice(-8).toUpperCase()}`,
+    issuedAt: (invoice?.createdAt ?? visit.updatedAt ?? new Date()).toISOString(),
+    patientName: patientDisplayName(patient),
+    patientUhid: patient.uhid,
+    patientPhone: patient.phone,
+    doctorName: visit.doctorName || "Consultant",
+    token: visit.token ?? undefined,
+    billingStatus: visit.billing ?? "pending",
+    paymentScope: invoice?.paymentScope ?? undefined,
+    paymentMode: latestPayment?.mode ?? visit.billing ?? "cash",
+    amountPaid,
+    balanceDue,
+    routingNote: visit.routingNote ?? undefined,
+  };
+
+  if (invoice?.lines.length) {
+    const invPayload = (invoice.payload as Record<string, unknown> | null) ?? {};
+    const storedGst =
+      invPayload.gst && typeof invPayload.gst === "object" && !Array.isArray(invPayload.gst)
+        ? ({ ...branchGst, ...(invPayload.gst as Record<string, unknown>) } as typeof branchGst)
+        : branchGst;
+
+    const lines = invoice.lines.map((line) => {
+      const lp =
+        line.payload && typeof line.payload === "object" && !Array.isArray(line.payload)
+          ? (line.payload as Record<string, unknown>)
+          : {};
+      const cgst = Number(lp.cgst ?? 0);
+      const sgst = Number(lp.sgst ?? 0);
+      const igst = Number(lp.igst ?? 0);
+      const lineTotal = Number(line.lineTotal);
+      const grossTaxable = Number(lp.grossTaxable ?? Number(line.unitPrice) * line.quantity);
+      const taxableAmount = Number(lp.taxableAmount ?? lineTotal - cgst - sgst - igst);
+
+      return {
+        label: line.label,
+        quantity: line.quantity,
+        lineTotal,
+        taxableAmount,
+        sacCode: String(lp.sacCode ?? storedGst.sacCode),
+        gstRatePercent: Number(line.taxPercent ?? 0),
+        cgst,
+        sgst,
+        igst,
+      };
+    });
+
+    return {
+      ...base,
+      gst: storedGst,
+      placeOfSupply: storedGst.placeOfSupply,
+      isTaxInvoice: true,
+      lines,
+      subtotal: Number(invoice.subtotal),
+      discount: Number(invoice.discount ?? 0),
+      discountMode:
+        invPayload.discountMode === "percent" || invPayload.discountMode === "amount"
+          ? invPayload.discountMode
+          : undefined,
+      discountPercent:
+        invPayload.discountPercent != null ? Number(invPayload.discountPercent) : undefined,
+      total: Number(invoice.totalAmount),
+      cgstTotal: Number(invPayload.cgstTotal ?? 0),
+      sgstTotal: Number(invPayload.sgstTotal ?? 0),
+      igstTotal: Number(invPayload.igstTotal ?? 0),
+      taxTotal: Number(invoice.taxAmount ?? 0),
+    };
+  }
+
+  const gstInvoice = computeGstInvoice({
+    settings: branchGst,
+    lines: [
+      {
+        label: visit.counselPackageLabel ?? "OPD consultation & services",
+        quantity: 1,
+        taxableAmount: Number(visit.billAmount ?? 0),
+      },
+    ],
+    discount: 0,
+  });
+
   return receiptFromGstBreakdown(
     {
-      invoiceNumber: invoice?.invoiceNumber ?? `NV-${visitId.slice(-8).toUpperCase()}`,
-      issuedAt: (invoice?.createdAt ?? visit.updatedAt ?? new Date()).toISOString(),
-      patientName: patientDisplayName(patient),
-      patientUhid: patient.uhid,
-      patientPhone: patient.phone,
-      doctorName: visit.doctorName || "Consultant",
-      token: visit.token ?? undefined,
-      billingStatus: visit.billing ?? "pending",
-      paymentScope: invoice?.paymentScope ?? undefined,
-      paymentMode: latestPayment?.mode ?? visit.billing ?? "cash",
-      discount,
-      amountPaid,
-      balanceDue,
-      routingNote: visit.routingNote ?? undefined,
+      ...base,
+      discount: 0,
     },
     gstInvoice,
   );

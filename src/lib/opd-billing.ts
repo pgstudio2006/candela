@@ -31,12 +31,13 @@ export function resolveBillingDiscount(
   data: Record<string, string | number | boolean>,
 ): { discount: number; discountMode: "amount" | "percent"; discountPercent?: number } {
   const mode = String(data.discountMode ?? "amount") === "percent" ? "percent" : "amount";
+  const safeSubtotal = Math.max(0, subtotal);
   if (mode === "percent") {
     const discountPercent = Math.max(0, Math.min(100, Number(data.discountPercent ?? 0)));
-    const discount = Math.min(subtotal, Math.round((subtotal * discountPercent) / 100));
+    const discount = Math.min(safeSubtotal, Math.round((safeSubtotal * discountPercent) / 100));
     return { discount, discountMode: "percent", discountPercent };
   }
-  const discount = Math.max(0, Math.min(subtotal, Number(data.discount ?? 0)));
+  const discount = Math.max(0, Math.min(safeSubtotal, Number(data.discount ?? 0)));
   return { discount, discountMode: "amount" };
 }
 
