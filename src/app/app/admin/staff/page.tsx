@@ -7,10 +7,7 @@ import { AttioButton, DataTable, Panel, StatusBadge } from "@/components/frontde
 import type { StaffMember } from "@/design-system/admin-data";
 import { parseActionError } from "@/lib/action-errors";
 import { staffRoleLabel } from "@/lib/healthcare-roles";
-import {
-  createStaffWithLoginAction,
-  resetStaffPasswordAction,
-} from "@/server/admin/actions";
+import { createStaffWithLoginApi, resetStaffPasswordApi } from "@/lib/admin-staff-api";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
@@ -177,7 +174,7 @@ export default function AdminStaffPage() {
           try {
             if (editing) {
               if (opts?.resetPassword) {
-                const result = await resetStaffPasswordAction(editing.id, opts.password || undefined);
+                const result = await resetStaffPasswordApi(editing.id, opts.password || undefined);
                 if (!result.ok) {
                   throw new Error(result.error);
                 }
@@ -193,7 +190,7 @@ export default function AdminStaffPage() {
             }
 
             if (opts?.createLogin) {
-              const result = await createStaffWithLoginAction({
+              const result = await createStaffWithLoginApi({
                 staff: data,
                 password: opts.password || undefined,
               });
