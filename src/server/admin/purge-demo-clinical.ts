@@ -3,7 +3,8 @@ import { LEGACY_DEMO_DOCTOR_IDS } from "@/lib/legacy-demo-doctors";
 
 const DEMO_PATIENT_IDS = /^p\d+$/i;
 const DEMO_PATIENT_NAME_PATTERNS = [
-  /^User\d+$/i,
+  /^User\s*\d+$/i,
+  /^User$/i,
   /^Registered User\d*$/i,
   /^Test Patient/i,
 ];
@@ -15,6 +16,8 @@ const DEMO_PATIENT_NAMES = new Set([
   "Ravi Kumar",
   "Deepak Joshi",
 ]);
+
+const KEEP_PATIENT_NAMES = new Set(["Parthraj Gohil"]);
 
 const DEMO_DOCTOR_NAMES = [
   "Dr. Rajesh Mehta",
@@ -29,6 +32,7 @@ export type PurgeDemoClinicalResult = {
   departmentsUpdated: number;
   patientsRemaining: number;
   keptPatientNames: string[];
+  removedPatientNames: string[];
 };
 
 function patientDisplayName(patient: { fullName: string; name: string | null }) {
@@ -42,8 +46,9 @@ export function isDemoPatient(patient: {
   fullName: string;
   name: string | null;
 }): boolean {
-  if (DEMO_PATIENT_IDS.test(patient.id)) return true;
   const display = patientDisplayName(patient);
+  if (KEEP_PATIENT_NAMES.has(display)) return false;
+  if (DEMO_PATIENT_IDS.test(patient.id)) return true;
   if (DEMO_PATIENT_NAMES.has(display)) return true;
   return DEMO_PATIENT_NAME_PATTERNS.some((pattern) => pattern.test(display));
 }
@@ -85,7 +90,8 @@ export async function purgeDemoClinicalData(): Promise<PurgeDemoClinicalResult> 
     select: { id: true, fullName: true, name: true },
   });
 
-  const demoPatientIds = patients.filter(isDemoPatient).map((p) => p.id);
+  const demoPatients = patients.filter(isDemoPatient);
+  const demoPatientIds = demoPatients.map((p) => p.id);
   const keptPatients = patients.filter((p) => !demoPatientIds.includes(p.id));
   const patientsRemoved = await purgePatients(demoPatientIds);
 
@@ -137,5 +143,6 @@ export async function purgeDemoClinicalData(): Promise<PurgeDemoClinicalResult> 
     departmentsUpdated,
     patientsRemaining: await prisma.patient.count(),
     keptPatientNames: keptPatients.map((p) => patientDisplayName(p)).filter(Boolean),
+    removedPatientNames: demoPatients.map((p) => patientDisplayName(p)).filter(Boolean),
   };
 }
