@@ -22,11 +22,11 @@ const FONT = {
 const LAYOUT = {
   marginLeft: 42,
   marginRight: 553,
-  infoTableTop: 562,
+  infoTableTop: 586,
   infoRowHeight: 16,
   infoHeaderHeight: 17,
   infoMidX: 298,
-  billingTableTop: 496,
+  billingTableTop: 518,
   tableLeft: 42,
   tableRight: 553,
   rowHeight: 17,
@@ -36,7 +36,7 @@ const LAYOUT = {
   colRight: [64, 196, 244, 272, 332, 378, 553],
 } as const;
 
-const TABLE_HEADERS = ["#", "Description", "SAC", "Qty", "Taxable", "GST", "Amount"] as const;
+const TABLE_HEADERS = ["#", "Service", "SAC", "Qty", "Taxable", "GST", "Amount"] as const;
 
 function pdfSafeText(text: string): string {
   return String(text)
@@ -160,6 +160,16 @@ function drawLabelValue(
 
 type InfoRow = { left: { label: string; value: string }; right: { label: string; value: string } };
 
+function formatServicesCharged(receipt: OpdReceiptPayload): string {
+  if (!receipt.lines.length) return "OPD consultation & services";
+  return receipt.lines
+    .map((line) => {
+      const qty = line.quantity > 1 ? ` x${line.quantity}` : "";
+      return `${line.label}${qty}`;
+    })
+    .join(", ");
+}
+
 function buildInfoRows(receipt: OpdReceiptPayload, meta: { date: string; time: string }): InfoRow[] {
   const rows: InfoRow[] = [
     {
@@ -180,6 +190,10 @@ function buildInfoRows(receipt: OpdReceiptPayload, meta: { date: string; time: s
         label: "Token",
         value: receipt.token != null ? `#${receipt.token}` : "Walk-in",
       },
+    },
+    {
+      left: { label: "Service(s) charged", value: formatServicesCharged(receipt) },
+      right: { label: "Bill amount", value: formatInrForPdf(receipt.total) },
     },
     {
       left: {
@@ -247,7 +261,7 @@ function drawPatientInfoTable(
     rowTop -= LAYOUT.infoRowHeight;
     drawHLine(page, LAYOUT.tableLeft, LAYOUT.tableRight, rowTop);
     const y = cellBaseline(rowTop + LAYOUT.infoRowHeight, LAYOUT.infoRowHeight);
-    drawLabelValue(page, row.left.label, row.left.value, LAYOUT.tableLeft + 4, y, font, bold, 30);
+    drawLabelValue(page, row.left.label, row.left.value, LAYOUT.tableLeft + 4, y, font, bold, 36);
     drawLabelValue(page, row.right.label, row.right.value, LAYOUT.infoMidX + 4, y, font, bold, 22);
   });
 }
