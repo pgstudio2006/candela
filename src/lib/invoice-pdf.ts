@@ -22,21 +22,30 @@ const FONT = {
 const LAYOUT = {
   marginLeft: 42,
   marginRight: 553,
+  /** Top anchor for patient block — sits just below letterhead. */
   infoTableTop: 586,
   infoRowHeight: 16,
   infoHeaderHeight: 17,
   infoMidX: 298,
-  billingTableTop: 518,
+  tableGap: 12,
   tableLeft: 42,
   tableRight: 553,
   rowHeight: 17,
   headerHeight: 18,
   maxLineRows: 10,
-  tableMinBottom: 138,
+  footerMinY: 148,
   colRight: [64, 196, 244, 272, 332, 378, 553],
 } as const;
 
 const TABLE_HEADERS = ["#", "Service", "SAC", "Qty", "Taxable", "GST", "Amount"] as const;
+
+type TableLayout = {
+  infoTop: number;
+  infoBottom: number;
+  billingTop: number;
+  billingBottom: number;
+  notesY: number;
+};
 
 function pdfSafeText(text: string): string {
   return String(text)
@@ -150,12 +159,12 @@ function drawLabelValue(
   y: number,
   font: PDFFont,
   bold: PDFFont,
-  valueMaxWidth = 200,
+  valueMaxChars: number,
 ) {
   const labelText = `${label}: `;
   drawText(page, labelText, x, y, bold, FONT.table);
   const labelWidth = bold.widthOfTextAtSize(pdfSafeText(labelText), FONT.table);
-  drawText(page, truncate(value, valueMaxWidth), x + labelWidth, y, font, FONT.table);
+  drawText(page, truncate(value, valueMaxChars), x + labelWidth, y, font, FONT.table);
 }
 
 type InfoRow = { left: { label: string; value: string }; right: { label: string; value: string } };
@@ -219,21 +228,46 @@ function buildInfoRows(receipt: OpdReceiptPayload, meta: { date: string; time: s
   return rows;
 }
 
+function computeTableLayout(receipt: OpdReceiptPayload, meta: { date: string; time: string }): TableLayout {
+  const infoRowCount = buildInfoRows(receipt, meta).length;
+  const infoHeight = LAYOUT.infoHeaderHeight + infoRowCount * LAYOUT.infoRowHeight;
+  const infoTop = LAYOUT.infoTableTop;
+  const infoBottom = infoTop - infoHeight;
+
+  const lineCount = Math.min(receipt.lines.length, LAYOUT.maxLineRows);
+  const overflowRow = receipt.lines.length > LAYOUT.maxLineRows ? 1 : 0;
+  const totalsCount = footerRows(receipt).length;
+  const billingHeight =
+    LAYOUT.headerHeight + lineCount * LAYOUT.rowHeight + overflowRow * LAYOUT.rowHeight + totalsCount * LAYOUT.rowHeight;
+
+  let billingTop = infoBottom - LAYOUT.tableGap;
+  let billingBottom = billingTop - billingHeight;
+
+  if (billingBottom < LAYOUT.footerMinY) {
+    billingBottom = LAYOUT.footerMinY;
+    billingTop = billingBottom + billingHeight;
+  }
+
+  const notesY = billingBottom - 12;
+
+  return { infoTop, infoBottom, billingTop, billingBottom, notesY };
+}
+
 function drawPatientInfoTable(
   page: PDFPage,
   receipt: OpdReceiptPayload,
   meta: { date: string; time: string },
   font: PDFFont,
   bold: PDFFont,
+  layout: TableLayout,
 ) {
   const rows = buildInfoRows(receipt, meta);
-  const tableHeight = LAYOUT.infoHeaderHeight + rows.length * LAYOUT.infoRowHeight;
-  const tableBottom = LAYOUT.infoTableTop - tableHeight;
+  const tableHeight = layout.infoTop - layout.infoBottom;
   const width = LAYOUT.tableRight - LAYOUT.tableLeft;
 
   page.drawRectangle({
     x: LAYOUT.tableLeft,
-    y: tableBottom,
+    y: layout.infoBottom,
     width,
     height: tableHeight,
     borderWidth: 0.8,
@@ -243,26 +277,26 @@ function drawPatientInfoTable(
 
   page.drawRectangle({
     x: LAYOUT.tableLeft,
-    y: LAYOUT.infoTableTop - LAYOUT.infoHeaderHeight,
+    y: layout.infoTop - LAYOUT.infoHeaderHeight,
     width,
     height: LAYOUT.infoHeaderHeight,
     color: COLORS.headerFill,
   });
 
-  drawHLine(page, LAYOUT.tableLeft, LAYOUT.tableRight, LAYOUT.infoTableTop);
-  drawHLine(page, LAYOUT.tableLeft, LAYOUT.tableRight, LAYOUT.infoTableTop - LAYOUT.infoHeaderHeight);
-  drawVLine(page, LAYOUT.infoMidX, LAYOUT.infoTableTop, tableBottom);
+  drawHLine(page, LAYOUT.tableLeft, LAYOUT.tableRight, layout.infoTop);
+  drawHLine(page, LAYOUT.tableLeft, LAYOUT.tableRight, layout.infoTop - LAYOUT.infoHeaderHeight);
+  drawVLine(page, LAYOUT.infoMidX, layout.infoTop, layout.infoBottom);
 
-  const headerY = cellBaseline(LAYOUT.infoTableTop, LAYOUT.infoHeaderHeight);
+  const headerY = cellBaseline(layout.infoTop, LAYOUT.infoHeaderHeight);
   drawText(page, "Patient & visit details", LAYOUT.tableLeft + 4, headerY, bold, FONT.tableHead);
 
-  let rowTop = LAYOUT.infoTableTop - LAYOUT.infoHeaderHeight;
+  let rowTop = layout.infoTop - LAYOUT.infoHeaderHeight;
   rows.forEach((row) => {
     rowTop -= LAYOUT.infoRowHeight;
     drawHLine(page, LAYOUT.tableLeft, LAYOUT.tableRight, rowTop);
     const y = cellBaseline(rowTop + LAYOUT.infoRowHeight, LAYOUT.infoRowHeight);
-    drawLabelValue(page, row.left.label, row.left.value, LAYOUT.tableLeft + 4, y, font, bold, 36);
-    drawLabelValue(page, row.right.label, row.right.value, LAYOUT.infoMidX + 4, y, font, bold, 22);
+    drawLabelValue(page, row.left.label, row.left.value, LAYOUT.tableLeft + 4, y, font, bold, 28);
+    drawLabelValue(page, row.right.label, row.right.value, LAYOUT.infoMidX + 4, y, font, bold, 20);
   });
 }
 
@@ -271,22 +305,14 @@ function drawBillingTable(
   receipt: OpdReceiptPayload,
   font: PDFFont,
   bold: PDFFont,
+  layout: TableLayout,
 ) {
   const lineRows = receipt.lines.slice(0, LAYOUT.maxLineRows);
   const totals = footerRows(receipt);
-  const tableHeight =
-    LAYOUT.headerHeight + lineRows.length * LAYOUT.rowHeight + totals.length * LAYOUT.rowHeight;
-  const tableBottom = Math.max(LAYOUT.billingTableTop - tableHeight, LAYOUT.tableMinBottom);
-  const tableTop = tableBottom + tableHeight;
+  const tableTop = layout.billingTop;
+  const tableBottom = layout.billingBottom;
+  const tableHeight = tableTop - tableBottom;
   const width = LAYOUT.tableRight - LAYOUT.tableLeft;
-
-  page.drawRectangle({
-    x: LAYOUT.tableLeft - 1,
-    y: tableBottom - 1,
-    width: width + 2,
-    height: tableHeight + 2,
-    color: COLORS.white,
-  });
 
   page.drawRectangle({
     x: LAYOUT.tableLeft,
@@ -325,7 +351,7 @@ function drawBillingTable(
     const y = cellBaseline(rowTop + LAYOUT.rowHeight, LAYOUT.rowHeight);
     const taxable = lineTaxable(line);
     drawText(page, String(index + 1), LAYOUT.tableLeft + 4, y, font, FONT.table);
-    drawText(page, truncate(line.label), LAYOUT.colRight[0] + 4, y, font, FONT.table);
+    drawText(page, truncate(line.label, 22), LAYOUT.colRight[0] + 4, y, font, FONT.table);
     drawText(page, line.sacCode ?? receipt.gst.sacCode, LAYOUT.colRight[1] + 4, y, font, FONT.caption);
     drawText(page, String(line.quantity), LAYOUT.colRight[2] + 4, y, font, FONT.table);
     drawRightText(page, formatInrForPdf(taxable), LAYOUT.colRight[4], y, font, FONT.table);
@@ -360,16 +386,19 @@ function drawBillingTable(
     drawText(page, row.label, LAYOUT.colRight[0] + 4, y, rowFont, size);
     drawRightText(page, row.value, LAYOUT.colRight[6], y, rowFont, size);
   });
+}
 
-  const noteY = tableBottom - 14;
+function drawNotes(page: PDFPage, receipt: OpdReceiptPayload, font: PDFFont, layout: TableLayout) {
+  if (layout.notesY < LAYOUT.footerMinY - 20) return;
+
   const taxNote =
     receipt.taxTotal === 0
       ? "GST exempt healthcare service"
       : `Total tax ${formatInrForPdf(receipt.taxTotal)}`;
-  drawText(page, taxNote, LAYOUT.tableLeft, noteY, font, FONT.caption);
+  drawText(page, taxNote, LAYOUT.tableLeft, layout.notesY, font, FONT.caption);
 
   if (receipt.routingNote) {
-    drawText(page, truncate(receipt.routingNote, 100), LAYOUT.tableLeft, noteY - 11, font, FONT.caption);
+    drawText(page, truncate(receipt.routingNote, 100), LAYOUT.tableLeft, layout.notesY - 11, font, FONT.caption);
   }
 }
 
@@ -384,9 +413,11 @@ export async function generateInvoicePdf(receipt: OpdReceiptPayload): Promise<Ui
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const meta = formatInvoiceMeta(receipt.issuedAt);
+  const layout = computeTableLayout(receipt, meta);
 
-  drawBillingTable(page, receipt, font, bold);
-  drawPatientInfoTable(page, receipt, meta, font, bold);
+  drawBillingTable(page, receipt, font, bold, layout);
+  drawNotes(page, receipt, font, layout);
+  drawPatientInfoTable(page, receipt, meta, font, bold, layout);
 
   return pdfDoc.save();
 }
