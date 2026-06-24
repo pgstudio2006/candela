@@ -19,34 +19,25 @@ const FONT = {
   emphasis: 11,
 } as const;
 
-/** Coordinates aligned to public/templates/navayu-invoice-template.pdf (A4, origin bottom-left). */
 const LAYOUT = {
   marginLeft: 42,
   marginRight: 553,
-  meta: {
-    date: { x: 398, y: 591 },
-    dueDate: { x: 398, y: 575 },
-    invoiceNo: { x: 398, y: 559 },
-  },
-  billTo: { x: 42, y: 518 },
-  billToLine2: { x: 42, y: 503 },
-  shipTo: { x: 318, y: 518 },
-  shipToLine2: { x: 318, y: 503 },
-  gstLine: { x: 42, y: 493 },
-  tableTop: 502,
+  infoTableTop: 562,
+  infoRowHeight: 16,
+  infoHeaderHeight: 17,
+  infoMidX: 298,
+  billingTableTop: 496,
   tableLeft: 42,
   tableRight: 553,
   rowHeight: 17,
   headerHeight: 18,
-  maxLineRows: 12,
-  /** Keep table bottom above template footer art. */
+  maxLineRows: 10,
   tableMinBottom: 138,
   colRight: [64, 196, 244, 272, 332, 378, 553],
 } as const;
 
 const TABLE_HEADERS = ["#", "Description", "SAC", "Qty", "Taxable", "GST", "Amount"] as const;
 
-/** Standard PDF fonts only support WinAnsi — strip/replace Unicode (e.g. ₹). */
 function pdfSafeText(text: string): string {
   return String(text)
     .replace(/₹/g, "Rs.")
@@ -142,18 +133,126 @@ function drawHLine(page: PDFPage, x1: number, x2: number, y: number) {
   page.drawLine({ start: { x: x1, y }, end: { x: x2, y }, thickness: 0.6, color: COLORS.border });
 }
 
-function drawVLines(page: PDFPage, yTop: number, yBottom: number) {
-  for (const x of LAYOUT.colRight.slice(0, -1)) {
-    page.drawLine({
-      start: { x, y: yTop },
-      end: { x, y: yBottom },
-      thickness: 0.5,
-      color: COLORS.border,
-    });
-  }
+function drawVLine(page: PDFPage, x: number, yTop: number, yBottom: number) {
+  page.drawLine({
+    start: { x, y: yTop },
+    end: { x, y: yBottom },
+    thickness: 0.5,
+    color: COLORS.border,
+  });
 }
 
-function drawTable(
+function drawLabelValue(
+  page: PDFPage,
+  label: string,
+  value: string,
+  x: number,
+  y: number,
+  font: PDFFont,
+  bold: PDFFont,
+  valueMaxWidth = 200,
+) {
+  const labelText = `${label}: `;
+  drawText(page, labelText, x, y, bold, FONT.table);
+  const labelWidth = bold.widthOfTextAtSize(pdfSafeText(labelText), FONT.table);
+  drawText(page, truncate(value, valueMaxWidth), x + labelWidth, y, font, FONT.table);
+}
+
+type InfoRow = { left: { label: string; value: string }; right: { label: string; value: string } };
+
+function buildInfoRows(receipt: OpdReceiptPayload, meta: { date: string; time: string }): InfoRow[] {
+  const rows: InfoRow[] = [
+    {
+      left: { label: "Patient", value: receipt.patientName },
+      right: { label: "UHID", value: receipt.patientUhid },
+    },
+    {
+      left: { label: "Mobile", value: receipt.patientPhone },
+      right: { label: "Doctor", value: receipt.doctorName },
+    },
+    {
+      left: { label: "Date", value: meta.date },
+      right: { label: "Time", value: meta.time },
+    },
+    {
+      left: { label: "Invoice No", value: receipt.invoiceNumber },
+      right: {
+        label: "Token",
+        value: receipt.token != null ? `#${receipt.token}` : "Walk-in",
+      },
+    },
+    {
+      left: {
+        label: "Payment",
+        value: `${receipt.paymentMode.toUpperCase()} | ${receipt.billingStatus.toUpperCase()}${
+          receipt.paymentScope ? ` | ${receipt.paymentScope}` : ""
+        }`,
+      },
+      right: {
+        label: "Place of supply",
+        value: receipt.placeOfSupply || receipt.gst.placeOfSupply,
+      },
+    },
+  ];
+
+  if (receipt.gst.gstin) {
+    rows.push({
+      left: { label: "GSTIN", value: receipt.gst.gstin },
+      right: { label: "SAC", value: receipt.gst.sacCode },
+    });
+  }
+
+  return rows;
+}
+
+function drawPatientInfoTable(
+  page: PDFPage,
+  receipt: OpdReceiptPayload,
+  meta: { date: string; time: string },
+  font: PDFFont,
+  bold: PDFFont,
+) {
+  const rows = buildInfoRows(receipt, meta);
+  const tableHeight = LAYOUT.infoHeaderHeight + rows.length * LAYOUT.infoRowHeight;
+  const tableBottom = LAYOUT.infoTableTop - tableHeight;
+  const width = LAYOUT.tableRight - LAYOUT.tableLeft;
+
+  page.drawRectangle({
+    x: LAYOUT.tableLeft,
+    y: tableBottom,
+    width,
+    height: tableHeight,
+    borderWidth: 0.8,
+    borderColor: COLORS.border,
+    color: COLORS.white,
+  });
+
+  page.drawRectangle({
+    x: LAYOUT.tableLeft,
+    y: LAYOUT.infoTableTop - LAYOUT.infoHeaderHeight,
+    width,
+    height: LAYOUT.infoHeaderHeight,
+    color: COLORS.headerFill,
+  });
+
+  drawHLine(page, LAYOUT.tableLeft, LAYOUT.tableRight, LAYOUT.infoTableTop);
+  drawHLine(page, LAYOUT.tableLeft, LAYOUT.tableRight, LAYOUT.infoTableTop - LAYOUT.infoHeaderHeight);
+  drawVLine(page, LAYOUT.infoMidX, LAYOUT.infoTableTop, tableBottom);
+
+  const headerY = cellBaseline(LAYOUT.infoTableTop, LAYOUT.infoHeaderHeight);
+  drawText(page, "Patient & visit details", LAYOUT.tableLeft + 4, headerY, bold, FONT.tableHead);
+
+  let rowTop = LAYOUT.infoTableTop - LAYOUT.infoHeaderHeight;
+  rows.forEach((row) => {
+    rowTop -= LAYOUT.infoRowHeight;
+    drawHLine(page, LAYOUT.tableLeft, LAYOUT.tableRight, rowTop);
+    const y = cellBaseline(rowTop + LAYOUT.infoRowHeight, LAYOUT.infoRowHeight);
+    drawLabelValue(page, row.left.label, row.left.value, LAYOUT.tableLeft + 4, y, font, bold, 30);
+    drawLabelValue(page, row.right.label, row.right.value, LAYOUT.infoMidX + 4, y, font, bold, 22);
+  });
+}
+
+function drawBillingTable(
   page: PDFPage,
   receipt: OpdReceiptPayload,
   font: PDFFont,
@@ -163,15 +262,15 @@ function drawTable(
   const totals = footerRows(receipt);
   const tableHeight =
     LAYOUT.headerHeight + lineRows.length * LAYOUT.rowHeight + totals.length * LAYOUT.rowHeight;
-  const tableBottom = Math.max(LAYOUT.tableTop - tableHeight, LAYOUT.tableMinBottom);
+  const tableBottom = Math.max(LAYOUT.billingTableTop - tableHeight, LAYOUT.tableMinBottom);
   const tableTop = tableBottom + tableHeight;
   const width = LAYOUT.tableRight - LAYOUT.tableLeft;
 
   page.drawRectangle({
-    x: LAYOUT.tableLeft - 2,
-    y: tableBottom - 2,
-    width: width + 4,
-    height: tableTop - tableBottom + 24,
+    x: LAYOUT.tableLeft - 1,
+    y: tableBottom - 1,
+    width: width + 2,
+    height: tableHeight + 2,
     color: COLORS.white,
   });
 
@@ -234,7 +333,9 @@ function drawTable(
     );
   }
 
-  drawVLines(page, tableTop, tableBottom);
+  for (const x of LAYOUT.colRight.slice(0, -1)) {
+    drawVLine(page, x, tableTop, tableBottom);
+  }
 
   totals.forEach((row) => {
     rowTop -= LAYOUT.rowHeight;
@@ -251,10 +352,7 @@ function drawTable(
     receipt.taxTotal === 0
       ? "GST exempt healthcare service"
       : `Total tax ${formatInrForPdf(receipt.taxTotal)}`;
-  const statusNote = `Status: ${receipt.billingStatus.toUpperCase()}${
-    receipt.paymentScope ? ` | ${receipt.paymentScope} payment` : ""
-  } | ${taxNote}`;
-  drawText(page, statusNote, LAYOUT.tableLeft, noteY, font, FONT.caption);
+  drawText(page, taxNote, LAYOUT.tableLeft, noteY, font, FONT.caption);
 
   if (receipt.routingNote) {
     drawText(page, truncate(receipt.routingNote, 100), LAYOUT.tableLeft, noteY - 11, font, FONT.caption);
@@ -271,51 +369,10 @@ export async function generateInvoicePdf(receipt: OpdReceiptPayload): Promise<Ui
   const page = pdfDoc.getPages()[0];
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-
   const meta = formatInvoiceMeta(receipt.issuedAt);
-  drawText(page, meta.date, LAYOUT.meta.date.x, LAYOUT.meta.date.y, font, FONT.body);
-  drawText(
-    page,
-    `${meta.time} | ${receipt.billingStatus.toUpperCase()} | ${receipt.paymentMode.toUpperCase()}`,
-    LAYOUT.meta.dueDate.x,
-    LAYOUT.meta.dueDate.y,
-    font,
-    FONT.caption,
-  );
-  drawText(page, receipt.invoiceNumber, LAYOUT.meta.invoiceNo.x, LAYOUT.meta.invoiceNo.y, font, FONT.body);
 
-  drawText(page, receipt.patientName, LAYOUT.billTo.x, LAYOUT.billTo.y, bold, FONT.body);
-  drawText(
-    page,
-    `UHID ${receipt.patientUhid} | ${receipt.patientPhone}`,
-    LAYOUT.billToLine2.x,
-    LAYOUT.billToLine2.y,
-    font,
-    FONT.caption,
-  );
-
-  drawText(page, receipt.doctorName, LAYOUT.shipTo.x, LAYOUT.shipTo.y, bold, FONT.body);
-  drawText(
-    page,
-    receipt.token != null ? `Token #${receipt.token}` : "Walk-in",
-    LAYOUT.shipToLine2.x,
-    LAYOUT.shipToLine2.y,
-    font,
-    FONT.caption,
-  );
-
-  if (receipt.gst.gstin) {
-    drawText(
-      page,
-      `GSTIN: ${receipt.gst.gstin} | Place of supply: ${receipt.placeOfSupply || receipt.gst.placeOfSupply}`,
-      LAYOUT.gstLine.x,
-      LAYOUT.gstLine.y,
-      font,
-      FONT.caption,
-    );
-  }
-
-  drawTable(page, receipt, font, bold);
+  drawBillingTable(page, receipt, font, bold);
+  drawPatientInfoTable(page, receipt, meta, font, bold);
 
   return pdfDoc.save();
 }
