@@ -2,7 +2,9 @@
 
 import type { CandelaRole } from "@/design-system/modules";
 import type { AuthDraft, CandelaClientSession } from "@/lib/auth-types";
+import { mergeAuthDraft } from "@/lib/auth/draft-cookie";
 import {
+  fetchAuthDraftFromServer,
   readAuthDraft,
   readClientSession,
   writeAuthDraft,
@@ -49,6 +51,12 @@ function draftFromSession(session: Session): AuthDraft {
   };
 }
 
+async function loadCompatSession() {
+  const res = await fetch("/api/session/compat", { cache: "no-store", credentials: "same-origin" });
+  if (!res.ok) throw new Error("Session endpoint failed");
+  return (await res.json()) as { session: Session | null; authDraft?: AuthDraft | null };
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, setSessionState] = useState<Session | null>(null);
   const [authDraft, setAuthDraftState] = useState<AuthDraft | null>(null);
@@ -60,17 +68,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const fromStorageSession = readClientSession<Session>();
     const fromStorageDraft = readAuthDraft();
-
     setAuthDraftState(fromStorageDraft);
 
     let ignore = false;
     const hydrate = async () => {
       try {
-        const res = await fetch("/api/session/compat", { cache: "no-store" });
-        if (!res.ok) throw new Error("Session endpoint failed");
-        const json = (await res.json()) as { session: Session | null };
+        let json = await loadCompatSession();
+        if (!json.session) {
+          await new Promise((resolve) => setTimeout(resolve, 600));
+          json = await loadCompatSession();
+        }
         if (ignore) return;
+
+        const serverDraft = json.authDraft ?? (await fetchAuthDraftFromServer());
         const apiSession = json.session;
+        const mergedDraft = mergeAuthDraft(fromStorageDraft, serverDraft, apiSession ? draftFromSession(apiSession) : null);
+
         const merged =
           apiSession && fromStorageSession
             ? {
@@ -81,15 +94,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
                 hrOperatorId: fromStorageSession.hrOperatorId ?? apiSession.hrOperatorId,
               }
             : apiSession ?? fromStorageSession;
+
         setSessionState(merged);
-        if (merged) {
-          writeClientSession(merged);
-          const draft = fromStorageDraft ?? draftFromSession(merged);
+        if (mergedDraft) {
+          setAuthDraftState(mergedDraft);
+          writeAuthDraft(mergedDraft);
+        } else if (merged) {
+          const draft = draftFromSession(merged);
           setAuthDraftState(draft);
           writeAuthDraft(draft);
         }
+        if (merged) writeClientSession(merged);
       } catch {
-        if (!ignore) setSessionState(fromStorageSession);
+        if (!ignore) {
+          setSessionState(fromStorageSession);
+          if (fromStorageDraft) setAuthDraftState(fromStorageDraft);
+        }
       } finally {
         if (!ignore) setAuthReady(true);
       }
@@ -104,6 +124,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const setSession = useCallback((s: Session | null) => {
     setSessionState(s);
     writeClientSession(s);
+    if (s) {
+      const draft = draftFromSession(s);
+      setAuthDraftState(draft);
+      writeAuthDraft(draft);
+    }
   }, []);
 
   const setAuthDraft = useCallback((draft: AuthDraft | null) => {
@@ -113,8 +138,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     await authSignOut({ redirect: false });
-    setSession(null);
-  }, [setSession]);
+    setSessionState(null);
+    setAuthDraftState(null);
+    writeClientSession(null);
+    writeAuthDraft(null);
+  }, []);
 
   const value = useMemo(
     () => ({

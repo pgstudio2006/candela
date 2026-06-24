@@ -4,7 +4,7 @@ import { GlassAuthShell } from "@/components/auth/glass-auth-shell";
 import { GlassIconField, glassButtonClass } from "@/components/auth/glass-form";
 import { Button } from "@/components/ui/button";
 import { resolvePostAuthPath } from "@/lib/auth-redirect";
-import { readAuthDraft, readSavedEmail } from "@/lib/auth-storage";
+import { readAuthDraft, readSavedEmail, writeAuthDraft } from "@/lib/auth-storage";
 import type { CandelaRole } from "@/design-system/modules";
 import { Eye, EyeOff, Lock, LogIn, Mail } from "lucide-react";
 import { signIn } from "next-auth/react";
@@ -32,7 +32,7 @@ export default function LoginPage() {
       try {
         const res = await fetch("/api/session/compat", { cache: "no-store" });
         if (!res.ok) return;
-        const { session } = (await res.json()) as {
+        const { session, authDraft: serverDraft } = (await res.json()) as {
           session: {
             role: CandelaRole;
             branchId?: string;
@@ -40,9 +40,15 @@ export default function LoginPage() {
             tenantName?: string;
             branchName?: string;
           } | null;
+          authDraft?: {
+            tenantId: string;
+            tenantName: string;
+            branchId?: string;
+            branchName?: string;
+          } | null;
         };
         if (ignore) return;
-        const draft = readAuthDraft();
+        const draft = readAuthDraft() ?? serverDraft;
         const next = resolvePostAuthPath(session, draft);
         if (next) {
           window.location.replace(next);
@@ -95,10 +101,36 @@ export default function LoginPage() {
             return;
           }
 
+          const res = await fetch("/api/session/compat", { cache: "no-store", credentials: "same-origin" });
+          const { session: jwtSession, authDraft: serverDraft } = (await res.json()) as {
+            session: {
+              role: CandelaRole;
+              branchId?: string;
+              tenant?: string;
+              tenantName?: string;
+              branchName?: string;
+            } | null;
+            authDraft?: { tenantId: string; tenantName: string; branchId?: string; branchName?: string } | null;
+          };
+
+          const draft = readAuthDraft();
+          const effectiveDraft =
+            serverDraft ??
+            draft ??
+            (jwtSession?.tenant && jwtSession.tenantName
+              ? {
+                  tenantId: jwtSession.tenant,
+                  tenantName: jwtSession.tenantName,
+                  branchId: jwtSession.branchId,
+                  branchName: jwtSession.branchName,
+                }
+              : null);
+
+          if (effectiveDraft) writeAuthDraft(effectiveDraft);
+
           router.refresh();
           setLoading(false);
-          const draft = readAuthDraft();
-          const next = resolvePostAuthPath(null, draft) ?? "/tenant";
+          const next = resolvePostAuthPath(jwtSession, effectiveDraft) ?? "/tenant";
           router.replace(next);
         }}
       >

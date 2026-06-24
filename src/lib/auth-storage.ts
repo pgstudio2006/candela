@@ -1,22 +1,30 @@
 import type { AuthDraft, CandelaClientSession } from "@/lib/auth-types";
+import { DRAFT_COOKIE_NAME, parseAuthDraftCookie } from "@/lib/auth/draft-cookie";
 
 const REMEMBER_KEY = "candela-remember-me";
 const DRAFT_KEY = "candela-auth-draft";
 const SESSION_KEY = "candela-session";
 const EMAIL_KEY = "candela-last-email";
-const DRAFT_COOKIE = "candela-auth-draft";
 
 export const WORKSPACE_SIGN_IN_PATH = "/workspace";
 
 export function isRememberMe(): boolean {
   if (typeof window === "undefined") return false;
-  return localStorage.getItem(REMEMBER_KEY) === "1";
+  try {
+    return localStorage.getItem(REMEMBER_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
 export function setRememberMe(on: boolean) {
   if (typeof window === "undefined") return;
-  if (on) localStorage.setItem(REMEMBER_KEY, "1");
-  else localStorage.removeItem(REMEMBER_KEY);
+  try {
+    if (on) localStorage.setItem(REMEMBER_KEY, "1");
+    else localStorage.removeItem(REMEMBER_KEY);
+  } catch {
+    // Safari private mode / blocked storage
+  }
 }
 
 function sessionStore(): Storage {
@@ -34,16 +42,59 @@ function readJson<T>(store: Storage, key: string): T | null {
 }
 
 function writeJson(store: Storage, key: string, value: unknown) {
-  if (value === null) store.removeItem(key);
-  else store.setItem(key, JSON.stringify(value));
+  try {
+    if (value === null) store.removeItem(key);
+    else store.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage quota or blocked — server cookie + JWT remain the source of truth.
+  }
+}
+
+function readDraftFromDocumentCookie(): AuthDraft | null {
+  if (typeof document === "undefined") return null;
+  try {
+    const entry = document.cookie
+      .split(";")
+      .map((c) => c.trim())
+      .find((c) => c.startsWith(`${DRAFT_COOKIE_NAME}=`));
+    if (!entry) return null;
+    const value = entry.slice(DRAFT_COOKIE_NAME.length + 1);
+    return parseAuthDraftCookie(value);
+  } catch {
+    return null;
+  }
 }
 
 export function readAuthDraft(): AuthDraft | null {
   if (typeof window === "undefined") return null;
   return (
     readJson<AuthDraft>(localStorage, DRAFT_KEY) ??
-    readJson<AuthDraft>(sessionStorage, DRAFT_KEY)
+    readJson<AuthDraft>(sessionStorage, DRAFT_KEY) ??
+    readDraftFromDocumentCookie()
   );
+}
+
+export async function fetchAuthDraftFromServer(): Promise<AuthDraft | null> {
+  if (typeof fetch === "undefined") return null;
+  try {
+    const res = await fetch("/api/auth/draft", { cache: "no-store", credentials: "same-origin" });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { draft?: AuthDraft | null };
+    return json.draft ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function syncAuthDraftToServer(draft: AuthDraft | null) {
+  if (typeof fetch === "undefined") return;
+  void fetch("/api/auth/draft", {
+    method: draft ? "POST" : "DELETE",
+    headers: draft ? { "Content-Type": "application/json" } : undefined,
+    body: draft ? JSON.stringify(draft) : undefined,
+    credentials: "same-origin",
+    cache: "no-store",
+  }).catch(() => undefined);
 }
 
 export function writeAuthDraft(draft: AuthDraft | null) {
@@ -51,8 +102,7 @@ export function writeAuthDraft(draft: AuthDraft | null) {
   writeJson(localStorage, DRAFT_KEY, draft);
   if (draft) writeJson(sessionStorage, DRAFT_KEY, draft);
   else sessionStorage.removeItem(DRAFT_KEY);
-  if (draft) setDraftCookie(draft);
-  else clearDraftCookie();
+  syncAuthDraftToServer(draft);
 }
 
 export function readClientSession<T>(): T | null {
@@ -69,33 +119,43 @@ export function writeClientSession<T>(session: T | null) {
   const primary = sessionStore();
   writeJson(primary, SESSION_KEY, session);
   if (isRememberMe()) writeJson(localStorage, SESSION_KEY, session);
-  else localStorage.removeItem(SESSION_KEY);
-  if (!session) sessionStorage.removeItem(SESSION_KEY);
+  else {
+    try {
+      localStorage.removeItem(SESSION_KEY);
+    } catch {
+      // ignore
+    }
+  }
+  if (!session) {
+    try {
+      sessionStorage.removeItem(SESSION_KEY);
+    } catch {
+      // ignore
+    }
+  }
 }
 
 export function readSavedEmail(): string {
   if (typeof window === "undefined") return "";
-  return localStorage.getItem(EMAIL_KEY) ?? "";
+  try {
+    return localStorage.getItem(EMAIL_KEY) ?? "";
+  } catch {
+    return "";
+  }
 }
 
 export function writeSavedEmail(email: string) {
   if (typeof window === "undefined") return;
-  const trimmed = email.trim();
-  if (trimmed) localStorage.setItem(EMAIL_KEY, trimmed);
-  else localStorage.removeItem(EMAIL_KEY);
-}
-
-export function setDraftCookie(draft: AuthDraft) {
-  if (typeof document === "undefined") return;
-  document.cookie = `${DRAFT_COOKIE}=${encodeURIComponent(JSON.stringify(draft))}; path=/; max-age=31536000; samesite=lax`;
-}
-
-export function clearDraftCookie() {
-  if (typeof document === "undefined") return;
-  document.cookie = `${DRAFT_COOKIE}=; path=/; max-age=0; samesite=lax`;
+  try {
+    const trimmed = email.trim();
+    if (trimmed) localStorage.setItem(EMAIL_KEY, trimmed);
+    else localStorage.removeItem(EMAIL_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 export function hasDraftCookie(): boolean {
   if (typeof document === "undefined") return false;
-  return document.cookie.split(";").some((c) => c.trim().startsWith(`${DRAFT_COOKIE}=`));
+  return document.cookie.split(";").some((c) => c.trim().startsWith(`${DRAFT_COOKIE_NAME}=`));
 }

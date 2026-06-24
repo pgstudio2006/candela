@@ -1,6 +1,7 @@
 "use client";
 
 import { useSession } from "@/components/candela/session-provider";
+import { useRequireClientSession } from "@/hooks/use-require-client-session";
 import { StoreGate } from "@/components/candela/store-gate";
 import { DoctorCommandPalette } from "@/components/doctor/command-palette";
 import { useDoctorStore } from "@/components/doctor/doctor-store";
@@ -16,7 +17,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 export function DoctorShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { session, authReady, signOut, setCommandOpen, commandOpen } = useSession();
+  const { session, signOut, setCommandOpen, commandOpen } = useSession();
+  const { loading: sessionLoading } = useRequireClientSession();
   const {
     getOpdQueue,
     startConsultation,
@@ -49,10 +51,9 @@ export function DoctorShell({ children }: { children: ReactNode }) {
   }, [getOpdQueue, getPatient]);
 
   useEffect(() => {
-    if (!authReady) return;
-    if (!session) router.replace(WORKSPACE_SIGN_IN_PATH);
-    else if (session.role !== "doctor") router.replace(`/app/${session.role}`);
-  }, [session, authReady, router]);
+    if (sessionLoading || !session) return;
+    if (session.role !== "doctor") router.replace(`/app/${session.role}`);
+  }, [session, sessionLoading, router]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -95,7 +96,7 @@ export function DoctorShell({ children }: { children: ReactNode }) {
     [saveConsultSection, setPrescription],
   );
 
-  if (!authReady || !session) return null;
+  if (sessionLoading || !session) return null;
 
   return (
     <div

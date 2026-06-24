@@ -8,6 +8,7 @@ import { CrmSidebar } from "@/components/crm/sidebar";
 import { useCrmPoll } from "@/hooks/use-crm-poll";
 import { CRM_MANAGER_ID } from "@/components/crm/crm-store";
 import { useSession } from "@/components/candela/session-provider";
+import { useRequireClientSession } from "@/hooks/use-require-client-session";
 import { CopilotPanel } from "@/components/frontdesk/copilot-panel";
 import { CRM_NAV } from "@/design-system/crm-nav";
 import { getCrmNavItem } from "@/design-system/crm-nav";
@@ -18,7 +19,8 @@ import { useEffect, useState, type ReactNode } from "react";
 export function CrmShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { session, authReady, signOut, setCommandOpen, commandOpen } = useSession();
+  const { session, signOut, setCommandOpen, commandOpen } = useSession();
+  const { loading: sessionLoading } = useRequireClientSession();
   const { ready, error, refresh } = useCrmStore();
   const [copilotOpen, setCopilotOpen] = useState(false);
   const current = getCrmNavItem(pathname);
@@ -26,11 +28,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
   useCrmPoll();
 
   useEffect(() => {
-    if (!authReady) return;
-    if (!session) {
-      router.replace(WORKSPACE_SIGN_IN_PATH);
-      return;
-    }
+    if (sessionLoading || !session) return;
     if (session.role !== "crm") {
       router.replace(`/app/${session.role}`);
       return;
@@ -38,7 +36,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
     if (!session.crmOperatorId) {
       router.replace("/workspace");
     }
-  }, [session, authReady, router]);
+  }, [session, sessionLoading, router]);
 
   useEffect(() => {
     if (!session?.crmOperatorId) return;
@@ -60,7 +58,7 @@ export function CrmShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [commandOpen, setCommandOpen]);
 
-  if (!authReady || !session?.crmOperatorId) return null;
+  if (sessionLoading || !session?.crmOperatorId) return null;
 
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--attio-canvas)] text-[var(--attio-text)]" data-candela-app>

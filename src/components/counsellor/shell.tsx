@@ -1,6 +1,7 @@
 "use client";
 
 import { useSession } from "@/components/candela/session-provider";
+import { useRequireClientSession } from "@/hooks/use-require-client-session";
 import { StoreGate } from "@/components/candela/store-gate";
 import { useCounsellorStore } from "@/components/counsellor/counsellor-store";
 import { CounsellorCommandPalette } from "@/components/counsellor/command-palette";
@@ -14,16 +15,16 @@ import { useEffect, useState, type ReactNode } from "react";
 export function CounsellorShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { session, authReady, signOut, setCommandOpen, commandOpen } = useSession();
+  const { session, signOut, setCommandOpen, commandOpen } = useSession();
+  const { loading: sessionLoading } = useRequireClientSession();
   const { ready, error, refresh } = useCounsellorStore();
   const [copilotOpen, setCopilotOpen] = useState(false);
   const current = getCounsellorNavItem(pathname);
 
   useEffect(() => {
-    if (!authReady) return;
-    if (!session) router.replace(WORKSPACE_SIGN_IN_PATH);
-    else if (session.role !== "counsellor") router.replace(`/app/${session.role}`);
-  }, [session, authReady, router]);
+    if (sessionLoading || !session) return;
+    if (session.role !== "counsellor") router.replace(`/app/${session.role}`);
+  }, [session, sessionLoading, router]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -36,7 +37,7 @@ export function CounsellorShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [commandOpen, setCommandOpen]);
 
-  if (!authReady || !session) return null;
+  if (sessionLoading || !session) return null;
 
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--attio-canvas)] text-[var(--attio-text)]" data-candela-app>

@@ -23,9 +23,20 @@ export function resolvePostAuthPath(
   if (sessionHasWorkspace(session) && session) {
     return getWorkspace(session.role).homePath;
   }
-  if (draft?.branchId) return WORKSPACE_SIGN_IN_PATH;
-  if (draft?.tenantId) return "/branch";
+  const effectiveDraft = draft ?? draftFromSession(session);
+  if (effectiveDraft?.branchId) return WORKSPACE_SIGN_IN_PATH;
+  if (effectiveDraft?.tenantId) return "/branch";
   return null;
+}
+
+function draftFromSession(session: CompatSessionShape | null | undefined): AuthDraft | null {
+  if (!session?.tenant || !session.tenantName) return null;
+  return {
+    tenantId: session.tenant,
+    tenantName: session.tenantName,
+    branchId: session.branchId,
+    branchName: session.branchName,
+  };
 }
 
 export function resolveUnauthenticatedPath(hasDraftCookie = false): string {

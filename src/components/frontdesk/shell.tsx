@@ -1,6 +1,7 @@
 "use client";
 
 import { useSession } from "@/components/candela/session-provider";
+import { useRequireClientSession } from "@/hooks/use-require-client-session";
 import { StoreGate } from "@/components/candela/store-gate";
 import { FrontdeskCommandPalette } from "@/components/frontdesk/command-palette";
 import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
@@ -14,7 +15,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 export function FrontdeskShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { session, authReady, signOut, setCommandOpen, commandOpen } = useSession();
+  const { session, signOut, setCommandOpen, commandOpen } = useSession();
+  const { loading: sessionLoading } = useRequireClientSession();
   const { ready, error, refresh } = useFrontdeskStore();
   const [copilotOpen, setCopilotOpen] = useState(false);
   const settingsRef = useRef<HTMLButtonElement>(null);
@@ -22,10 +24,9 @@ export function FrontdeskShell({ children }: { children: ReactNode }) {
   const isDisplayBoard = pathname.startsWith("/app/frontdesk/display");
 
   useEffect(() => {
-    if (!authReady) return;
-    if (!session) router.replace(WORKSPACE_SIGN_IN_PATH);
-    else if (session.role !== "frontdesk") router.replace(`/app/${session.role}`);
-  }, [session, authReady, router]);
+    if (sessionLoading || !session) return;
+    if (session.role !== "frontdesk") router.replace(`/app/${session.role}`);
+  }, [session, sessionLoading, router]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -43,7 +44,7 @@ export function FrontdeskShell({ children }: { children: ReactNode }) {
     settingsRef.current?.focus();
   }, []);
 
-  if (!authReady || !session) return null;
+  if (sessionLoading || !session) return null;
 
   if (isDisplayBoard) {
     return (

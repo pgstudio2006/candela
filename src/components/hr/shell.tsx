@@ -6,6 +6,7 @@ import { HrSidebar } from "@/components/hr/sidebar";
 import { useHrPoll } from "@/hooks/use-hr-poll";
 import { useHrStore } from "@/components/hr/hr-store";
 import { useSession } from "@/components/candela/session-provider";
+import { useRequireClientSession } from "@/hooks/use-require-client-session";
 import { CopilotPanel } from "@/components/frontdesk/copilot-panel";
 import { HR_NAV, getHrNavItem } from "@/design-system/hr-nav";
 import { WORKSPACE_SIGN_IN_PATH } from "@/lib/auth-storage";
@@ -15,7 +16,8 @@ import { useEffect, useState, type ReactNode } from "react";
 export function HrShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { session, authReady, signOut, commandOpen, setCommandOpen } = useSession();
+  const { session, signOut, commandOpen, setCommandOpen } = useSession();
+  const { loading: sessionLoading } = useRequireClientSession();
   const { isManager, ready, error, refresh } = useHrStore();
   const [copilotOpen, setCopilotOpen] = useState(false);
   const current = getHrNavItem(pathname);
@@ -23,17 +25,13 @@ export function HrShell({ children }: { children: ReactNode }) {
   useHrPoll();
 
   useEffect(() => {
-    if (!authReady) return;
-    if (!session) {
-      router.replace(WORKSPACE_SIGN_IN_PATH);
-      return;
-    }
+    if (sessionLoading || !session) return;
     if (session.role !== "hr") {
       router.replace(`/app/${session.role}`);
       return;
     }
     if (!session.hrOperatorId) router.replace("/workspace");
-  }, [session, authReady, router]);
+  }, [session, sessionLoading, router]);
 
   useEffect(() => {
     if (!session?.hrOperatorId || !ready) return;
@@ -54,7 +52,7 @@ export function HrShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [commandOpen, setCommandOpen]);
 
-  if (!authReady || !session?.hrOperatorId) return null;
+  if (sessionLoading || !session?.hrOperatorId) return null;
 
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--attio-canvas)] text-[var(--attio-text)]" data-candela-app>

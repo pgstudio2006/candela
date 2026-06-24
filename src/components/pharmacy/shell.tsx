@@ -7,6 +7,7 @@ import { PharmacySidebar } from "@/components/pharmacy/sidebar";
 import { PHARMACY_MANAGER_ID } from "@/components/pharmacy/pharmacy-store";
 import { usePharmacyPoll } from "@/hooks/use-pharmacy-poll";
 import { useSession } from "@/components/candela/session-provider";
+import { useRequireClientSession } from "@/hooks/use-require-client-session";
 import { CopilotPanel } from "@/components/frontdesk/copilot-panel";
 import { getPharmacyNavItem } from "@/design-system/pharmacy-nav";
 import { PHARMACY_NAV } from "@/design-system/pharmacy-nav";
@@ -17,18 +18,15 @@ import { useEffect, useState, type ReactNode } from "react";
 export function PharmacyShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { session, authReady, signOut, setCommandOpen, commandOpen } = useSession();
+  const { session, signOut, setCommandOpen, commandOpen } = useSession();
+  const { loading: sessionLoading } = useRequireClientSession();
   const { ready, error, refresh } = usePharmacyStore();
   usePharmacyPoll();
   const [copilotOpen, setCopilotOpen] = useState(false);
   const current = getPharmacyNavItem(pathname);
 
   useEffect(() => {
-    if (!authReady) return;
-    if (!session) {
-      router.replace(WORKSPACE_SIGN_IN_PATH);
-      return;
-    }
+    if (sessionLoading || !session) return;
     if (session.role !== "pharmacy") {
       router.replace(`/app/${session.role}`);
       return;
@@ -36,7 +34,7 @@ export function PharmacyShell({ children }: { children: ReactNode }) {
     if (!session.pharmacyOperatorId) {
       router.replace("/workspace");
     }
-  }, [session, authReady, router]);
+  }, [session, sessionLoading, router]);
 
   useEffect(() => {
     if (!session?.pharmacyOperatorId) return;
@@ -58,7 +56,7 @@ export function PharmacyShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [commandOpen, setCommandOpen]);
 
-  if (!authReady || !session?.pharmacyOperatorId) return null;
+  if (sessionLoading || !session?.pharmacyOperatorId) return null;
 
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--attio-canvas)] text-[var(--attio-text)]" data-candela-app>

@@ -6,6 +6,7 @@ import { useSession } from "@/components/candela/session-provider";
 import { Button } from "@/components/ui/button";
 import { getWorkspace } from "@/design-system/workspace-config";
 import type { CandelaRole } from "@/design-system/modules";
+import { mergeAuthDraft } from "@/lib/auth/draft-cookie";
 import { resolvePostAuthPath } from "@/lib/auth-redirect";
 import {
   isRememberMe,
@@ -23,7 +24,8 @@ import { ChevronLeft, Lock, Mail } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import type { AuthDraft } from "@/lib/auth-types";
 
 export default function WorkspacePage() {
   const router = useRouter();
@@ -34,8 +36,16 @@ export default function WorkspacePage() {
   const [rememberMe, setRememberMeState] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [jwtDraft, setJwtDraft] = useState<AuthDraft | null>(null);
 
   const [previewRole, setPreviewRole] = useState<CandelaRole | null>(null);
+
+  const effectiveDraft = useMemo(
+    () => mergeAuthDraft(authDraft, jwtDraft),
+    [authDraft, jwtDraft],
+  );
+
+  const missingBranch = authReady && !effectiveDraft?.branchId;
 
   useEffect(() => {
     setEmail(readSavedEmail());
@@ -43,11 +53,31 @@ export default function WorkspacePage() {
   }, []);
 
   useEffect(() => {
-    void fetch("/api/session/compat", { cache: "no-store" })
+    void fetch("/api/session/compat", { cache: "no-store", credentials: "same-origin" })
       .then((res) => res.json())
-      .then((data: { session?: { role?: CandelaRole } | null }) => {
-        if (data.session?.role) setPreviewRole(data.session.role);
-      })
+      .then(
+        (data: {
+          session?: {
+            role?: CandelaRole;
+            tenant?: string;
+            tenantName?: string;
+            branchId?: string;
+            branchName?: string;
+          } | null;
+          authDraft?: AuthDraft | null;
+        }) => {
+          if (data.session?.role) setPreviewRole(data.session.role);
+          if (data.authDraft) setJwtDraft(data.authDraft);
+          else if (data.session?.tenant && data.session.tenantName) {
+            setJwtDraft({
+              tenantId: data.session.tenant,
+              tenantName: data.session.tenantName,
+              branchId: data.session.branchId,
+              branchName: data.session.branchName,
+            });
+          }
+        },
+      )
       .catch(() => undefined);
   }, []);
 
@@ -68,15 +98,18 @@ export default function WorkspacePage() {
       }
       return;
     }
-    const next = resolvePostAuthPath(null, authDraft);
+    const next = resolvePostAuthPath(null, effectiveDraft);
     if (next && next !== WORKSPACE_SIGN_IN_PATH) {
       router.replace(next);
     }
-  }, [authDraft, authReady, session, router, email]);
+  }, [effectiveDraft, authReady, session, router, email]);
 
   const signInToWorkspace = async (e: FormEvent) => {
     e.preventDefault();
-    if (!authDraft?.branchId || !authDraft.branchName) return;
+    if (!effectiveDraft?.branchId || !effectiveDraft.branchName) {
+      setError("Select a branch before signing in. Tap “Choose branch” below.");
+      return;
+    }
     setError("");
     setLoading(true);
 
@@ -87,15 +120,15 @@ export default function WorkspacePage() {
       const authResult = await signIn("credentials", {
         email: email.trim(),
         password,
-        branchId: authDraft.branchId,
+        branchId: effectiveDraft.branchId,
         redirect: false,
       });
       if (authResult?.error) {
-        setError("Invalid email or password.");
+        setError("Invalid email or password for this branch.");
         return;
       }
 
-      const res = await fetch("/api/session/compat", { cache: "no-store" });
+      const res = await fetch("/api/session/compat", { cache: "no-store", credentials: "same-origin" });
       const { session: jwtSession } = (await res.json()) as {
         session: {
           role: CandelaRole;
@@ -105,20 +138,23 @@ export default function WorkspacePage() {
           branchName: string;
           tenant: string;
           tenantName: string;
+          crmOperatorId?: string;
+          pharmacyOperatorId?: string;
+          hrOperatorId?: string;
         } | null;
       };
 
       if (!jwtSession?.role) {
-        setError("Could not load workspace role from session.");
+        setError("Could not load workspace role. Check cookies are enabled and try again.");
         return;
       }
 
       const role = jwtSession.role;
-      let crmOperatorId: string | undefined;
-      let pharmacyOperatorId: string | undefined;
-      let hrOperatorId: string | undefined;
+      let crmOperatorId = jwtSession.crmOperatorId;
+      let pharmacyOperatorId = jwtSession.pharmacyOperatorId;
+      let hrOperatorId = jwtSession.hrOperatorId;
 
-      if (role === "crm") {
+      if (role === "crm" && !crmOperatorId) {
         const result = await validateCrmLoginAction(email, password);
         if (!result.ok) {
           setError(result.error);
@@ -126,7 +162,7 @@ export default function WorkspacePage() {
         }
         crmOperatorId = result.operatorId;
       }
-      if (role === "pharmacy") {
+      if (role === "pharmacy" && !pharmacyOperatorId) {
         const result = await validatePharmacyLoginAction(email, password);
         if (!result.ok) {
           setError(result.error);
@@ -134,7 +170,7 @@ export default function WorkspacePage() {
         }
         pharmacyOperatorId = result.operatorId;
       }
-      if (role === "hr") {
+      if (role === "hr" && !hrOperatorId) {
         const result = await validateHrLoginAction(email, password);
         if (!result.ok) {
           setError(result.error);
@@ -174,16 +210,31 @@ export default function WorkspacePage() {
     <GlassAuthShell
       step={4}
       title="Sign in to workspace"
-      subtitle={`${authDraft?.branchName ?? ""} · role is assigned from your account`}
+      subtitle={`${effectiveDraft?.branchName ?? "No branch selected"} · role is assigned from your account`}
       cardClassName="max-w-[400px]"
     >
       <Link
-        href="/branch"
+        href={effectiveDraft?.tenantId ? "/branch" : "/tenant"}
         className="mb-4 inline-flex items-center gap-1 text-sm text-zinc-500 transition-colors hover:text-zinc-800"
       >
         <ChevronLeft className="size-4" />
-        Change branch
+        {effectiveDraft?.tenantId ? "Choose branch" : "Set up organization"}
       </Link>
+
+      {missingBranch && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[12px] leading-relaxed text-amber-900">
+          <p className="font-medium">Branch not saved on this device</p>
+          <p className="mt-1">
+            This can happen on Safari or mobile when storage is restricted. Choose your organization and branch again, then sign in.
+          </p>
+          <Link
+            href="/branch"
+            className="mt-2 inline-block text-[12px] font-semibold text-amber-950 underline"
+          >
+            Go to branch selection
+          </Link>
+        </div>
+      )}
 
       <form className="space-y-4" onSubmit={signInToWorkspace}>
         <div className="rounded-xl border border-zinc-200/80 bg-zinc-50/90 px-3 py-2.5 text-[11px] leading-relaxed text-zinc-700">
@@ -230,7 +281,11 @@ export default function WorkspacePage() {
 
         {error && <p className="text-[12px] font-medium text-red-600">{error}</p>}
 
-        <Button type="submit" disabled={loading} className={cn(glassButtonClass, "mt-2")}>
+        <Button
+          type="submit"
+          disabled={loading || missingBranch}
+          className={cn(glassButtonClass, "mt-2")}
+        >
           {loading ? "Signing in…" : `Enter ${ws.shortLabel} workspace`}
         </Button>
       </form>
