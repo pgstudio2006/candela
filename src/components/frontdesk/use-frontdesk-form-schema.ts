@@ -5,6 +5,13 @@ import { doctorsForDepartment, type ClinicalRoster } from "@/lib/clinical-roster
 import { getFormSchema, type FormSchemaId } from "@/lib/schema-registry";
 import { useEffect, useMemo, useState } from "react";
 
+function onPublishedSchemaEvent(formId: string, refresh: () => void) {
+  return (event: Event) => {
+    const detail = (event as CustomEvent<{ id?: string }>).detail;
+    if (!detail?.id || detail.id === formId) refresh();
+  };
+}
+
 function patchSchemaWithRoster(
   base: FormSchema,
   roster: ClinicalRoster | null,
@@ -44,9 +51,10 @@ export function useFrontdeskFormSchema(
   const [base, setBase] = useState<FormSchema>(() => getFormSchema(formId));
 
   useEffect(() => {
-    setBase(getFormSchema(formId));
     const refresh = () => setBase(getFormSchema(formId));
-    window.addEventListener("candela-schema-updated", refresh);
+    refresh();
+    const onSchemaUpdated = onPublishedSchemaEvent(formId, refresh);
+    window.addEventListener("candela-schema-updated", onSchemaUpdated);
     window.addEventListener("storage", refresh);
     let channel: BroadcastChannel | null = null;
     try {
@@ -56,7 +64,7 @@ export function useFrontdeskFormSchema(
       /* ignore */
     }
     return () => {
-      window.removeEventListener("candela-schema-updated", refresh);
+      window.removeEventListener("candela-schema-updated", onSchemaUpdated);
       window.removeEventListener("storage", refresh);
       channel?.close();
     };

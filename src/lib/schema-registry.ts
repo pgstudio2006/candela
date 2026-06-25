@@ -207,17 +207,13 @@ export function getDefaultSchemaForId(id: string): FormSchema | null {
 
 export function getAnyFormSchema(id: string): FormSchema {
   const override = schemaOverrides[id];
-  if (id === "registration" && override) {
-    const hasFullName = override.sections.some((section) =>
-      section.fields.some((field) => field.id === "fullName"),
-    );
-    if (!hasFullName) return getDefaultSchema("registration");
-  }
   const fallback = ALL_DEFAULT_SCHEMAS[id];
   if (!fallback && !override) {
     throw new Error(`Unknown form schema: ${id}`);
   }
-  return structuredClone(override ?? fallback!);
+  const schema = structuredClone(override ?? fallback!);
+  schema.id = id;
+  return schema;
 }
 
 export function getDefaultDoctorSchema(id: DoctorFormSchemaId): FormSchema {

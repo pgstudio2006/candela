@@ -146,10 +146,10 @@ export async function logAdminAction(summary: string) {
   return withSnapshot((ctx, operator) => core(ctx, operator, summary));
 }
 
-export async function saveFormSchemaOverride(schema: FormSchema) {
+export async function saveFormSchemaOverride(schema: FormSchema, targetSchemaId?: string) {
   const { ctx, operator } = await resolveAdminOperator();
   const { saveFormSchemaOverride: core } = await loadAdminCore();
-  await core(ctx, operator, schema);
+  await core(ctx, operator, schema, targetSchemaId);
 }
 
 export async function getFormSchemaOverride(schemaId: string) {

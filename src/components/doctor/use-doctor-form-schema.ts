@@ -5,6 +5,13 @@ import { getDoctorFormSchema, type DoctorFormSchemaId } from "@/lib/schema-regis
 import { getIcdOptionsAction } from "@/app/actions/catalog-actions";
 import { useEffect, useState } from "react";
 
+function onPublishedSchemaEvent(formId: string, refresh: () => void) {
+  return (event: Event) => {
+    const detail = (event as CustomEvent<{ id?: string }>).detail;
+    if (!detail?.id || detail.id === formId) refresh();
+  };
+}
+
 function mergeIcdOptions(schema: FormSchema, icdOptions: { value: string; label: string }[]): FormSchema {
   if (!icdOptions.length) return schema;
   return {
@@ -32,9 +39,10 @@ export function useDoctorFormSchema(formId: DoctorFormSchemaId): FormSchema {
       }
       setSchema(next);
     };
+    const onSchemaUpdated = onPublishedSchemaEvent(formId, () => void refresh());
     void refresh();
-    window.addEventListener("candela-schema-updated", refresh);
-    window.addEventListener("storage", refresh);
+    window.addEventListener("candela-schema-updated", onSchemaUpdated);
+    window.addEventListener("storage", () => void refresh());
     let channel: BroadcastChannel | null = null;
     try {
       channel = new BroadcastChannel("candela-schema");
@@ -43,8 +51,8 @@ export function useDoctorFormSchema(formId: DoctorFormSchemaId): FormSchema {
       /* ignore */
     }
     return () => {
-      window.removeEventListener("candela-schema-updated", refresh);
-      window.removeEventListener("storage", refresh);
+      window.removeEventListener("candela-schema-updated", onSchemaUpdated);
+      window.removeEventListener("storage", () => void refresh());
       channel?.close();
     };
   }, [formId]);

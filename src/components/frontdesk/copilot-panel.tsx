@@ -14,7 +14,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const WIDTH_KEY = "candela-copilot-width";
 const MIN_W = 260;
 const MAX_W = 520;
-const DEFAULT_W = 340;
+const DEFAULT_W = 300;
 
 type CopilotPanelProps = {
   open: boolean;

@@ -11,9 +11,10 @@ import { FIELD_TYPE_CATALOG, FORM_DEPARTMENTS, type FormDepartment } from "@/des
 import { FormFieldEditor } from "@/components/admin/form-field-editor";
 import { SchemaForm } from "@/components/candela/schema-form";
 import { AttioButton, Panel } from "@/components/frontdesk/ui";
-import { schemaUsageLabel } from "@/lib/schema-usage";
+import { schemaLiveRoute, schemaUsageLabel } from "@/lib/schema-usage";
 import { schemaFingerprint } from "@/lib/schema-field-utils";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   listFormSchemaOverrides,
@@ -26,7 +27,7 @@ type SchemaGroup = FormDepartment;
 const FIELD_CATEGORIES = ["basic", "numeric", "datetime", "choice", "clinical", "commercial", "media", "layout", "compliance", "computed"] as const;
 
 function loadSchema(id: string): FormSchema {
-  return getAnyFormSchema(id);
+  return { ...getAnyFormSchema(id), id };
 }
 
 export function AdminFormBuilder() {
@@ -43,7 +44,6 @@ export function AdminFormBuilder() {
     void (async () => {
       const overrides = await listFormSchemaOverrides();
       setSchemaOverrideCache(overrides);
-      setSchema(loadSchema(activeId));
       setReady(true);
     })();
   }, []);
@@ -64,7 +64,8 @@ export function AdminFormBuilder() {
 
   const allFields = schema.sections.flatMap((s) => s.fields);
   const filteredSchemas = listSchemasForDepartment(deptFilter);
-  const previewKey = schemaFingerprint(schema);
+  const previewKey = `${activeId}:${schemaFingerprint(schema)}`;
+  const liveRoute = schemaLiveRoute(activeId);
 
   const fieldsByCategory = useMemo(() => {
     const map = new Map<string, typeof FIELD_TYPE_CATALOG>();
@@ -120,15 +121,16 @@ export function AdminFormBuilder() {
 
   const publish = () => {
     void (async () => {
-      await saveFormSchemaOverride(schema);
+      const payload = { ...schema, id: activeId };
+      await saveFormSchemaOverride(payload, activeId);
       const overrides = await listFormSchemaOverrides();
       setSchemaOverrideCache(overrides);
       setSchema(loadSchema(activeId));
       setSaved(true);
       if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("candela-schema-updated"));
+        window.dispatchEvent(new CustomEvent("candela-schema-updated", { detail: { id: activeId } }));
         try {
-          new BroadcastChannel("candela-schema").postMessage({ type: "updated", at: Date.now() });
+          new BroadcastChannel("candela-schema").postMessage({ type: "updated", id: activeId, at: Date.now() });
         } catch {
           /* ignore */
         }
@@ -144,9 +146,9 @@ export function AdminFormBuilder() {
       setSchema(loadSchema(activeId));
       setSaved(false);
       if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("candela-schema-updated"));
+        window.dispatchEvent(new CustomEvent("candela-schema-updated", { detail: { id: activeId } }));
         try {
-          new BroadcastChannel("candela-schema").postMessage({ type: "updated", at: Date.now() });
+          new BroadcastChannel("candela-schema").postMessage({ type: "updated", id: activeId, at: Date.now() });
         } catch {
           /* ignore */
         }
@@ -176,7 +178,18 @@ export function AdminFormBuilder() {
       </div>
 
       <p className="rounded-lg border border-[var(--attio-border-subtle)] bg-[var(--attio-surface)] px-3 py-2 text-[12px] text-[var(--attio-text-secondary)]">
+        <span className="font-medium text-[var(--attio-text)]">Editing:</span> {schema.title}{" "}
+        <span className="font-mono text-[11px] text-[var(--attio-text-tertiary)]">({activeId})</span>
+        <span className="mx-2 text-[var(--attio-border)]">·</span>
         <span className="font-medium text-[var(--attio-text)]">Live in Candela:</span> {schemaUsageLabel(activeId)}
+        {liveRoute && (
+          <>
+            <span className="mx-2 text-[var(--attio-border)]">·</span>
+            <Link href={liveRoute} className="font-medium text-[var(--attio-accent)] hover:underline">
+              Open live screen →
+            </Link>
+          </>
+        )}
       </p>
 
       <div className="flex flex-wrap gap-2">
@@ -253,9 +266,9 @@ export function AdminFormBuilder() {
         </Panel>
       ))}
 
-      <Panel title="Live preview" action={<span className="text-[11px] text-[var(--attio-text-tertiary)]">Updates as you edit</span>}>
+      <Panel title={`Live preview · ${schema.title}`} action={<span className="text-[11px] text-[var(--attio-text-tertiary)]">Updates as you edit</span>}>
         <div className="rounded-lg border border-[var(--attio-border-subtle)] bg-[var(--attio-canvas)] p-4">
-          <SchemaForm key={previewKey} schema={schema} submitLabel="Preview submit" hideSubmit />
+          <SchemaForm key={previewKey} schema={{ ...schema, id: activeId }} submitLabel="Preview submit" hideSubmit />
         </div>
       </Panel>
     </div>

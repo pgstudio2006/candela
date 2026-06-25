@@ -40,6 +40,10 @@ const TABS = [
 
 type TabId = (typeof TABS)[number]["id"];
 
+/** Keeps clinical forms readable without stretching inputs across the full viewport. */
+const CONSULT_FORM_SPLIT = "grid gap-6 lg:grid-cols-[minmax(0,28rem)_minmax(280px,1fr)]";
+const CONSULT_SIDEBAR_SPLIT = "grid gap-6 lg:grid-cols-[minmax(0,28rem)_minmax(240px,18rem)]";
+
 type ConsultationWorkspaceProps = {
   visitId: string;
 };
@@ -289,7 +293,7 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
       </div>
 
       {tab === "examination" && (
-        <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+        <div className={CONSULT_FORM_SPLIT}>
           <Panel title="Examination">
             <PublishedSchemaForm
               schema={examSchema}
@@ -345,7 +349,7 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
       )}
 
       {tab === "diagnosis" && (
-        <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
+        <div className={CONSULT_SIDEBAR_SPLIT}>
           <Panel title="Diagnosis">
             <PublishedSchemaForm
               schema={dxSchema}
@@ -387,7 +391,7 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
       )}
 
       {tab === "treatment" && (
-        <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
+        <div className={CONSULT_SIDEBAR_SPLIT}>
           <Panel title="Treatment plan">
             <PublishedSchemaForm
               schema={txSchema}
@@ -458,7 +462,7 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
       )}
 
       {tab === "handoff" && (
-        <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+        <div className={CONSULT_SIDEBAR_SPLIT}>
           <Panel title="Counsellor handoff">
             <PublishedSchemaForm
               schema={handoffSchema}

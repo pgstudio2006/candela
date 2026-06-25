@@ -2,7 +2,7 @@
 
 import { getPublishedFormSchemasAction } from "@/app/actions/form-schema-actions";
 import { setSchemaOverrideCache } from "@/lib/schema-registry";
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 
 type SchemaOverrideContextValue = {
   ready: boolean;
@@ -14,7 +14,7 @@ const SchemaOverrideContext = createContext<SchemaOverrideContextValue | null>(n
 export function SchemaOverrideProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     try {
       const result = await getPublishedFormSchemasAction();
       if (result.ok) {
@@ -26,11 +26,24 @@ export function SchemaOverrideProvider({ children }: { children: ReactNode }) {
     } finally {
       setReady(true);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void refresh();
-  }, []);
+  }, [refresh]);
+
+  useEffect(() => {
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel("candela-schema");
+      channel.onmessage = () => void refresh();
+    } catch {
+      /* ignore */
+    }
+    return () => {
+      channel?.close();
+    };
+  }, [refresh]);
 
   return (
     <SchemaOverrideContext.Provider value={{ ready, refresh }}>

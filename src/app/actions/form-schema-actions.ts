@@ -13,15 +13,11 @@ export async function getPublishedFormSchemasAction(): Promise<
     const session = await auth();
     if (!session?.user) return {};
     const rows = await prisma.formSchemaOverride.findMany();
-    const entries = rows
-      .filter((row) => {
-        if (row.schemaId !== "registration") return true;
+    return Object.fromEntries(
+      rows.map((row) => {
         const schema = row.payload as FormSchema;
-        return schema.sections.some((section) =>
-          section.fields.some((field) => field.id === "fullName"),
-        );
-      })
-      .map((x) => [x.schemaId, x.payload as FormSchema]);
-    return Object.fromEntries(entries);
+        return [row.schemaId, { ...schema, id: row.schemaId }];
+      }),
+    );
   });
 }

@@ -1012,12 +1012,15 @@ export async function saveFormSchemaOverride(
   ctx: ServerContext,
   operator: AdminOperator,
   schema: FormSchema,
+  targetSchemaId?: string,
 ) {
   assertConfigAccess(operator);
+  const schemaId = targetSchemaId ?? schema.id;
+  const payload: FormSchema = { ...schema, id: schemaId };
   await prisma.formSchemaOverride.upsert({
-    where: { schemaId: schema.id },
-    update: { payload: schema },
-    create: { id: createId("schema"), schemaId: schema.id, payload: schema },
+    where: { schemaId },
+    update: { payload },
+    create: { id: createId("schema"), schemaId, payload },
   });
   await writePlatformAudit({
     ctx,
@@ -1060,7 +1063,9 @@ export async function resetFormSchemaOverride(
 export async function listFormSchemaOverrides(ctx: ServerContext) {
   await resolveAdminRead(ctx);
   const rows = await prisma.formSchemaOverride.findMany();
-  return Object.fromEntries(rows.map((x) => [x.schemaId, x.payload as FormSchema]));
+  return Object.fromEntries(
+    rows.map((x) => [x.schemaId, { ...(x.payload as FormSchema), id: x.schemaId }]),
+  );
 }
 
 export async function saveDocumentTemplate(

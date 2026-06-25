@@ -26,8 +26,38 @@ export const SCHEMA_USAGE: Record<string, { module: string; location: string }[]
   "hr-leave-request": [{ module: "HR", location: "Leave request modal" }],
 };
 
+/** Direct link to the live Candela screen for each schema (form builder → workspace). */
+export const SCHEMA_LIVE_ROUTES: Record<string, string> = {
+  registration: "/app/frontdesk/registration",
+  checkin: "/app/frontdesk/check-in",
+  "junior-exam": "/app/frontdesk/junior-exam",
+  billing: "/app/frontdesk/billing",
+  appointment: "/app/frontdesk/appointments",
+  "doctor-examination": "/app/doctor/queue",
+  "doctor-diagnosis": "/app/doctor/queue",
+  "doctor-treatment": "/app/doctor/queue",
+  "doctor-handoff": "/app/doctor/queue",
+  "doctor-ipd-round": "/app/doctor/ipd",
+  "nurse-vitals": "/app/nurse/queue",
+  "nurse-consent-notes": "/app/nurse/consent",
+  "nurse-session-notes": "/app/nurse/queue",
+  "counsellor-intake": "/app/counsellor/queue",
+  "counsellor-followup": "/app/counsellor/queue",
+  "counsellor-package": "/app/counsellor/packages",
+  "pharmacy-dispense": "/app/pharmacy/prescriptions",
+  "pharmacy-intake": "/app/pharmacy/prescriptions",
+  "crm-lead-capture": "/app/crm/leads",
+  "crm-followup": "/app/crm/follow-ups",
+  "hr-onboarding": "/app/hr/staff",
+  "hr-leave-request": "/app/hr/leave",
+};
+
 export function schemaUsageLabel(schemaId: string): string {
   const rows = SCHEMA_USAGE[schemaId];
   if (!rows?.length) return "Catalog only — not yet wired to a screen";
   return rows.map((r) => `${r.module}: ${r.location}`).join(" · ");
+}
+
+export function schemaLiveRoute(schemaId: string): string | null {
+  return SCHEMA_LIVE_ROUTES[schemaId] ?? null;
 }

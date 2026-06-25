@@ -21,7 +21,7 @@ export function QueueSplit({
   detail: ReactNode;
 }) {
   return (
-    <div className="grid h-[calc(100vh-var(--c-shell-top)-120px)] grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]">
+    <div className="grid h-[calc(100vh-var(--c-shell-top)-120px)] grid-cols-1 gap-4 lg:grid-cols-[minmax(220px,260px)_minmax(0,1fr)]">
       <Card className="flex flex-col overflow-hidden">
         <div className="border-b border-[var(--c-border)] px-3 py-2">
           <p className="text-[11px] font-medium uppercase tracking-wider text-[var(--c-text-tertiary)]">

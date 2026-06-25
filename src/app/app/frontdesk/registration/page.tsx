@@ -7,6 +7,7 @@ import { useFrontdeskFormSchema } from "@/components/frontdesk/use-frontdesk-for
 import { AttioButton, Panel } from "@/components/frontdesk/ui";
 import { useToast } from "@/components/ui/toast-provider";
 import { canOverrideDuplicateAction, checkDuplicatePatientAction } from "@/app/actions/clinical-actions";
+import { schemaFingerprint } from "@/lib/schema-field-utils";
 import { AlertTriangle, LogIn } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -93,7 +94,7 @@ export default function RegistrationPage() {
         <Panel title="Patient details">
           <PublishedSchemaForm
             schema={schema}
-            formKey={schema.id}
+            formKey={`registration-${schemaFingerprint(schema)}`}
             submitLabel={
               submitting
                 ? "Saving…"
