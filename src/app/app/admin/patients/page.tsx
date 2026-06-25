@@ -22,10 +22,12 @@ export default function AdminPatientsPage() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const pageSize = 25;
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError("");
     const result = await searchAdminPatientsAction({
       q: q || undefined,
       page,
@@ -35,6 +37,10 @@ export default function AdminPatientsPage() {
     if (result.ok) {
       setPatients(result.data.patients);
       setTotal(result.data.total);
+    } else {
+      setPatients([]);
+      setTotal(0);
+      setError(result.error);
     }
     setLoading(false);
   }, [q, page, view]);
@@ -77,6 +83,12 @@ export default function AdminPatientsPage() {
           className="ml-auto h-9 min-w-[200px] rounded-md border px-3 text-[13px]"
         />
       </div>
+
+      {error && (
+        <p className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-800">
+          {error}
+        </p>
+      )}
 
       {loading ? (
         <p className="text-[13px] text-[var(--attio-text-tertiary)]">Loading patients…</p>

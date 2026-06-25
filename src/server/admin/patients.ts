@@ -4,11 +4,10 @@ import type { Patient } from "@/design-system/frontdesk-data";
 import { assertNotViewer, type AdminOperator } from "@/server/admin/guards";
 import { backfillBranchScope } from "@/server/branch-scope";
 import { deletePatientsByIds } from "@/server/clinical/delete-patient";
-import { searchPatientsPaginated } from "@/server/clinical";
 import type { ServerContext } from "@/server/context";
 import { ServerActionError } from "@/server/errors";
 import { writePlatformAudit } from "@/server/platform-audit";
-import { branchClinicalWhere } from "@/server/tenancy";
+import { tenantClinicalWhere } from "@/server/tenancy";
 
 export type AdminPatientHistory = {
   patient: Patient;
@@ -63,7 +62,65 @@ export async function searchAdminPatients(
   input: { q?: string; page?: number; pageSize?: number; view?: "all" | "balance" | "today" },
 ) {
   await backfillBranchScope(ctx);
-  return searchPatientsPaginated(ctx, input);
+  const tenantWhere = tenantClinicalWhere(ctx);
+  const page = Math.max(1, input.page ?? 1);
+  const pageSize = Math.min(100, Math.max(10, input.pageSize ?? 25));
+  const q = input.q?.trim();
+
+  let patientIdsFilter: string[] | undefined;
+  if (input.view === "today") {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const visits = await prisma.opdVisit.findMany({
+      where: {
+        ...tenantWhere,
+        checkInAt: { not: null },
+        updatedAt: { gte: todayStart },
+      },
+      select: { patientId: true },
+    });
+    patientIdsFilter = [...new Set(visits.map((v) => v.patientId))];
+    if (patientIdsFilter.length === 0) {
+      return { patients: [], total: 0, page, pageSize };
+    }
+  }
+
+  const where = {
+    AND: [
+      tenantWhere,
+      ...(input.view === "balance" ? [{ balance: { gt: 0 } }] : []),
+      ...(patientIdsFilter ? [{ id: { in: patientIdsFilter } }] : []),
+      ...(q
+        ? [
+            {
+              OR: [
+                { uhid: { contains: q, mode: "insensitive" as const } },
+                { name: { contains: q, mode: "insensitive" as const } },
+                { fullName: { contains: q, mode: "insensitive" as const } },
+                { phone: { contains: q } },
+              ],
+            },
+          ]
+        : []),
+    ],
+  };
+
+  const [rows, total] = await Promise.all([
+    prisma.patient.findMany({
+      where,
+      orderBy: { updatedAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.patient.count({ where }),
+  ]);
+
+  return {
+    patients: rows.map(mapPrismaPatientRow),
+    total,
+    page,
+    pageSize,
+  };
 }
 
 export async function getAdminPatientHistory(
@@ -71,18 +128,18 @@ export async function getAdminPatientHistory(
   patientId: string,
 ): Promise<AdminPatientHistory> {
   await backfillBranchScope(ctx);
-  const clinicalWhere = branchClinicalWhere(ctx);
+  const tenantWhere = tenantClinicalWhere(ctx);
 
   const patientRow = await prisma.patient.findFirst({
-    where: { id: patientId, ...clinicalWhere },
+    where: { id: patientId, ...tenantWhere },
   });
   if (!patientRow) {
-    throw new ServerActionError("NOT_FOUND", "Patient not found in this branch.");
+    throw new ServerActionError("NOT_FOUND", "Patient not found in this hospital.");
   }
 
   const [visits, invoices, submissions, appointments, consultations] = await Promise.all([
     prisma.opdVisit.findMany({
-      where: { patientId, ...clinicalWhere },
+      where: { patientId, ...tenantWhere },
       orderBy: { createdAt: "desc" },
       take: 100,
     }),
@@ -97,7 +154,7 @@ export async function getAdminPatientHistory(
       take: 50,
     }),
     prisma.appointment.findMany({
-      where: { patientId, ...clinicalWhere },
+      where: { patientId, ...tenantWhere },
       orderBy: { createdAt: "desc" },
       take: 50,
     }),
@@ -188,11 +245,11 @@ export async function deleteAdminPatient(
   await backfillBranchScope(ctx);
 
   const patientRow = await prisma.patient.findFirst({
-    where: { id: patientId, ...branchClinicalWhere(ctx) },
+    where: { id: patientId, ...tenantClinicalWhere(ctx) },
     select: { id: true, fullName: true, name: true },
   });
   if (!patientRow) {
-    throw new ServerActionError("NOT_FOUND", "Patient not found in this branch.");
+    throw new ServerActionError("NOT_FOUND", "Patient not found in this hospital.");
   }
 
   const patientName = patientRow.fullName?.trim() || patientRow.name?.trim() || patientId;

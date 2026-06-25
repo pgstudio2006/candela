@@ -16,6 +16,13 @@ export function branchClinicalWhere(ctx: ServerContext) {
   };
 }
 
+/** Admin registry — all patients in the tenant across branches. */
+export function tenantClinicalWhere(ctx: ServerContext) {
+  return {
+    OR: [{ tenantId: ctx.tenantId }, { tenantId: null }, { tenantId: "" }],
+  };
+}
+
 export function tenantScope(ctx: ServerContext) {
   return { tenantId: ctx.tenantId };
 }
