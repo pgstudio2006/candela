@@ -1,12 +1,11 @@
 "use client";
 
 import { useCrmStore } from "@/components/crm/crm-store";
+import { PublishedSchemaForm } from "@/components/candela/published-schema-form";
 import { AttioButton } from "@/components/frontdesk/ui";
 import {
   CRM_APPOINTMENT_CENTRES,
-  CRM_INDIAN_STATES,
   EMPTY_LEAD_FORM,
-  SOURCE_LABELS,
   type CrmLead,
   type CrmLeadFormValues,
   type CrmLeadSource,
@@ -48,6 +47,56 @@ function leadToForm(lead: CrmLead): CrmLeadFormValues {
     priority: lead.priority,
     notes: lead.notes ?? "",
     lostReason: lead.lostReason ?? "",
+  };
+}
+
+function leadToSchemaValues(form: CrmLeadFormValues): Record<string, string | number | boolean> {
+  return {
+    fullName: form.fullName,
+    phone: form.phone,
+    alternatePhone: form.alternatePhone,
+    email: form.email,
+    age: form.age ? Number(form.age) : "",
+    gender: form.gender,
+    city: form.city,
+    district: form.district,
+    state: form.state,
+    country: form.country || "India",
+    doctorName: form.doctorName,
+    specialty: form.specialty,
+    valueEstimate: form.valueEstimate ? Number(form.valueEstimate) : 50000,
+    appointmentDate: form.appointmentDate,
+    appointmentTime: form.appointmentTime,
+    appointmentCentre: form.appointmentCentre || CRM_APPOINTMENT_CENTRES[0] || "",
+    source: form.source,
+    notes: form.notes,
+  };
+}
+
+function mergeSchemaIntoForm(
+  base: CrmLeadFormValues,
+  values: Record<string, string | number | boolean>,
+): CrmLeadFormValues {
+  return {
+    ...base,
+    fullName: String(values.fullName ?? base.fullName),
+    phone: String(values.phone ?? base.phone),
+    alternatePhone: String(values.alternatePhone ?? base.alternatePhone),
+    email: String(values.email ?? base.email),
+    age: values.age !== "" && values.age != null ? String(values.age) : base.age,
+    gender: (String(values.gender ?? base.gender) || "") as CrmLeadFormValues["gender"],
+    city: String(values.city ?? base.city),
+    district: String(values.district ?? base.district),
+    state: String(values.state ?? base.state),
+    country: String(values.country ?? base.country),
+    doctorName: String(values.doctorName ?? base.doctorName),
+    specialty: String(values.specialty ?? base.specialty),
+    valueEstimate: values.valueEstimate != null ? String(values.valueEstimate) : base.valueEstimate,
+    appointmentDate: String(values.appointmentDate ?? base.appointmentDate),
+    appointmentTime: String(values.appointmentTime ?? base.appointmentTime),
+    appointmentCentre: String(values.appointmentCentre ?? base.appointmentCentre),
+    source: (String(values.source ?? base.source) as CrmLeadSource) || base.source,
+    notes: String(values.notes ?? base.notes),
   };
 }
 
@@ -111,6 +160,7 @@ function Field({
 export function CrmLeadFormModal({ open, onClose, initial, onSaved }: CrmLeadFormModalProps) {
   const { stages, agents, isManager, operatorId, addLead, updateLead } = useCrmStore();
   const [form, setForm] = useState<CrmLeadFormValues>(EMPTY_LEAD_FORM);
+  const [captureValues, setCaptureValues] = useState<Record<string, string | number | boolean>>({});
   const [error, setError] = useState("");
 
   const orderedStages = useMemo(() => [...stages].sort((a, b) => a.order - b.order), [stages]);
@@ -122,15 +172,19 @@ export function CrmLeadFormModal({ open, onClose, initial, onSaved }: CrmLeadFor
     if (!open) return;
     const manager = isManager();
     if (initial) {
-      setForm(leadToForm(initial));
+      const next = leadToForm(initial);
+      setForm(next);
+      setCaptureValues(leadToSchemaValues(next));
     } else {
       const firstStage = orderedStages[0]?.id ?? "new";
-      setForm({
+      const next = {
         ...EMPTY_LEAD_FORM,
         stageId: firstStage,
         assigneeId: manager ? "" : operatorId,
         appointmentCentre: CRM_APPOINTMENT_CENTRES[0] ?? "",
-      });
+      };
+      setForm(next);
+      setCaptureValues(leadToSchemaValues(next));
     }
     setError("");
   }, [open, initial?.id, operatorId, orderedStages[0]?.id]);
@@ -143,16 +197,17 @@ export function CrmLeadFormModal({ open, onClose, initial, onSaved }: CrmLeadFor
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.fullName.trim() || !form.phone.trim()) {
+    const mergedForm = mergeSchemaIntoForm(form, captureValues);
+    if (!mergedForm.fullName.trim() || !mergedForm.phone.trim()) {
       setError("Name and phone are required.");
       return;
     }
-    if (isLostStage && !form.lostReason.trim()) {
+    if (isLostStage && !mergedForm.lostReason.trim()) {
       setError("Lost reason is required when status is Lost.");
       return;
     }
 
-    const payload = formToLeadPayload(form);
+    const payload = formToLeadPayload(mergedForm);
     const assigneeId = isManager() ? payload.assigneeId : operatorId;
 
     try {
@@ -235,20 +290,6 @@ export function CrmLeadFormModal({ open, onClose, initial, onSaved }: CrmLeadFor
                   className="h-9 bg-[var(--attio-surface)] text-[13px]"
                 />
               </Field>
-              <Field label="Source">
-                <Select value={form.source} onValueChange={(v) => v && set("source", v as CrmLeadSource)}>
-                  <SelectTrigger className="h-9 text-[13px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(Object.keys(SOURCE_LABELS) as CrmLeadSource[]).map((key) => (
-                      <SelectItem key={key} value={key}>
-                        {SOURCE_LABELS[key]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
             </div>
             {isLostStage && (
               <Field label="Lost reason" required className="mt-3">
@@ -262,121 +303,14 @@ export function CrmLeadFormModal({ open, onClose, initial, onSaved }: CrmLeadFor
             )}
           </section>
 
-          <section className="mb-6">
-            <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-[var(--attio-text-tertiary)]">
-              Patient details
-            </h3>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <Field label="Name" required>
-                <Input value={form.fullName} onChange={(e) => set("fullName", e.target.value)} className="h-9 text-[13px]" required />
-              </Field>
-              <Field label="Phone" required>
-                <Input value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+91 …" className="h-9 text-[13px]" required />
-              </Field>
-              <Field label="Alternate number">
-                <Input value={form.alternatePhone} onChange={(e) => set("alternatePhone", e.target.value)} className="h-9 text-[13px]" />
-              </Field>
-              <Field label="Email">
-                <Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} className="h-9 text-[13px]" />
-              </Field>
-              <Field label="Age">
-                <Input type="number" min={0} max={120} value={form.age} onChange={(e) => set("age", e.target.value)} className="h-9 text-[13px]" />
-              </Field>
-              <Field label="Gender">
-                <Select value={form.gender} onValueChange={(v) => set("gender", (v ?? "") as CrmLeadFormValues["gender"])}>
-                  <SelectTrigger className="h-9 text-[13px]">
-                    <SelectValue placeholder="Select" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="male">Male</SelectItem>
-                    <SelectItem value="female">Female</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                    <SelectItem value="prefer_not">Prefer not to say</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-            </div>
-          </section>
-
-          <section className="mb-6">
-            <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-[var(--attio-text-tertiary)]">
-              Location
-            </h3>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <Field label="City">
-                <Input value={form.city} onChange={(e) => set("city", e.target.value)} className="h-9 text-[13px]" />
-              </Field>
-              <Field label="District name">
-                <Input value={form.district} onChange={(e) => set("district", e.target.value)} className="h-9 text-[13px]" />
-              </Field>
-              <Field label="State & UT">
-                <Select value={form.state} onValueChange={(v) => set("state", v ?? "")}>
-                  <SelectTrigger className="h-9 text-[13px]">
-                    <SelectValue placeholder="Select state" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CRM_INDIAN_STATES.map((s) => (
-                      <SelectItem key={s} value={s}>
-                        {s}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Country">
-                <Input value={form.country} onChange={(e) => set("country", e.target.value)} className="h-9 text-[13px]" />
-              </Field>
-            </div>
-          </section>
-
-          <section className="mb-6">
-            <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-[var(--attio-text-tertiary)]">
-              Clinical & appointment
-            </h3>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <Field label="Doctor name">
-                <Input value={form.doctorName} onChange={(e) => set("doctorName", e.target.value)} className="h-9 text-[13px]" />
-              </Field>
-              <Field label="Specialty">
-                <Input value={form.specialty} onChange={(e) => set("specialty", e.target.value)} placeholder="spine, knee…" className="h-9 text-[13px]" />
-              </Field>
-              <Field label="Est. value (₹)">
-                <Input type="number" min={0} value={form.valueEstimate} onChange={(e) => set("valueEstimate", e.target.value)} className="h-9 text-[13px]" />
-              </Field>
-              <Field label="Appointment date">
-                <Input type="date" value={form.appointmentDate} onChange={(e) => set("appointmentDate", e.target.value)} className="h-9 text-[13px]" />
-              </Field>
-              <Field label="Appointment time">
-                <Input type="time" value={form.appointmentTime} onChange={(e) => set("appointmentTime", e.target.value)} className="h-9 text-[13px]" />
-              </Field>
-              <Field label="Appointment centre">
-                <Select value={form.appointmentCentre} onValueChange={(v) => set("appointmentCentre", v ?? "")}>
-                  <SelectTrigger className="h-9 text-[13px]">
-                    <SelectValue placeholder="Select centre" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CRM_APPOINTMENT_CENTRES.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {c}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-            </div>
-          </section>
-
-          <section className="mb-2">
-            <Field label="Notes">
-              <textarea
-                value={form.notes}
-                onChange={(e) => set("notes", e.target.value)}
-                rows={3}
-                className="w-full rounded-md border border-[var(--attio-border)] px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-[var(--attio-accent)]/20"
-                placeholder="Chief complaint, referral context, follow-up instructions…"
-              />
-            </Field>
-          </section>
+          <PublishedSchemaForm
+            schemaId="crm-lead-capture"
+            hideSubmit
+            formKey={initial?.id ?? "new-lead"}
+            initialValues={captureValues}
+            onValuesChange={setCaptureValues}
+            className="mb-2"
+          />
         </form>
 
         <div className="flex shrink-0 justify-end gap-2 border-t px-5 py-4">

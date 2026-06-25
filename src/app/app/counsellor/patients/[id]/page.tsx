@@ -1,10 +1,13 @@
 "use client";
 
 import { HandoffPayloadView } from "@/components/counsellor/handoff-payload-view";
+import { PublishedSchemaForm } from "@/components/candela/published-schema-form";
+import { saveSubmissionAction } from "@/app/actions/clinical-actions";
 import { useCounsellorStore } from "@/components/counsellor/counsellor-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { formatConsultDate } from "@/lib/doctor-records";
+import { useToast } from "@/components/ui/toast-provider";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -15,6 +18,7 @@ export default function CounsellorPatientDetailPage() {
   const router = useRouter();
   const patientId = params.id as string;
   const [tab, setTab] = useState("commercial");
+  const { toast } = useToast();
   const { getPatient, visits, getPatientCommercialHistory, queue, getVisit } = useCounsellorStore();
   const patient = getPatient(patientId);
   const history = getPatientCommercialHistory(patientId);
@@ -29,7 +33,7 @@ export default function CounsellorPatientDetailPage() {
       breadcrumbs={[{ label: "Counsellor", href: "/app/counsellor" }, { label: "Patients", href: "/app/counsellor/patients" }, { label: patient.name }]}
       title={patient.name}
       meta={`${patient.uhid} · LTV & counsel history`}
-      tabs={[{ id: "commercial", label: "Commercial" }, { id: "clinical", label: "Clinical handoff" }]}
+      tabs={[{ id: "commercial", label: "Commercial" }, { id: "clinical", label: "Clinical handoff" }, { id: "followup", label: "Follow-up" }]}
       activeTab={tab}
       onTabChange={setTab}
       actions={activeQueue ? <button type="button" onClick={() => router.push(`/app/counsellor/session/${activeQueue.visitId}`)} className="rounded-md bg-[var(--attio-text)] px-3 py-1.5 text-[12px] text-white">Open active session</button> : undefined}
@@ -60,6 +64,19 @@ export default function CounsellorPatientDetailPage() {
       )}
       {tab === "clinical" && !activeQueue && (
         <Panel title="No active handoff"><p className="text-[13px] text-[var(--attio-text-tertiary)]">Patient not currently in counsel queue</p></Panel>
+      )}
+
+      {tab === "followup" && (
+        <Panel title="Follow-up call">
+          <PublishedSchemaForm
+            schemaId="counsellor-followup"
+            submitLabel="Save follow-up"
+            onSubmit={async (data) => {
+              await saveSubmissionAction("counsellor-followup", data, { patientId });
+              toast("Follow-up saved", "success");
+            }}
+          />
+        </Panel>
       )}
     </PageChrome>
   );

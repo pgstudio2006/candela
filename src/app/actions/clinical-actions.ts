@@ -19,7 +19,7 @@ import {
   searchPatientsPaginated,
   updatePatient,
 } from "@/server/clinical";
-import { requireModule } from "@/server/auth";
+import { requireAuth, requireModule } from "@/server/auth";
 import { runAction, type ActionResult } from "@/server/action-result";
 import type { ClinicalSnapshot } from "@/server/clinical";
 
@@ -123,7 +123,7 @@ export async function saveSubmissionAction(
   data: Record<string, string | number | boolean>,
   ctx?: { patientId?: string; visitId?: string },
 ) {
-  await requireModule("frontdesk");
+  await requireAuth();
   return saveSubmission(formId, data, ctx);
 }
 

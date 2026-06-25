@@ -1,18 +1,18 @@
 "use client";
 
 import {
-  DOCTOR_FORM_SCHEMA_IDS,
-  FORM_SCHEMA_IDS,
-  getDoctorFormSchema,
-  getFormSchema,
+  getAnyFormSchema,
+  listSchemasForDepartment,
   newFieldId,
   setSchemaOverrideCache,
-  type DoctorFormSchemaId,
-  type FormSchemaId,
 } from "@/lib/schema-registry";
 import type { FieldType, FormSchema, SchemaField } from "@/design-system/frontdesk-schemas";
 import { FIELD_TYPE_CATALOG, FORM_DEPARTMENTS, type FormDepartment } from "@/design-system/admin-data";
+import { FormFieldEditor } from "@/components/admin/form-field-editor";
+import { SchemaForm } from "@/components/candela/schema-form";
 import { AttioButton, Panel } from "@/components/frontdesk/ui";
+import { schemaUsageLabel } from "@/lib/schema-usage";
+import { schemaFingerprint } from "@/lib/schema-field-utils";
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -23,23 +23,17 @@ import {
 
 type SchemaGroup = FormDepartment;
 
-const ALL_SCHEMA_OPTIONS: { group: SchemaGroup; id: FormSchemaId | DoctorFormSchemaId; label: string }[] = [
-  ...FORM_SCHEMA_IDS.map((id) => ({ group: "frontdesk" as const, id, label: id.replace(/-/g, " ") })),
-  ...DOCTOR_FORM_SCHEMA_IDS.map((id) => ({ group: "doctor" as const, id, label: id.replace(/^doctor-/, "").replace(/-/g, " ") })),
-];
-
 const FIELD_CATEGORIES = ["basic", "numeric", "datetime", "choice", "clinical", "commercial", "media", "layout", "compliance", "computed"] as const;
 
-function loadSchema(id: FormSchemaId | DoctorFormSchemaId): FormSchema {
-  if ((DOCTOR_FORM_SCHEMA_IDS as readonly string[]).includes(id)) {
-    return getDoctorFormSchema(id as DoctorFormSchemaId);
-  }
-  return getFormSchema(id as FormSchemaId);
+function loadSchema(id: string): FormSchema {
+  return getAnyFormSchema(id);
 }
 
 export function AdminFormBuilder() {
-  const [activeId, setActiveId] = useState<FormSchemaId | DoctorFormSchemaId>("registration");
-  const [deptFilter, setDeptFilter] = useState<SchemaGroup>("frontdesk");
+  const initialDept = "frontdesk";
+  const initialSchemas = listSchemasForDepartment(initialDept);
+  const [activeId, setActiveId] = useState<string>(initialSchemas[0]?.id ?? "registration");
+  const [deptFilter, setDeptFilter] = useState<SchemaGroup>(initialDept);
   const [schema, setSchema] = useState<FormSchema>(() => loadSchema("registration"));
   const [saved, setSaved] = useState(false);
   const [addType, setAddType] = useState<FieldType>("text");
@@ -56,12 +50,21 @@ export function AdminFormBuilder() {
 
   useEffect(() => {
     if (!ready) return;
+    const options = listSchemasForDepartment(deptFilter);
+    if (!options.some((o) => o.id === activeId) && options[0]) {
+      setActiveId(options[0].id);
+    }
+  }, [deptFilter, ready, activeId]);
+
+  useEffect(() => {
+    if (!ready) return;
     setSchema(loadSchema(activeId));
     setSaved(false);
   }, [activeId, ready]);
 
   const allFields = schema.sections.flatMap((s) => s.fields);
-  const filteredSchemas = ALL_SCHEMA_OPTIONS.filter((s) => s.group === deptFilter);
+  const filteredSchemas = listSchemasForDepartment(deptFilter);
+  const previewKey = schemaFingerprint(schema);
 
   const fieldsByCategory = useMemo(() => {
     const map = new Map<string, typeof FIELD_TYPE_CATALOG>();
@@ -172,6 +175,10 @@ export function AdminFormBuilder() {
         </div>
       </div>
 
+      <p className="rounded-lg border border-[var(--attio-border-subtle)] bg-[var(--attio-surface)] px-3 py-2 text-[12px] text-[var(--attio-text-secondary)]">
+        <span className="font-medium text-[var(--attio-text)]">Live in Candela:</span> {schemaUsageLabel(activeId)}
+      </p>
+
       <div className="flex flex-wrap gap-2">
         {filteredSchemas.map(({ id, label }) => (
           <button
@@ -187,7 +194,7 @@ export function AdminFormBuilder() {
           </button>
         ))}
         {filteredSchemas.length === 0 && (
-          <p className="text-[13px] text-[var(--attio-text-tertiary)]">Select Front Desk or Doctor for editable schemas · other departments use shared templates in UI phase</p>
+          <p className="text-[13px] text-[var(--attio-text-tertiary)]">No schemas defined for this department yet.</p>
         )}
       </div>
 
@@ -233,34 +240,24 @@ export function AdminFormBuilder() {
             </AttioButton>
           }
         >
-          <ul className="divide-y divide-[var(--attio-border-subtle)]">
+          <ul className="space-y-3">
             {section.fields.map((field) => (
-              <li key={field.id} className="grid gap-3 py-3 sm:grid-cols-[1fr_140px_100px_80px_auto] sm:items-center">
-                <input
-                  value={field.label}
-                  onChange={(e) => updateField(field.id, { label: e.target.value })}
-                  className="h-8 rounded-md border border-[var(--attio-border)] px-2 text-[13px]"
-                />
-                <select
-                  value={field.type}
-                  onChange={(e) => updateField(field.id, { type: e.target.value as FieldType })}
-                  className="h-8 rounded-md border border-[var(--attio-border)] px-2 text-[11px]"
-                >
-                  {FIELD_TYPE_CATALOG.map((t) => (
-                    <option key={t.type} value={t.type}>{t.label}</option>
-                  ))}
-                </select>
-                <span className="text-[10px] capitalize text-[var(--attio-text-tertiary)]">{field.category ?? "—"}</span>
-                <label className="flex items-center gap-1 text-[12px]">
-                  <input type="checkbox" checked={Boolean(field.required)} onChange={(e) => updateField(field.id, { required: e.target.checked })} />
-                  Req
-                </label>
-                <button type="button" onClick={() => removeField(field.id)} className="text-[12px] text-red-600 hover:underline">Remove</button>
-              </li>
+              <FormFieldEditor
+                key={field.id}
+                field={field}
+                onChange={(patch) => updateField(field.id, patch)}
+                onRemove={() => removeField(field.id)}
+              />
             ))}
           </ul>
         </Panel>
       ))}
+
+      <Panel title="Live preview" action={<span className="text-[11px] text-[var(--attio-text-tertiary)]">Updates as you edit</span>}>
+        <div className="rounded-lg border border-[var(--attio-border-subtle)] bg-[var(--attio-canvas)] p-4">
+          <SchemaForm key={previewKey} schema={schema} submitLabel="Preview submit" hideSubmit />
+        </div>
+      </Panel>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { SchemaForm } from "@/components/candela/schema-form";
+import { PublishedSchemaForm } from "@/components/candela/published-schema-form";
 import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { useFrontdeskFormSchema } from "@/components/frontdesk/use-frontdesk-form-schema";
@@ -55,7 +55,7 @@ function CheckInContent() {
     >
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
         <Panel title="Check-in form">
-          <SchemaForm
+          <PublishedSchemaForm
             schema={schema}
             formKey={`${schema.id}-${visitParam ?? "new"}-${prefill?.uhid ?? "blank"}-${departmentId}-${ready ? "ready" : "loading"}`}
             initialValues={prefill}

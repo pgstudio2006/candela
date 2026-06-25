@@ -1,4 +1,5 @@
 import { openRouterChat, type ChatMessage } from "@/lib/ai/openrouter-client";
+import { copilotRouteCatalogForPrompt, normalizeCopilotHref } from "@/lib/ai/copilot-routes";
 import type { CopilotAction, CopilotContext, CopilotMessage } from "@/lib/ai/scribe-types";
 
 const COPILOT_TOOLS = [
@@ -49,8 +50,31 @@ const COPILOT_TOOLS = [
   {
     type: "function" as const,
     function: {
+      name: "register_patient",
+      description:
+        "Register a new patient at front desk when the user provides name, phone, and demographics. Use when asked to register/add a patient — not navigate alone.",
+      parameters: {
+        type: "object",
+        properties: {
+          firstName: { type: "string", description: "Patient first name" },
+          lastName: { type: "string" },
+          fullName: { type: "string", description: "Use if first/last not split" },
+          phone: { type: "string", description: "10-digit mobile" },
+          gender: { type: "string", enum: ["M", "F", "O", "male", "female", "other"] },
+          department: { type: "string", description: "Department id e.g. dept_spine" },
+          dob: { type: "string" },
+          age: { type: "number" },
+          email: { type: "string" },
+        },
+        required: ["phone"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "navigate",
-      description: "Navigate the user to a workspace page to complete a task.",
+      description: "Navigate the user to a workspace page to complete a task. Use only hrefs from the route catalog.",
       parameters: {
         type: "object",
         properties: {
@@ -102,9 +126,15 @@ function parseToolActions(name: string, argsRaw: string, ctx: CopilotContext): C
   }
 
   if (name === "navigate") {
-    const href = String(args.href ?? "");
-    if (!href.startsWith("/app/")) return [];
+    const href = normalizeCopilotHref(String(args.href ?? ""));
+    if (!href) return [];
     return [{ type: "navigate", href, label: args.label ? String(args.label) : undefined }];
+  }
+
+  if (name === "register_patient") {
+    const data = args as Record<string, string | number | boolean>;
+    if (!data.phone && !data.fullName && !data.firstName) return [];
+    return [{ type: "register_patient", data }];
   }
 
   return [];
@@ -117,7 +147,11 @@ export async function runCopilotAgent(input: {
   const system = `You are Candela Copilot — an operational clinical agent inside a hospital SaaS.
 You help staff complete real work: fill consult fields, draft prescriptions, and navigate to the right screen.
 When the user asks you to do something you CAN do with tools, call the tool instead of only describing steps.
+When the user asks to register or add a new patient, call register_patient with the details they gave (phone required). Do NOT navigate to /register — that path does not exist.
+When registration needs more fields, navigate to /app/frontdesk/registration only after explaining missing info.
 When on a doctor consult (visitId present), prefer fill_consult_section and set_prescription for documentation tasks.
+For navigate tool, ONLY use these exact paths:
+${copilotRouteCatalogForPrompt()}
 Be concise, clinical, and action-oriented. Never fabricate patient data not in context.
 Format replies with short headings (###), bullet lists (- item), and **bold** labels. Do not use markdown tables or pipe characters.
 Keep responses under 12 lines unless the user asks for detail.

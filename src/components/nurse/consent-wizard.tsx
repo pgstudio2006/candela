@@ -1,5 +1,7 @@
 "use client";
 
+import { PublishedSchemaForm } from "@/components/candela/published-schema-form";
+import { saveSubmissionAction } from "@/app/actions/clinical-actions";
 import { useNurseStore } from "@/components/nurse/nurse-store";
 import { SignatureCanvas } from "@/components/nurse/signature-canvas";
 import { ConsentTemplatePreview } from "@/components/nurse/nursing-handoff-view";
@@ -25,6 +27,7 @@ export function ConsentWizard({ visitId }: ConsentWizardProps) {
   const [mode, setMode] = useState<"sign" | "upload">("sign");
   const [signerName, setSignerName] = useState("");
   const [witnessName, setWitnessName] = useState("");
+  const [consentNotes, setConsentNotes] = useState<Record<string, string | number | boolean>>({});
   const [signature, setSignature] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -122,6 +125,34 @@ export function ConsentWizard({ visitId }: ConsentWizardProps) {
               </label>
             )}
           </div>
+
+          <Panel title="Consent witness notes">
+            <PublishedSchemaForm
+              schemaId="nurse-consent-notes"
+              hideSubmit
+              initialValues={{
+                witnessName,
+                ...consentNotes,
+              }}
+              onValuesChange={(data) => {
+                setConsentNotes(data);
+                if (data.witnessName !== undefined) setWitnessName(String(data.witnessName));
+              }}
+            />
+            <AttioButton
+              variant="secondary"
+              className="mt-3 h-8 text-[11px]"
+              onClick={() => {
+                void saveSubmissionAction("nurse-consent-notes", {
+                  ...consentNotes,
+                  witnessName,
+                  consentId: active.id,
+                }, { visitId });
+              }}
+            >
+              Save witness notes
+            </AttioButton>
+          </Panel>
 
           {mode === "sign" ? (
             <SignatureCanvas onCapture={setSignature} />

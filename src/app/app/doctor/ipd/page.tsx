@@ -1,7 +1,7 @@
 "use client";
 
 import { getIpdRoundHistoryAction } from "@/app/actions/doctor-actions";
-import { SchemaForm } from "@/components/candela/schema-form";
+import { PublishedSchemaForm } from "@/components/candela/published-schema-form";
 import { useDoctorStore } from "@/components/doctor/doctor-store";
 import { useDoctorFormSchema } from "@/components/doctor/use-doctor-form-schema";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
@@ -126,7 +126,7 @@ export default function DoctorIpdPage() {
                   <pre className="whitespace-pre-wrap font-sans">{selected.lastRoundNote}</pre>
                 </div>
               )}
-              <SchemaForm
+              <PublishedSchemaForm
                 schema={schema}
                 formKey={`ipd-${selected.id}`}
                 submitLabel="Save round note"

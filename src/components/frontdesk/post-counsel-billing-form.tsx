@@ -1,6 +1,7 @@
 "use client";
 
 import type { CounselBillingInput } from "@/components/frontdesk/frontdesk-store";
+import { PublishedSchemaForm } from "@/components/candela/published-schema-form";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import type { BillingHandoffPayload } from "@/design-system/counsellor-data";
 import {
@@ -43,6 +44,7 @@ export function PostCounselBillingForm({ handoff, onSubmit }: PostCounselBilling
   const [wardId, setWardId] = useState(IPD_WARD_OPTIONS[0]?.id ?? "msk_a");
   const [bed, setBed] = useState(IPD_WARD_OPTIONS[0]?.beds[0] ?? "A-14");
   const [deferReason, setDeferReason] = useState("");
+  const [billingMeta, setBillingMeta] = useState<Record<string, string | number | boolean>>({});
 
   const ward = IPD_WARD_OPTIONS.find((w) => w.id === wardId) ?? IPD_WARD_OPTIONS[0];
   const collected =
@@ -273,6 +275,10 @@ export function PostCounselBillingForm({ handoff, onSubmit }: PostCounselBilling
         </div>
       </Panel>
 
+      <Panel title="Additional billing fields">
+        <PublishedSchemaForm schemaId="billing" hideSubmit onValuesChange={setBillingMeta} />
+      </Panel>
+
       <AttioButton
         variant="primary"
         className="w-full sm:w-auto"
@@ -286,6 +292,7 @@ export function PostCounselBillingForm({ handoff, onSubmit }: PostCounselBilling
             bed,
             deferReason: deferReason || undefined,
             handoff,
+            ...billingMeta,
           })
         }
       >

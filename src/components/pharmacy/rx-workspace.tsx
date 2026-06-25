@@ -1,7 +1,10 @@
 "use client";
 
 import { usePharmacyStore } from "@/components/pharmacy/pharmacy-store";
+import { PublishedSchemaForm } from "@/components/candela/published-schema-form";
+import { saveSubmissionAction } from "@/app/actions/clinical-actions";
 import { AttioButton, StatusBadge } from "@/components/frontdesk/ui";
+import { usePublishedFormSchema } from "@/hooks/use-published-form-schema";
 import type { Prescription } from "@/design-system/pharmacy-data";
 import { RX_STATUS_LABELS } from "@/design-system/pharmacy-data";
 import { daysToExpiry, isControlledSchedule, pickFefoBatch } from "@/lib/pharmacy-platform";
@@ -16,6 +19,7 @@ export function RxWorkspaceModal({ rx, onClose }: { rx: Prescription; onClose: (
   const [witness, setWitness] = useState("");
   const [qtys, setQtys] = useState<Record<string, number>>({});
   const [msg, setMsg] = useState("");
+  const dispenseSchema = usePublishedFormSchema("pharmacy-dispense");
 
   useEffect(() => {
     const init: Record<string, number> = {};
@@ -154,6 +158,16 @@ export function RxWorkspaceModal({ rx, onClose }: { rx: Prescription; onClose: (
               {needsWitness && (
                 <Input placeholder="Witness pharmacist name (Schedule H1/X)" value={witness} onChange={(e) => setWitness(e.target.value)} className="h-9 text-[13px]" />
               )}
+              <PublishedSchemaForm
+                schema={dispenseSchema}
+                submitLabel="Confirm checklist"
+                onSubmit={async (data) => {
+                  await saveSubmissionAction("pharmacy-dispense", data, {
+                    visitId: rx.encounterId,
+                  });
+                  setMsg("Dispensing checklist saved.");
+                }}
+              />
               <AttioButton
                 variant="primary"
                 disabled={!["verified", "partially_dispensed"].includes(rx.status)}

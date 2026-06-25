@@ -1,6 +1,6 @@
 "use client";
 
-import { SchemaForm } from "@/components/candela/schema-form";
+import { PublishedSchemaForm } from "@/components/candela/published-schema-form";
 import { AiScribePanel } from "@/components/doctor/ai-scribe-panel";
 import { useDoctorStore } from "@/components/doctor/doctor-store";
 import { PrintablePrescription } from "@/components/doctor/print/printable-prescription";
@@ -291,7 +291,7 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
       {tab === "examination" && (
         <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
           <Panel title="Examination">
-            <SchemaForm
+            <PublishedSchemaForm
               schema={examSchema}
               formKey={`exam-${visitId}-${consult?.startedAt ?? ""}`}
               initialValues={consult?.examination}
@@ -347,7 +347,7 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
       {tab === "diagnosis" && (
         <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
           <Panel title="Diagnosis">
-            <SchemaForm
+            <PublishedSchemaForm
               schema={dxSchema}
               formKey={`dx-${visitId}-${consult?.startedAt ?? ""}`}
               initialValues={consult?.diagnosis}
@@ -389,7 +389,7 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
       {tab === "treatment" && (
         <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
           <Panel title="Treatment plan">
-            <SchemaForm
+            <PublishedSchemaForm
               schema={txSchema}
               formKey={`tx-${visitId}-${consult?.startedAt ?? ""}`}
               initialValues={consult?.treatment}
@@ -460,7 +460,7 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
       {tab === "handoff" && (
         <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
           <Panel title="Counsellor handoff">
-            <SchemaForm
+            <PublishedSchemaForm
               schema={handoffSchema}
               formKey={`handoff-${visitId}`}
               initialValues={handoffValues}

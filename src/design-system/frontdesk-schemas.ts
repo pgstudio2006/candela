@@ -44,6 +44,10 @@ export type SchemaField = {
   placeholder?: string;
   required?: boolean;
   options?: { value: string; label: string }[];
+  /** When true, appends an "Other" choice and shows a detail text field when selected. */
+  allowOther?: boolean;
+  /** Placeholder for the "Other" detail text field. */
+  otherPlaceholder?: string;
   defaultValue?: string | number | boolean;
   span?: 1 | 2;
   hint?: string;

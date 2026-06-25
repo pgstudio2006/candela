@@ -2,11 +2,15 @@
 
 import { ConsentWizard } from "@/components/nurse/consent-wizard";
 import { NursingHandoffView } from "@/components/nurse/nursing-handoff-view";
+import { PublishedSchemaForm } from "@/components/candela/published-schema-form";
 import { useNurseStore } from "@/components/nurse/nurse-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { requiredConsentsComplete, TREATMENT_BAYS, consentProgress } from "@/design-system/nurse-data";
 import { useNursePoll } from "@/hooks/use-nurse-poll";
+import { usePublishedFormSchema } from "@/hooks/use-published-form-schema";
+import { saveSubmissionAction } from "@/app/actions/clinical-actions";
+import { validateFormValues } from "@/lib/schema-registry";
 import { cn } from "@/lib/utils";
 import { ArrowLeft, CheckCircle2, HeartPulse, Play, Shield } from "lucide-react";
 import Link from "next/link";
@@ -64,7 +68,8 @@ export function ExecutionWorkspace({ visitId }: ExecutionWorkspaceProps) {
     redFlags: "",
     nursingNotes: "",
   });
-  const [sessionNotes, setSessionNotes] = useState("");
+  const [sessionNoteValues, setSessionNoteValues] = useState<Record<string, string | number | boolean>>({});
+  const vitalsSchema = usePublishedFormSchema("nurse-vitals");
 
   useEffect(() => {
     if (!handoff) return;
@@ -200,71 +205,59 @@ export function ExecutionWorkspace({ visitId }: ExecutionWorkspaceProps) {
 
       {step === "vitals" && (
         <Panel title="Vitals & nursing assessment">
-          <div className="grid gap-4 sm:grid-cols-3">
-            {[
-              { key: "bpSystolic", label: "BP systolic" },
-              { key: "bpDiastolic", label: "BP diastolic" },
-              { key: "pulse", label: "Pulse" },
-              { key: "spo2", label: "SpO₂ %" },
-              { key: "temperature", label: "Temp °C" },
-              { key: "painScore", label: "Pain (0–10)" },
-            ].map(({ key, label }) => (
-              <label key={key} className="block text-[12px]">
-                <span className="mb-1 block text-[var(--attio-text-tertiary)]">{label}</span>
-                <input
-                  type="number"
-                  value={vitals[key as keyof typeof vitals] as number}
-                  onChange={(e) => setVitals((v) => ({ ...v, [key]: Number(e.target.value) }))}
-                  className="h-9 w-full rounded-lg border border-[var(--attio-border)] px-3 tabular-nums"
-                />
-              </label>
-            ))}
-          </div>
-          <label className="mt-4 block text-[12px]">
-            <span className="mb-1 block text-[var(--attio-text-tertiary)]">Allergies</span>
-            <input
-              value={vitals.allergies}
-              onChange={(e) => setVitals((v) => ({ ...v, allergies: e.target.value }))}
-              className="h-9 w-full rounded-lg border border-[var(--attio-border)] px-3"
-            />
-          </label>
-          <label className="mt-3 block text-[12px]">
-            <span className="mb-1 block text-[var(--attio-text-tertiary)]">Red flags / contraindications</span>
-            <textarea
-              value={vitals.redFlags}
-              onChange={(e) => setVitals((v) => ({ ...v, redFlags: e.target.value }))}
-              rows={2}
-              className="w-full rounded-lg border border-[var(--attio-border)] px-3 py-2"
-              placeholder="Neurological deficit, anticoagulation, pregnancy…"
-            />
-          </label>
-          <label className="mt-3 block text-[12px]">
-            <span className="mb-1 block text-[var(--attio-text-tertiary)]">Nursing notes</span>
-            <textarea
-              value={vitals.nursingNotes}
-              onChange={(e) => setVitals((v) => ({ ...v, nursingNotes: e.target.value }))}
-              rows={2}
-              className="w-full rounded-lg border border-[var(--attio-border)] px-3 py-2"
-            />
-          </label>
-          <AttioButton
-            variant="primary"
-            className="mt-4 gap-1.5"
-            disabled={savingVitals}
-            onClick={async () => {
+          <PublishedSchemaForm
+            schema={vitalsSchema}
+            formKey={`${visitId}-${episode?.vitals?.recordedAt ?? "new"}`}
+            initialValues={{
+              bpSystolic: vitals.bpSystolic,
+              bpDiastolic: vitals.bpDiastolic,
+              pulse: vitals.pulse,
+              spo2: vitals.spo2,
+              temperature: vitals.temperature,
+              weight: vitals.weight ?? "",
+              painScore: vitals.painScore,
+              allergies: vitals.allergies,
+              redFlags: vitals.redFlags,
+              nursingNotes: vitals.nursingNotes,
+            }}
+            submitLabel={savingVitals ? "Saving…" : "Save vitals & continue to consent"}
+            onSubmit={async (data) => {
+              const errors = validateFormValues(vitalsSchema, data);
+              const firstError = Object.values(errors)[0];
+              if (firstError) {
+                setActionError(firstError);
+                return;
+              }
               setSavingVitals(true);
               setActionError(null);
-              const result = await saveVitals(visitId, vitals);
+              const payload = {
+                bpSystolic: Number(data.bpSystolic),
+                bpDiastolic: Number(data.bpDiastolic),
+                pulse: Number(data.pulse),
+                spo2: Number(data.spo2),
+                temperature: Number(data.temperature),
+                weight: data.weight ? Number(data.weight) : undefined,
+                painScore: Number(data.painScore),
+                allergies: String(data.allergies ?? ""),
+                redFlags: String(data.redFlags ?? ""),
+                nursingNotes: String(data.nursingNotes ?? ""),
+              };
+              const result = await saveVitals(visitId, payload);
+              if (result.ok && patient) {
+                await saveSubmissionAction("nurse-vitals", data, {
+                  visitId,
+                  patientId: patient.id,
+                });
+              }
               setSavingVitals(false);
               if (!result.ok) {
                 setActionError(result.error ?? "Failed to save vitals");
                 return;
               }
+              setVitals(payload);
               setStep("consent");
             }}
-          >
-            <HeartPulse className="size-3.5" /> Save vitals & continue to consent
-          </AttioButton>
+          />
         </Panel>
       )}
 
@@ -321,12 +314,12 @@ export function ExecutionWorkspace({ visitId }: ExecutionWorkspaceProps) {
                 </select>
               </label>
             </div>
-            <textarea
-              value={sessionNotes}
-              onChange={(e) => setSessionNotes(e.target.value)}
-              rows={3}
-              placeholder="Session notes — tolerance, exercises performed, patient response…"
-              className="mt-3 w-full rounded-lg border border-[var(--attio-border)] px-3 py-2 text-[13px]"
+            <PublishedSchemaForm
+              schemaId="nurse-session-notes"
+              hideSubmit
+              initialValues={sessionNoteValues}
+              onValuesChange={setSessionNoteValues}
+              className="mt-3"
             />
             <div className="mt-4 flex flex-wrap gap-2">
               {episode?.status !== "in_treatment" && activeSession?.status === "scheduled" && (
@@ -353,12 +346,13 @@ export function ExecutionWorkspace({ visitId }: ExecutionWorkspaceProps) {
                   className="gap-1.5"
                   onClick={async () => {
                     setActionError(null);
-                    const result = await completeSession(visitId, activeSession.id, sessionNotes);
+                    const notes = String(sessionNoteValues.sessionNotes ?? "");
+                    const result = await completeSession(visitId, activeSession.id, notes);
                     if (!result.ok) {
                       setActionError(result.error ?? "Could not complete session");
                       return;
                     }
-                    setSessionNotes("");
+                    setSessionNoteValues({});
                     if (result.nextSessionNumber) {
                       setSessionMessage(
                         `Session ${activeSession.sessionNumber} complete. Session ${result.nextSessionNumber} is scheduled — return patient for next visit or start now if ready.`,

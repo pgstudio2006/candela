@@ -1,6 +1,8 @@
 "use client";
 
 import { HandoffPayloadView } from "@/components/counsellor/handoff-payload-view";
+import { PublishedSchemaForm } from "@/components/candela/published-schema-form";
+import { saveSubmissionAction } from "@/app/actions/clinical-actions";
 import { useCounsellorStore } from "@/components/counsellor/counsellor-store";
 import { PrintableQuote } from "@/components/counsellor/print/printable-quote";
 import { PrintPreviewModal } from "@/components/doctor/print/print-preview-modal";
@@ -13,6 +15,7 @@ import {
   type CounselQuote,
 } from "@/design-system/counsellor-data";
 import { useCounsellorPoll } from "@/hooks/use-counsellor-poll";
+import { usePublishedFormSchema } from "@/hooks/use-published-form-schema";
 import { useToast } from "@/components/ui/toast-provider";
 import { cn } from "@/lib/utils";
 import { isRedFlagVisit } from "@/lib/frontdesk-workflow";
@@ -71,6 +74,8 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
   const [paymentExpectation, setPaymentExpectation] = useState<"pay_now" | "desk" | "corporate">("desk");
   const [printOpen, setPrintOpen] = useState(false);
   const [claiming, setClaiming] = useState(false);
+  const intakeSchema = usePublishedFormSchema("counsellor-intake");
+  const packageSchema = usePublishedFormSchema("counsellor-package");
 
   useEffect(() => {
     if (!item) return;
@@ -211,8 +216,23 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
             <textarea value={aiScript} onChange={(e) => setAiScript(e.target.value)} rows={4} placeholder="Patient-friendly explanation…" className="w-full resize-none rounded-lg border border-[var(--attio-border)] px-3 py-2 text-[12px]" />
           </Panel>
 
-          <Panel title="Package proposal">
-            <div className="mb-3 grid grid-cols-3 gap-2">
+          <Panel title="Package presentation">
+            <PublishedSchemaForm
+              schema={packageSchema}
+              hideSubmit
+              initialValues={{
+                packageTier: tier,
+                emiMonths,
+                discountRequested: discountPercent,
+              }}
+              onValuesChange={(data) => {
+                const nextTier = String(data.packageTier ?? tier) as typeof tier;
+                if (data.packageTier) applyTier(nextTier);
+                if (data.emiMonths !== undefined) setEmiMonths(Number(data.emiMonths) || 0);
+                if (data.discountRequested !== undefined) setDiscountPercent(Number(data.discountRequested) || 0);
+              }}
+            />
+            <div className="mt-4 mb-3 grid grid-cols-3 gap-2">
               {PACKAGE_TIERS.map((t) => {
                 const pkg = packages.find((p) => p.id === t.packageId)!;
                 return (
@@ -257,6 +277,26 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
                 <span className="tabular-nums text-[var(--attio-accent)]">₹{quote.netAmount.toLocaleString("en-IN")}</span>
               </div>
             </div>
+          </Panel>
+
+          <Panel title="Counselling intake">
+            <PublishedSchemaForm
+              schema={intakeSchema}
+              initialValues={{ internalNotes }}
+              submitLabel="Save intake"
+              onSubmit={async (data) => {
+                const notes = [data.chiefConcern, data.internalNotes, data.objectionNotes]
+                  .filter(Boolean)
+                  .map(String)
+                  .join("\n");
+                if (notes) setInternalNotes(notes);
+                await saveSubmissionAction("counsellor-intake", data, {
+                  visitId,
+                  patientId: patient.id,
+                });
+                toast("Intake saved", "success");
+              }}
+            />
           </Panel>
 
           <Panel title="Session wrap-up">

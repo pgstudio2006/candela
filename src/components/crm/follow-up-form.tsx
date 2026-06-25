@@ -1,6 +1,7 @@
 "use client";
 
 import type { CrmAgent, CrmFollowUp, CrmLead } from "@/design-system/crm-data";
+import { PublishedSchemaForm } from "@/components/candela/published-schema-form";
 import { AttioButton } from "@/components/frontdesk/ui";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -49,6 +50,7 @@ export function FollowUpScheduleModal({
   const [channel, setChannel] = useState<CrmFollowUp["channel"]>("call");
   const [scheduledAt, setScheduledAt] = useState(defaultScheduleLocal());
   const [notes, setNotes] = useState("");
+  const [followupSchema, setFollowupSchema] = useState<Record<string, string | number | boolean>>({});
 
   useEffect(() => {
     if (!open) return;
@@ -58,6 +60,7 @@ export function FollowUpScheduleModal({
     setChannel("call");
     setScheduledAt(defaultScheduleLocal());
     setNotes("");
+    setFollowupSchema({});
   }, [open, defaultLeadId, defaultAssigneeId, openLeads, assignableAgents]);
 
   if (!open) return null;
@@ -65,12 +68,14 @@ export function FollowUpScheduleModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!leadId || !assigneeId || !scheduledAt) return;
+    const followupNotes = String(followupSchema.followupNotes ?? notes).trim();
+    const outcome = followupSchema.outcome ? ` [${followupSchema.outcome}]` : "";
     onSave({
       leadId,
       assigneeId,
       channel,
       scheduledAt: new Date(scheduledAt).toISOString(),
-      notes: notes.trim() || undefined,
+      notes: followupNotes ? `${followupNotes}${outcome}` : outcome.trim() || undefined,
     });
     onClose();
   };
@@ -146,10 +151,12 @@ export function FollowUpScheduleModal({
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="fu-notes">Notes (optional)</Label>
-            <Input id="fu-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What to cover on this touchpoint" />
-          </div>
+          <PublishedSchemaForm
+            schemaId="crm-followup"
+            hideSubmit
+            initialValues={followupSchema}
+            onValuesChange={setFollowupSchema}
+          />
 
           <div className="flex justify-end gap-2 pt-1">
             <AttioButton type="button" variant="secondary" onClick={onClose}>

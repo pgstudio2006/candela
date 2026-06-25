@@ -9,6 +9,9 @@ import { CopilotPanel } from "@/components/frontdesk/copilot-panel";
 import { WorkspaceSidebar } from "@/components/frontdesk/sidebar";
 import { getFrontdeskNavItem } from "@/design-system/frontdesk-nav";
 import { WORKSPACE_SIGN_IN_PATH } from "@/lib/auth-storage";
+import { normalizeRegisterPatientInput } from "@/lib/frontdesk-validation";
+import type { CopilotAction } from "@/lib/ai/scribe-types";
+import { useToast } from "@/components/ui/toast-provider";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -17,7 +20,8 @@ export function FrontdeskShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { session, signOut, setCommandOpen, commandOpen } = useSession();
   const { loading: sessionLoading } = useRequireClientSession();
-  const { ready, error, refresh } = useFrontdeskStore();
+  const { ready, error, refresh, registerPatientAsync, saveSubmission } = useFrontdeskStore();
+  const { toast } = useToast();
   const [copilotOpen, setCopilotOpen] = useState(false);
   const settingsRef = useRef<HTMLButtonElement>(null);
   const current = getFrontdeskNavItem(pathname);
@@ -43,6 +47,39 @@ export function FrontdeskShell({ children }: { children: ReactNode }) {
     settingsRef.current?.scrollIntoView({ block: "nearest" });
     settingsRef.current?.focus();
   }, []);
+
+  const handleCopilotAction = useCallback(
+    (action: CopilotAction) => {
+      if (action.type !== "register_patient") return;
+      void (async () => {
+        const data = normalizeRegisterPatientInput(action.data);
+        if (!data.department) data.department = "dept_spine";
+        const result = await registerPatientAsync(data, { startVisit: true });
+        if (!result.ok) {
+          toast(result.error ?? "Registration failed", "error");
+          if (result.code === "DUPLICATE_PHONE" || result.code === "DUPLICATE_PATIENT") {
+            router.push("/app/frontdesk/check-in");
+          } else {
+            router.push("/app/frontdesk/registration");
+          }
+          return;
+        }
+        if (result.visitId) {
+          await saveSubmission("registration", data, {
+            patientId: result.patientId,
+            visitId: result.visitId,
+          });
+        }
+        toast(`Registered ${result.uhid}`, "success");
+        router.push(
+          result.visitId
+            ? `/app/frontdesk/check-in?visit=${result.visitId}&patient=${result.patientId}`
+            : `/app/frontdesk/patients/${result.patientId}`,
+        );
+      })();
+    },
+    [registerPatientAsync, saveSubmission, router, toast],
+  );
 
   if (sessionLoading || !session) return null;
 
@@ -83,6 +120,7 @@ export function FrontdeskShell({ children }: { children: ReactNode }) {
           context={current.label}
           module="frontdesk"
           page={pathname}
+          onAgentAction={handleCopilotAction}
         />
       </div>
 

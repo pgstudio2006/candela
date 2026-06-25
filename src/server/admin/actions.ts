@@ -195,3 +195,33 @@ export async function exportRevenueShareCsvAction(
   const { exportRevenueShareCsv: core } = await loadAdminCore();
   return core(ctx, operator, policyId, doctorName, gross, share, packagesClosed);
 }
+
+export async function searchAdminPatientsAction(input: {
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  view?: "all" | "balance" | "today";
+}) {
+  return runAction(async () => {
+    const { ctx } = await resolveAdminOperator();
+    const { searchAdminPatients } = await import("@/server/admin/patients");
+    return searchAdminPatients(ctx, input);
+  });
+}
+
+export async function getAdminPatientHistoryAction(patientId: string) {
+  return runAction(async () => {
+    const { ctx } = await resolveAdminOperator();
+    const { getAdminPatientHistory } = await import("@/server/admin/patients");
+    return serializeForClient(await getAdminPatientHistory(ctx, patientId));
+  });
+}
+
+export async function deleteAdminPatientAction(patientId: string) {
+  return runAction(async () => {
+    const { ctx, operator } = await resolveAdminOperator();
+    const { deleteAdminPatient } = await import("@/server/admin/patients");
+    const result = await deleteAdminPatient(ctx, operator, patientId);
+    return result;
+  });
+}

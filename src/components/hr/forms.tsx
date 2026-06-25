@@ -1,8 +1,9 @@
 "use client";
 
 import { AttioButton } from "@/components/frontdesk/ui";
+import { PublishedSchemaForm } from "@/components/candela/published-schema-form";
+import { saveSubmissionAction } from "@/app/actions/clinical-actions";
 import {
-  LEAVE_TYPE_LABELS,
   type HrDepartment,
   type HrEmployee,
   type LeaveType,
@@ -214,11 +215,13 @@ export function LeaveRequestModal({
   onSave: (data: { employeeId: string; type: LeaveType; fromDate: string; toDate: string; reason: string; syncCrmAbsence: boolean }) => void;
 }) {
   const [employeeId, setEmployeeId] = useState(operatorId);
-  const [type, setType] = useState<LeaveType>("casual");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [reason, setReason] = useState("");
   const [syncCrm, setSyncCrm] = useState(true);
+  const [leaveSchemaValues, setLeaveSchemaValues] = useState<Record<string, string | number | boolean>>({
+    leaveType: "casual",
+    fromDate: "",
+    toDate: "",
+    reason: "",
+  });
   const emp = employees.find((e) => e.id === employeeId);
   const selectable = isManager
     ? employees.filter((e) => e.active)
@@ -230,7 +233,11 @@ export function LeaveRequestModal({
         className="space-y-3"
         onSubmit={(e) => {
           e.preventDefault();
-          onSave({ employeeId, type, fromDate, toDate, reason, syncCrmAbsence: syncCrm && !!emp?.crmAgentId });
+          const leaveType = String(leaveSchemaValues.leaveType ?? "casual") as LeaveType;
+          const from = String(leaveSchemaValues.fromDate ?? "");
+          const to = String(leaveSchemaValues.toDate ?? "");
+          const leaveReason = String(leaveSchemaValues.reason ?? "");
+          onSave({ employeeId, type: leaveType, fromDate: from, toDate: to, reason: leaveReason, syncCrmAbsence: syncCrm && !!emp?.crmAgentId });
           onClose();
         }}
       >
@@ -250,16 +257,12 @@ export function LeaveRequestModal({
             Requesting as <strong>{emp?.name ?? "you"}</strong>
           </p>
         )}
-        <select className="h-9 w-full rounded-md border px-2 text-[13px]" value={type} onChange={(e) => setType(e.target.value as LeaveType)}>
-          {Object.entries(LEAVE_TYPE_LABELS).map(([k, v]) => (
-            <option key={k} value={k}>{v}</option>
-          ))}
-        </select>
-        <div className="grid grid-cols-2 gap-3">
-          <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} required />
-          <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} required />
-        </div>
-        <Input placeholder="Reason" value={reason} onChange={(e) => setReason(e.target.value)} required />
+        <PublishedSchemaForm
+          schemaId="hr-leave-request"
+          hideSubmit
+          initialValues={leaveSchemaValues}
+          onValuesChange={setLeaveSchemaValues}
+        />
         {emp?.crmAgentId && (
           <label className="flex items-center gap-2 text-[12px] text-[var(--attio-text-secondary)]">
             <input type="checkbox" checked={syncCrm} onChange={(e) => setSyncCrm(e.target.checked)} />
@@ -272,5 +275,30 @@ export function LeaveRequestModal({
         </div>
       </form>
     </ModalShell>
+  );
+}
+
+export function OnboardingFormPanel({
+  employeeId,
+  initialEmail,
+  initialName,
+}: {
+  employeeId: string;
+  initialEmail: string;
+  initialName: string;
+}) {
+  return (
+    <PublishedSchemaForm
+      schemaId="hr-onboarding"
+      submitLabel="Save onboarding"
+      initialValues={{
+        fullName: initialName,
+        email: initialEmail,
+        dateOfJoining: new Date().toISOString().slice(0, 10),
+      }}
+      onSubmit={async (data) => {
+        await saveSubmissionAction("hr-onboarding", { ...data, employeeId }, {});
+      }}
+    />
   );
 }

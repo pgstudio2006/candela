@@ -1,6 +1,6 @@
 "use client";
 
-import { EmployeeFormModal } from "@/components/hr/forms";
+import { EmployeeFormModal, OnboardingFormPanel } from "@/components/hr/forms";
 import { useHrStore } from "@/components/hr/hr-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, DataTable, Panel, StatusBadge } from "@/components/frontdesk/ui";
@@ -124,6 +124,10 @@ export default function HrStaffPage() {
                   );
                 })}
               </div>
+            </div>
+            <div className="mt-4 rounded-lg border p-3">
+              <p className="mb-3 text-[12px] font-medium">Onboarding checklist</p>
+              <OnboardingFormPanel employeeId={detail.id} initialEmail={detail.email} initialName={detail.name} />
             </div>
           </Panel>
         </div>

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { LEGACY_DEMO_DOCTOR_IDS } from "@/lib/legacy-demo-doctors";
+import { deletePatientsByIds } from "@/server/clinical/delete-patient";
 
 const DEMO_PATIENT_IDS = /^p\d+$/i;
 const DEMO_PATIENT_NAME_PATTERNS = [
@@ -54,35 +55,7 @@ export function isDemoPatient(patient: {
 }
 
 async function purgePatients(patientIds: string[]) {
-  if (!patientIds.length) return 0;
-
-  const visitIds = (
-    await prisma.opdVisit.findMany({
-      where: { patientId: { in: patientIds } },
-      select: { id: true },
-    })
-  ).map((v) => v.id);
-
-  await prisma.payment
-    .deleteMany({ where: { invoice: { patientId: { in: patientIds } } } })
-    .catch(() => undefined);
-  await prisma.invoiceLine
-    .deleteMany({ where: { invoice: { patientId: { in: patientIds } } } })
-    .catch(() => undefined);
-  await prisma.invoice.deleteMany({ where: { patientId: { in: patientIds } } });
-  await prisma.consultation.deleteMany({ where: { patientId: { in: patientIds } } }).catch(() => undefined);
-  if (visitIds.length) {
-    await prisma.consultNote.deleteMany({ where: { visitId: { in: visitIds } } }).catch(() => undefined);
-  }
-  await prisma.formSubmission
-    .deleteMany({ where: { patientId: { in: patientIds } } })
-    .catch(() => undefined);
-  await prisma.opdVisit.deleteMany({ where: { patientId: { in: patientIds } } });
-  await prisma.visit.deleteMany({ where: { patientId: { in: patientIds } } }).catch(() => undefined);
-  await prisma.appointment.deleteMany({ where: { patientId: { in: patientIds } } }).catch(() => undefined);
-
-  const removed = await prisma.patient.deleteMany({ where: { id: { in: patientIds } } });
-  return removed.count;
+  return deletePatientsByIds(patientIds);
 }
 
 export async function purgeDemoClinicalData(): Promise<PurgeDemoClinicalResult> {

@@ -1,6 +1,6 @@
 "use client";
 
-import { SchemaForm } from "@/components/candela/schema-form";
+import { PublishedSchemaForm } from "@/components/candela/published-schema-form";
 import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { useFrontdeskFormSchema } from "@/components/frontdesk/use-frontdesk-form-schema";
@@ -77,7 +77,7 @@ export default function PatientEditPage() {
       </Link>
 
       <Panel title="Demographics & registration">
-        <SchemaForm
+        <PublishedSchemaForm
           schema={{
             ...schema,
             title: "Update patient",

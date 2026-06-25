@@ -35,6 +35,7 @@ export const WORKSPACES: WorkspaceConfig[] = [
       { id: "audit", label: "Audit", href: "/app/admin/audit" },
       { id: "geo", label: "Geo intelligence", href: "/app/admin/geo" },
       { id: "data-mining", label: "Data mining", href: "/app/admin/data-mining" },
+      { id: "patients", label: "Patients", href: "/app/admin/patients" },
       { id: "staff", label: "Staff & access", href: "/app/admin/staff" },
       { id: "departments", label: "Departments", href: "/app/admin/departments" },
       { id: "disease-mapping", label: "Disease mapping", href: "/app/admin/disease-mapping" },

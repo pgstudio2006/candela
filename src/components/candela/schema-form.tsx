@@ -17,6 +17,14 @@ import { deptLabelFromRoster, resolveDoctorName, type ClinicalRoster } from "@/l
 import { deptLabel } from "@/lib/frontdesk-workflow";
 import { validateFormValues } from "@/lib/schema-registry";
 import {
+  fieldOptionsForRender,
+  otherDetailKey,
+  parseMultiValue,
+  selectionUsesOther,
+  toggleMultiValue,
+  schemaFingerprint,
+} from "@/lib/schema-field-utils";
+import {
   cascadeIndiaLocationChange,
   resolveIndiaLocationOptions,
 } from "@/lib/india-locations";
@@ -67,12 +75,39 @@ function SchemaFieldInput({
     );
   }
 
-  if (field.type === "multiselect" || field.type === "checkbox") {
+  if (field.type === "multiselect") {
+    const selected = new Set(parseMultiValue(value));
+    const options = fieldOptionsForRender(field);
+    return (
+      <div className="space-y-2">
+        {options.map((o) => (
+          <label key={o.value} className="flex items-center gap-2 text-[12px]">
+            <input
+              type="checkbox"
+              checked={selected.has(o.value)}
+              onChange={() => onChange(toggleMultiValue(value, o.value))}
+            />
+            {o.label}
+          </label>
+        ))}
+        {options.length === 0 && (
+          <p className="text-[12px] text-[var(--attio-text-tertiary)]">No options configured for this field.</p>
+        )}
+      </div>
+    );
+  }
+
+  if (field.type === "checkbox" && field.options?.length) {
+    const selected = new Set(parseMultiValue(value));
     return (
       <div className="space-y-1">
-        {field.options?.map((o) => (
+        {field.options.map((o) => (
           <label key={o.value} className="flex items-center gap-2 text-[12px]">
-            <input type="checkbox" checked={String(value).includes(o.value)} onChange={() => onChange(o.value)} />
+            <input
+              type="checkbox"
+              checked={selected.has(o.value)}
+              onChange={() => onChange(toggleMultiValue(value, o.value))}
+            />
             {o.label}
           </label>
         ))}
@@ -80,10 +115,20 @@ function SchemaFieldInput({
     );
   }
 
+  if (field.type === "checkbox") {
+    return (
+      <label className="flex items-center gap-2 text-[12px]">
+        <input type="checkbox" checked={Boolean(value)} onChange={(e) => onChange(e.target.checked)} />
+        {field.label}
+      </label>
+    );
+  }
+
   if (field.type === "radio") {
+    const options = fieldOptionsForRender(field);
     return (
       <div className="flex flex-wrap gap-2">
-        {field.options?.map((o) => {
+        {options.map((o) => {
           const selected = value === o.value;
           return (
             <button
@@ -162,7 +207,7 @@ function SchemaFieldInput({
   if (field.type === "select") {
     const raw = String(value ?? "");
     const indiaOptions = allValues ? resolveIndiaLocationOptions(field.id, allValues) : null;
-    let options = indiaOptions ?? [...(field.options ?? [])];
+    let options = indiaOptions ?? fieldOptionsForRender(field);
     if (raw && !options.some((o) => o.value === raw)) {
       options = [{ value: raw, label: humanizeSelectValue(raw, field.id, roster) }, ...options];
     }
@@ -260,6 +305,7 @@ export function SchemaForm({
   schema,
   onSubmit,
   submitLabel = "Save",
+  hideSubmit = false,
   className,
   initialValues,
   formKey,
@@ -270,6 +316,7 @@ export function SchemaForm({
   schema: FormSchema;
   onSubmit?: (data: Record<string, string | number | boolean>) => void;
   submitLabel?: string;
+  hideSubmit?: boolean;
   className?: string;
   initialValues?: Record<string, string | number | boolean>;
   formKey?: string;
@@ -280,7 +327,8 @@ export function SchemaForm({
   const [values, setValues] = useState(() => defaultValues(schema, initialValues));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const initialKey = useMemo(() => JSON.stringify(initialValues ?? {}), [initialValues]);
-  const resetKey = formKey ?? `${schema.id}:${initialKey}`;
+  const fingerprint = useMemo(() => schemaFingerprint(schema), [schema]);
+  const resetKey = formKey ?? `${schema.id}:${initialKey}:${fingerprint}`;
   const lastResetKey = useRef(resetKey);
 
   useEffect(() => {
@@ -303,6 +351,19 @@ export function SchemaForm({
       delete next[id];
       return next;
     });
+  };
+
+  const setWithOther = (field: SchemaField, v: string | number | boolean) => {
+    set(field.id, v);
+    if (!selectionUsesOther(field, v)) {
+      set(otherDetailKey(field.id), "");
+      setErrors((prev) => {
+        if (!prev[otherDetailKey(field.id)]) return prev;
+        const next = { ...prev };
+        delete next[otherDetailKey(field.id)];
+        return next;
+      });
+    }
   };
 
   return (
@@ -344,15 +405,17 @@ export function SchemaForm({
                   field.type === "toggle" && "flex items-center justify-between sm:col-span-2",
                 )}
               >
-                <Label className="text-[12px] font-medium text-[var(--attio-text-secondary)]">
-                  {field.label}
-                  {field.required && <span className="text-red-500"> *</span>}
-                </Label>
+                {!(field.type === "checkbox" && !field.options?.length) && (
+                  <Label className="text-[12px] font-medium text-[var(--attio-text-secondary)]">
+                    {field.label}
+                    {field.required && <span className="text-red-500"> *</span>}
+                  </Label>
+                )}
                 {field.type !== "toggle" && (
                   <SchemaFieldInput
                     field={field}
                     value={values[field.id]}
-                    onChange={(v) => set(field.id, v)}
+                    onChange={(v) => setWithOther(field, v)}
                     searchPatients={searchPatients}
                     roster={roster}
                     allValues={values}
@@ -362,7 +425,7 @@ export function SchemaForm({
                   <SchemaFieldInput
                     field={field}
                     value={values[field.id]}
-                    onChange={(v) => set(field.id, v)}
+                    onChange={(v) => setWithOther(field, v)}
                     searchPatients={searchPatients}
                     roster={roster}
                     allValues={values}
@@ -371,8 +434,19 @@ export function SchemaForm({
                 {field.hint && (
                   <p className="text-[11px] text-zinc-400">{field.hint}</p>
                 )}
+                {selectionUsesOther(field, values[field.id]) && (
+                  <Input
+                    value={String(values[otherDetailKey(field.id)] ?? "")}
+                    onChange={(e) => set(otherDetailKey(field.id), e.target.value)}
+                    placeholder={field.otherPlaceholder ?? "Please specify…"}
+                    className="h-9 text-[13px]"
+                  />
+                )}
                 {errors[field.id] && (
                   <p className="text-[11px] text-red-600">{errors[field.id]}</p>
+                )}
+                {errors[otherDetailKey(field.id)] && (
+                  <p className="text-[11px] text-red-600">{errors[otherDetailKey(field.id)]}</p>
                 )}
               </div>
               );
@@ -380,7 +454,7 @@ export function SchemaForm({
           </div>
         </div>
       ))}
-      {onSubmit && (
+      {onSubmit && !hideSubmit && (
         <button
           type="submit"
           className="h-8 rounded-md bg-[var(--attio-text)] px-3 text-[12px] font-medium text-white hover:bg-[#333]"

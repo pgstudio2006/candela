@@ -1,6 +1,7 @@
 "use client";
 
 import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
+import { PublishedSchemaForm } from "@/components/candela/published-schema-form";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { useFrontdeskFormSchema } from "@/components/frontdesk/use-frontdesk-form-schema";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
@@ -9,6 +10,7 @@ import { useToast } from "@/components/ui/toast-provider";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { generateDaySlots, formatDisplayDate } from "@/lib/appointment-slots";
 import { patientDisplayName } from "@/lib/frontdesk-workflow";
+import { subsetSchema } from "@/lib/schema-registry";
 import { cn } from "@/lib/utils";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -28,6 +30,11 @@ export default function AppointmentsPage() {
     roster,
     saveSubmission,
   } = useFrontdeskStore();
+  const appointmentSchema = useFrontdeskFormSchema("appointment", roster);
+  const bookingFieldsSchema = useMemo(
+    () => subsetSchema(appointmentSchema, ["duration", "notes"]),
+    [appointmentSchema],
+  );
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [listDate, setListDate] = useState(new Date().toISOString().slice(0, 10));
   const [deptId, setDeptId] = useState("dept_spine");
@@ -207,14 +214,17 @@ export default function AppointmentsPage() {
                     {selectedTime ? `${formatDisplayDate(date)} · ${selectedTime}` : "Click a slot on the calendar"}
                   </p>
                 </div>
-                <div>
-                  <p className="mb-1.5 text-[12px] font-medium text-[var(--attio-text-secondary)]">Duration (min)</p>
-                  <Input type="number" value={duration} onChange={(e) => setDuration(Number(e.target.value))} className="h-9 text-[13px]" />
-                </div>
-                <div>
-                  <p className="mb-1.5 text-[12px] font-medium text-[var(--attio-text-secondary)]">Notes</p>
-                  <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-[72px] w-full rounded-md border px-3 py-2 text-[13px]" />
-                </div>
+                <PublishedSchemaForm
+                  schema={bookingFieldsSchema}
+                  hideSubmit
+                  initialValues={{ duration: String(duration), notes }}
+                  onValuesChange={(values) => {
+                    if (values.duration != null && values.duration !== "") {
+                      setDuration(Number(values.duration));
+                    }
+                    if (values.notes != null) setNotes(String(values.notes));
+                  }}
+                />
                 <AttioButton variant="primary" className="w-full" onClick={handleBook}>
                   Book slot
                 </AttioButton>

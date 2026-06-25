@@ -21,7 +21,8 @@ export type CopilotAction =
       data: Record<string, string | number | boolean>;
     }
   | { type: "set_prescription"; visitId: string; lines: Omit<PrescriptionLine, "id">[] }
-  | { type: "navigate"; href: string; label?: string };
+  | { type: "navigate"; href: string; label?: string }
+  | { type: "register_patient"; data: Record<string, string | number | boolean> };
 
 export type CopilotContext = {
   module: string;

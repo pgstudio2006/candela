@@ -111,6 +111,9 @@ export function CopilotPanel({
     setPendingActions((prev) => [...prev, ...actions]);
   };
 
+  const resolvedModule = moduleProp ?? session?.role ?? "workspace";
+  const resolvedPage = pageProp ?? context;
+
   const send = async () => {
     const text = input.trim();
     if (!text || loading) return;
@@ -128,9 +131,9 @@ export function CopilotPanel({
         body: JSON.stringify({
           messages: nextMessages.filter((m) => m.role === "user" || m.role === "assistant").map(({ role, content }) => ({ role, content })),
           context: {
-            module,
-            role: session?.role ?? module,
-            page,
+            module: resolvedModule,
+            role: session?.role ?? resolvedModule,
+            page: resolvedPage,
             visitId,
             patient: patient ?? (activePatient ? { name: activePatient.name, uhid: activePatient.uhid, age: activePatient.age } : undefined),
             queueSummary,
@@ -155,9 +158,6 @@ export function CopilotPanel({
   };
 
   if (!open) return null;
-
-  const module = moduleProp ?? session?.role ?? "workspace";
-  const page = pageProp ?? context;
 
   return (
     <>
@@ -235,7 +235,11 @@ export function CopilotPanel({
                       : "mr-4 border border-[var(--attio-border-subtle)] bg-[var(--attio-surface)] text-[var(--attio-text-secondary)]",
                   )}
                 >
-                  {m.role === "assistant" ? <MarkdownMessage content={m.content} /> : m.content}
+                  {m.role === "assistant" ? (
+                    <MarkdownMessage content={m.content} className="text-[13px]" />
+                  ) : (
+                    <div>{m.content}</div>
+                  )}
                   {m.actions && m.actions.length > 0 && (
                     <p className="mt-2 text-[10px] font-medium text-emerald-600">
                       Executed {m.actions.length} action{m.actions.length === 1 ? "" : "s"}
@@ -273,6 +277,11 @@ export function CopilotPanel({
                     {a.type === "set_prescription" && (
                       <p>
                         Updated prescription · {a.lines.length} medicine{a.lines.length === 1 ? "" : "s"}
+                      </p>
+                    )}
+                    {a.type === "register_patient" && (
+                      <p>
+                        Registered patient · {String(a.data.firstName ?? a.data.fullName ?? a.data.phone ?? "new")}
                       </p>
                     )}
                   </li>

@@ -1,10 +1,10 @@
 "use client";
 
-import { SchemaForm } from "@/components/candela/schema-form";
+import { PublishedSchemaForm } from "@/components/candela/published-schema-form";
 import { useFrontdeskStore } from "@/components/frontdesk/frontdesk-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
-import { useFormSchema } from "@/components/frontdesk/use-form-schema";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
+import { usePublishedFormSchema } from "@/hooks/use-published-form-schema";
 import { AlertTriangle, ArrowLeft, Send } from "lucide-react";
 import { useToast } from "@/components/ui/toast-provider";
 import { validateFormValues } from "@/lib/schema-registry";
@@ -15,7 +15,7 @@ export default function JuniorExamDetailPage() {
   const params = useParams();
   const router = useRouter();
   const visitId = params.visitId as string;
-  const schema = useFormSchema("junior-exam");
+  const schema = usePublishedFormSchema("junior-exam");
   const { toast } = useToast();
   const {
     getVisit,
@@ -114,7 +114,7 @@ export default function JuniorExamDetailPage() {
 
       <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
         <Panel title="Junior doctor examination">
-          <SchemaForm
+          <PublishedSchemaForm
             schema={schema}
             formKey={`${schema.id}-${visitId}`}
             initialValues={saved?.data}

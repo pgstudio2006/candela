@@ -1,5 +1,6 @@
 "use client";
 
+import { PublishedSchemaForm } from "@/components/candela/published-schema-form";
 import { PatientSearchField } from "@/components/frontdesk/patient-search-field";
 import { AttioButton, Panel } from "@/components/frontdesk/ui";
 import type { Patient, Visit } from "@/design-system/frontdesk-data";
@@ -85,6 +86,7 @@ export function OpdBillingForm({
   const [paymentSplits, setPaymentSplits] = useState<PaymentSplit[]>([
     { mode: "cash", amount: 0 },
   ]);
+  const [billingMeta, setBillingMeta] = useState<Record<string, string | number | boolean>>({});
 
   const subtotal = lines.reduce((s, l) => s + l.amount * l.quantity, 0);
   const discountResolved = resolveBillingDiscount(subtotal, {
@@ -152,6 +154,7 @@ export function OpdBillingForm({
       amount: subtotal,
       collectedAmount: splitTotal,
       mode: paymentSplits.length > 1 ? "split" : (paymentSplits[0]?.mode ?? "cash"),
+      ...billingMeta,
     };
     onSubmit(payload);
   };
@@ -539,6 +542,14 @@ export function OpdBillingForm({
                     </div>
                   </div>
                 )}
+              </Panel>
+
+              <Panel title="Additional billing fields">
+                <PublishedSchemaForm
+                  schemaId="billing"
+                  hideSubmit
+                  onValuesChange={setBillingMeta}
+                />
               </Panel>
             </>
           )}

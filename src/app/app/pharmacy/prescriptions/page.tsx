@@ -1,16 +1,20 @@
 "use client";
 
 import { RxWorkspaceModal } from "@/components/pharmacy/rx-workspace";
+import { PublishedSchemaForm } from "@/components/candela/published-schema-form";
+import { saveSubmissionAction } from "@/app/actions/clinical-actions";
 import { usePharmacyStore } from "@/components/pharmacy/pharmacy-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
-import { DataTable, StatusBadge } from "@/components/frontdesk/ui";
+import { DataTable, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import type { Prescription } from "@/design-system/pharmacy-data";
 import { RX_STATUS_LABELS } from "@/design-system/pharmacy-data";
 import { usePharmacyPoll } from "@/hooks/use-pharmacy-poll";
+import { useToast } from "@/components/ui/toast-provider";
 import { useState } from "react";
 
 export default function PharmacyPrescriptionsPage() {
   usePharmacyPoll();
+  const { toast } = useToast();
   const { getActivePrescriptions, prescriptions } = usePharmacyStore();
   const [selected, setSelected] = useState<Prescription | null>(null);
   const [filter, setFilter] = useState<string>("active");
@@ -30,6 +34,18 @@ export default function PharmacyPrescriptionsPage() {
         </select>
       }
     >
+      <div className="mb-6">
+        <Panel title="Walk-in pharmacy intake">
+          <PublishedSchemaForm
+            schemaId="pharmacy-intake"
+            submitLabel="Save intake"
+            onSubmit={async (data) => {
+              await saveSubmissionAction("pharmacy-intake", data, {});
+              toast("Intake saved", "success");
+            }}
+          />
+        </Panel>
+      </div>
       <DataTable
         columns={[
           { key: "patient", label: "Patient" },
