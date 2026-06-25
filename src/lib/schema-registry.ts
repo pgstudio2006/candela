@@ -205,11 +205,59 @@ export function getDefaultSchemaForId(id: string): FormSchema | null {
   return base ? structuredClone(base) : null;
 }
 
+/** Field ids across all sections (layout-only fields excluded). */
+export function schemaFieldIds(schema: FormSchema): string[] {
+  return schema.sections.flatMap((s) =>
+    s.fields.filter((f) => f.type !== "section" && f.type !== "divider" && f.type !== "help").map((f) => f.id),
+  );
+}
+
+const REGISTRATION_MARKER_FIELDS = new Set([
+  "fullName",
+  "phone",
+  "alternatePhone",
+  "visitType",
+  "appointmentCentre",
+  "referrer",
+  "referrerName",
+  "corporateId",
+]);
+
+/**
+ * Detects overrides saved under the wrong schema key (e.g. registration payload on doctor-examination).
+ * Caused by an earlier form-builder bug that published with the wrong schema id.
+ */
+export function isCorruptSchemaOverride(schemaId: string, override: FormSchema): boolean {
+  const defaultSchema = ALL_DEFAULT_SCHEMAS[schemaId];
+  if (!defaultSchema) return false;
+  if (schemaId === "registration") return false;
+
+  const overrideIds = schemaFieldIds(override);
+  const registrationDefault = DEFAULT_SCHEMAS.registration;
+
+  if (override.id && override.id !== schemaId) return true;
+  if (override.title === registrationDefault.title) return true;
+
+  const registrationMarkers = overrideIds.filter((id) => REGISTRATION_MARKER_FIELDS.has(id)).length;
+  if (registrationMarkers >= 3) return true;
+
+  const defaultIds = new Set(schemaFieldIds(defaultSchema));
+  const overlap = overrideIds.filter((id) => defaultIds.has(id)).length;
+  if (overrideIds.length >= 6 && overlap === 0) return true;
+
+  return false;
+}
+
 export function getAnyFormSchema(id: string): FormSchema {
   const override = schemaOverrides[id];
   const fallback = ALL_DEFAULT_SCHEMAS[id];
   if (!fallback && !override) {
     throw new Error(`Unknown form schema: ${id}`);
+  }
+  if (override && isCorruptSchemaOverride(id, override)) {
+    const schema = structuredClone(fallback!);
+    schema.id = id;
+    return schema;
   }
   const schema = structuredClone(override ?? fallback!);
   schema.id = id;

@@ -4,6 +4,7 @@ import {
   getAnyFormSchema,
   listSchemasForDepartment,
   newFieldId,
+  SCHEMA_CATALOG,
   setSchemaOverrideCache,
 } from "@/lib/schema-registry";
 import type { FieldType, FormSchema, SchemaField } from "@/design-system/frontdesk-schemas";
@@ -15,7 +16,7 @@ import { schemaLiveRoute, schemaUsageLabel } from "@/lib/schema-usage";
 import { schemaFingerprint } from "@/lib/schema-field-utils";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   listFormSchemaOverrides,
   resetFormSchemaOverride,
@@ -26,8 +27,13 @@ type SchemaGroup = FormDepartment;
 
 const FIELD_CATEGORIES = ["basic", "numeric", "datetime", "choice", "clinical", "commercial", "media", "layout", "compliance", "computed"] as const;
 
+function catalogLabel(schemaId: string): string {
+  return SCHEMA_CATALOG.find((entry) => entry.id === schemaId)?.label ?? schemaId;
+}
+
 function loadSchema(id: string): FormSchema {
-  return { ...getAnyFormSchema(id), id };
+  const loaded = getAnyFormSchema(id);
+  return { ...loaded, id, title: catalogLabel(id) };
 }
 
 export function AdminFormBuilder() {
@@ -39,11 +45,25 @@ export function AdminFormBuilder() {
   const [saved, setSaved] = useState(false);
   const [addType, setAddType] = useState<FieldType>("text");
   const [ready, setReady] = useState(false);
+  const [purgedNotice, setPurgedNotice] = useState<string | null>(null);
+
+  const selectSchema = useCallback(
+    (id: string) => {
+      setActiveId(id);
+      if (ready) setSchema(loadSchema(id));
+    },
+    [ready],
+  );
 
   useEffect(() => {
     void (async () => {
-      const overrides = await listFormSchemaOverrides();
+      const { overrides, purgedIds } = await listFormSchemaOverrides();
       setSchemaOverrideCache(overrides);
+      if (purgedIds.length > 0) {
+        setPurgedNotice(
+          `Fixed ${purgedIds.length} corrupted form(s) that had registration fields on the wrong schema (${purgedIds.join(", ")}). Each now uses its correct default until you publish again.`,
+        );
+      }
       setReady(true);
     })();
   }, []);
@@ -52,9 +72,9 @@ export function AdminFormBuilder() {
     if (!ready) return;
     const options = listSchemasForDepartment(deptFilter);
     if (!options.some((o) => o.id === activeId) && options[0]) {
-      setActiveId(options[0].id);
+      selectSchema(options[0].id);
     }
-  }, [deptFilter, ready, activeId]);
+  }, [deptFilter, ready, activeId, selectSchema]);
 
   useEffect(() => {
     if (!ready) return;
@@ -66,6 +86,13 @@ export function AdminFormBuilder() {
   const filteredSchemas = listSchemasForDepartment(deptFilter);
   const previewKey = `${activeId}:${schemaFingerprint(schema)}`;
   const liveRoute = schemaLiveRoute(activeId);
+  const activeLabel = catalogLabel(activeId);
+
+  const pinSchemaMeta = (next: FormSchema): FormSchema => ({
+    ...next,
+    id: activeId,
+    title: activeLabel,
+  });
 
   const fieldsByCategory = useMemo(() => {
     const map = new Map<string, typeof FIELD_TYPE_CATALOG>();
@@ -76,57 +103,74 @@ export function AdminFormBuilder() {
   }, []);
 
   const updateField = (fieldId: string, patch: Partial<SchemaField>) => {
-    setSchema((prev) => ({
-      ...prev,
-      sections: prev.sections.map((section) => ({
-        ...section,
-        fields: section.fields.map((f) => (f.id === fieldId ? { ...f, ...patch, category: FIELD_TYPE_CATALOG.find((c) => c.type === (patch.type ?? f.type))?.category } : f)),
-      })),
-    }));
+    setSchema((prev) =>
+      pinSchemaMeta({
+        ...prev,
+        sections: prev.sections.map((section) => ({
+          ...section,
+          fields: section.fields.map((f) =>
+            f.id === fieldId
+              ? {
+                  ...f,
+                  ...patch,
+                  category: FIELD_TYPE_CATALOG.find((c) => c.type === (patch.type ?? f.type))?.category,
+                }
+              : f,
+          ),
+        })),
+      }),
+    );
     setSaved(false);
   };
 
   const removeField = (fieldId: string) => {
-    setSchema((prev) => ({
-      ...prev,
-      sections: prev.sections.map((section) => ({
-        ...section,
-        fields: section.fields.filter((f) => f.id !== fieldId),
-      })),
-    }));
+    setSchema((prev) =>
+      pinSchemaMeta({
+        ...prev,
+        sections: prev.sections.map((section) => ({
+          ...section,
+          fields: section.fields.filter((f) => f.id !== fieldId),
+        })),
+      }),
+    );
     setSaved(false);
   };
 
   const addField = (sectionId: string) => {
     const meta = FIELD_TYPE_CATALOG.find((f) => f.type === addType);
     const label = meta?.label ?? "New field";
-    setSchema((prev) => ({
-      ...prev,
-      sections: prev.sections.map((section) => {
-        if (section.id !== sectionId) return section;
-        const field: SchemaField = {
-          id: newFieldId(label, allFields),
-          type: addType,
-          label,
-          category: meta?.category,
-          ...(addType === "select" || addType === "radio" || addType === "multiselect" ? { options: [{ value: "opt1", label: "Option 1" }] } : {}),
-          ...(addType === "help" ? { hint: "Help text for users" } : {}),
-          ...(addType === "formula" ? { readOnly: true, defaultValue: "Computed" } : {}),
-        };
-        return { ...section, fields: [...section.fields, field] };
+    setSchema((prev) =>
+      pinSchemaMeta({
+        ...prev,
+        sections: prev.sections.map((section) => {
+          if (section.id !== sectionId) return section;
+          const field: SchemaField = {
+            id: newFieldId(label, allFields),
+            type: addType,
+            label,
+            category: meta?.category,
+            ...(addType === "select" || addType === "radio" || addType === "multiselect"
+              ? { options: [{ value: "opt1", label: "Option 1" }] }
+              : {}),
+            ...(addType === "help" ? { hint: "Help text for users" } : {}),
+            ...(addType === "formula" ? { readOnly: true, defaultValue: "Computed" } : {}),
+          };
+          return { ...section, fields: [...section.fields, field] };
+        }),
       }),
-    }));
+    );
     setSaved(false);
   };
 
   const publish = () => {
     void (async () => {
-      const payload = { ...schema, id: activeId };
+      const payload = pinSchemaMeta(schema);
       await saveFormSchemaOverride(payload, activeId);
-      const overrides = await listFormSchemaOverrides();
+      const { overrides } = await listFormSchemaOverrides();
       setSchemaOverrideCache(overrides);
       setSchema(loadSchema(activeId));
       setSaved(true);
+      setPurgedNotice(null);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("candela-schema-updated", { detail: { id: activeId } }));
         try {
@@ -141,7 +185,7 @@ export function AdminFormBuilder() {
   const reset = () => {
     void (async () => {
       await resetFormSchemaOverride(activeId);
-      const overrides = await listFormSchemaOverrides();
+      const { overrides } = await listFormSchemaOverrides();
       setSchemaOverrideCache(overrides);
       setSchema(loadSchema(activeId));
       setSaved(false);
@@ -177,8 +221,14 @@ export function AdminFormBuilder() {
         </div>
       </div>
 
+      {purgedNotice && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+          {purgedNotice}
+        </p>
+      )}
+
       <p className="rounded-lg border border-[var(--attio-border-subtle)] bg-[var(--attio-surface)] px-3 py-2 text-[12px] text-[var(--attio-text-secondary)]">
-        <span className="font-medium text-[var(--attio-text)]">Editing:</span> {schema.title}{" "}
+        <span className="font-medium text-[var(--attio-text)]">Editing:</span> {activeLabel}{" "}
         <span className="font-mono text-[11px] text-[var(--attio-text-tertiary)]">({activeId})</span>
         <span className="mx-2 text-[var(--attio-border)]">·</span>
         <span className="font-medium text-[var(--attio-text)]">Live in Candela:</span> {schemaUsageLabel(activeId)}
@@ -197,7 +247,7 @@ export function AdminFormBuilder() {
           <button
             key={id}
             type="button"
-            onClick={() => setActiveId(id)}
+            onClick={() => selectSchema(id)}
             className={cn(
               "rounded-md px-3 py-1.5 text-[12px] font-medium capitalize",
               activeId === id ? "bg-[var(--attio-accent)] text-white" : "border border-[var(--attio-border)]",
@@ -245,7 +295,7 @@ export function AdminFormBuilder() {
 
       {schema.sections.map((section) => (
         <Panel
-          key={section.id}
+          key={`${activeId}-${section.id}`}
           title={section.label}
           action={
             <AttioButton variant="secondary" className="h-7 text-[11px]" onClick={() => addField(section.id)}>
@@ -256,7 +306,7 @@ export function AdminFormBuilder() {
           <ul className="space-y-3">
             {section.fields.map((field) => (
               <FormFieldEditor
-                key={field.id}
+                key={`${activeId}-${field.id}`}
                 field={field}
                 onChange={(patch) => updateField(field.id, patch)}
                 onRemove={() => removeField(field.id)}
@@ -266,9 +316,9 @@ export function AdminFormBuilder() {
         </Panel>
       ))}
 
-      <Panel title={`Live preview · ${schema.title}`} action={<span className="text-[11px] text-[var(--attio-text-tertiary)]">Updates as you edit</span>}>
+      <Panel title={`Live preview · ${activeLabel}`} action={<span className="text-[11px] text-[var(--attio-text-tertiary)]">Updates as you edit</span>}>
         <div className="rounded-lg border border-[var(--attio-border-subtle)] bg-[var(--attio-canvas)] p-4">
-          <SchemaForm key={previewKey} schema={{ ...schema, id: activeId }} submitLabel="Preview submit" hideSubmit />
+          <SchemaForm key={previewKey} schema={pinSchemaMeta(schema)} submitLabel="Preview submit" hideSubmit />
         </div>
       </Panel>
     </div>

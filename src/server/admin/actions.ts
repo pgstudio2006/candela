@@ -164,7 +164,12 @@ export async function resetFormSchemaOverride(schemaId: string) {
   await core(ctx, operator, schemaId);
 }
 
-export async function listFormSchemaOverrides() {
+export type FormSchemaOverridesResult = {
+  overrides: Record<string, FormSchema>;
+  purgedIds: string[];
+};
+
+export async function listFormSchemaOverrides(): Promise<FormSchemaOverridesResult> {
   const { ctx } = await resolveAdminOperator();
   const { listFormSchemaOverrides: core } = await loadAdminCore();
   return core(ctx);
