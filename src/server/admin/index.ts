@@ -12,7 +12,6 @@ import type {
   StaffMember,
 } from "@/design-system/admin-data";
 import type { FormSchema } from "@/design-system/frontdesk-schemas";
-import { isCorruptSchemaOverride } from "@/lib/schema-registry";
 import type { Patient, Visit } from "@/design-system/frontdesk-data";
 import {
   validateDepartmentInput,
@@ -1063,21 +1062,10 @@ export async function resetFormSchemaOverride(
 
 export async function listFormSchemaOverrides(ctx: ServerContext) {
   await resolveAdminRead(ctx);
-  const rows = await prisma.formSchemaOverride.findMany();
-  const result: Record<string, FormSchema> = {};
-  const purged: string[] = [];
+  const { loadValidSchemaOverrides } = await import("@/server/form-schema-overrides");
+  const { overrides, purgedIds } = await loadValidSchemaOverrides(true);
 
-  for (const row of rows) {
-    const schema = { ...(row.payload as FormSchema), id: row.schemaId };
-    if (isCorruptSchemaOverride(row.schemaId, schema)) {
-      purged.push(row.schemaId);
-      continue;
-    }
-    result[row.schemaId] = schema;
-  }
-
-  if (purged.length > 0) {
-    await prisma.formSchemaOverride.deleteMany({ where: { schemaId: { in: purged } } });
+  if (purgedIds.length > 0) {
     await writePlatformAudit({
       ctx,
       actor: "system",
@@ -1085,13 +1073,13 @@ export async function listFormSchemaOverrides(ctx: ServerContext) {
       module: "forms",
       action: "schema_purge_corrupt",
       entityType: "form_schema",
-      entityId: purged.join(","),
-      summary: `Removed corrupt schema overrides (registration data on wrong keys): ${purged.join(", ")}`,
+      entityId: purgedIds.join(","),
+      summary: `Removed corrupt schema overrides (registration data on wrong keys): ${purgedIds.join(", ")}`,
       severity: "warning",
     });
   }
 
-  return { overrides: result, purgedIds: purged };
+  return { overrides, purgedIds };
 }
 
 export async function saveDocumentTemplate(

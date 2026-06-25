@@ -16,7 +16,7 @@ import { schemaLiveRoute, schemaUsageLabel } from "@/lib/schema-usage";
 import { schemaFingerprint } from "@/lib/schema-field-utils";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   listFormSchemaOverrides,
   resetFormSchemaOverride,
@@ -46,19 +46,20 @@ export function AdminFormBuilder() {
   const [addType, setAddType] = useState<FieldType>("text");
   const [ready, setReady] = useState(false);
   const [purgedNotice, setPurgedNotice] = useState<string | null>(null);
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
 
-  const selectSchema = useCallback(
-    (id: string) => {
-      setActiveId(id);
-      if (ready) setSchema(loadSchema(id));
-    },
-    [ready],
-  );
+  const selectSchema = useCallback((id: string) => {
+    setActiveId(id);
+    setSchema(loadSchema(id));
+    setSaved(false);
+  }, []);
 
   useEffect(() => {
     void (async () => {
       const { overrides, purgedIds } = await listFormSchemaOverrides();
       setSchemaOverrideCache(overrides);
+      setSchema(loadSchema(activeIdRef.current));
       if (purgedIds.length > 0) {
         setPurgedNotice(
           `Fixed ${purgedIds.length} corrupted form(s) that had registration fields on the wrong schema (${purgedIds.join(", ")}). Each now uses its correct default until you publish again.`,
@@ -87,6 +88,10 @@ export function AdminFormBuilder() {
   const previewKey = `${activeId}:${schemaFingerprint(schema)}`;
   const liveRoute = schemaLiveRoute(activeId);
   const activeLabel = catalogLabel(activeId);
+  const schemaLooksLikeRegistration =
+    activeId !== "registration" &&
+    (schema.sections.some((s) => s.id === "patient" || s.id === "visit" || s.id === "consent") ||
+      schema.sections.flatMap((s) => s.fields).some((f) => f.id === "fullName"));
 
   const pinSchemaMeta = (next: FormSchema): FormSchema => ({
     ...next,
@@ -221,6 +226,13 @@ export function AdminFormBuilder() {
         </div>
       </div>
 
+      {schemaLooksLikeRegistration && (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-900">
+          This form is still showing registration fields. Click <strong>Reset to default</strong> to load the correct{" "}
+          {activeLabel} form, then publish your changes.
+        </p>
+      )}
+
       {purgedNotice && (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
           {purgedNotice}
@@ -293,6 +305,7 @@ export function AdminFormBuilder() {
         {saved && <span className="self-center text-[12px] text-green-700">Published — all workspaces update immediately</span>}
       </div>
 
+      <div key={activeId} className="space-y-6">
       {schema.sections.map((section) => (
         <Panel
           key={`${activeId}-${section.id}`}
@@ -321,6 +334,7 @@ export function AdminFormBuilder() {
           <SchemaForm key={previewKey} schema={pinSchemaMeta(schema)} submitLabel="Preview submit" hideSubmit />
         </div>
       </Panel>
+      </div>
     </div>
   );
 }

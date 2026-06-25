@@ -238,12 +238,24 @@ export function isCorruptSchemaOverride(schemaId: string, override: FormSchema):
   if (override.id && override.id !== schemaId) return true;
   if (override.title === registrationDefault.title) return true;
 
+  // Registration-only field ids / sections copied to other schemas
+  if (overrideIds.includes("fullName")) return true;
+  if (override.sections.some((s) => s.id === "patient" || s.id === "visit" || s.id === "consent")) {
+    return true;
+  }
+
   const registrationMarkers = overrideIds.filter((id) => REGISTRATION_MARKER_FIELDS.has(id)).length;
-  if (registrationMarkers >= 3) return true;
+  if (registrationMarkers >= 2) return true;
 
   const defaultIds = new Set(schemaFieldIds(defaultSchema));
   const overlap = overrideIds.filter((id) => defaultIds.has(id)).length;
   if (overrideIds.length >= 6 && overlap === 0) return true;
+
+  // Module override must retain at least one defining field from its default schema
+  const signature = schemaFieldIds(defaultSchema).slice(0, 2);
+  if (overrideIds.length >= 4 && signature.length > 0 && !signature.some((id) => overrideIds.includes(id))) {
+    return true;
+  }
 
   return false;
 }

@@ -6,6 +6,7 @@ import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { useFrontdeskFormSchema } from "@/components/frontdesk/use-frontdesk-form-schema";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { useToast } from "@/components/ui/toast-provider";
+import { schemaFingerprint } from "@/lib/schema-field-utils";
 import { patientDisplayName } from "@/lib/frontdesk-workflow";
 import { User } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -57,7 +58,7 @@ function CheckInContent() {
         <Panel title="Check-in form">
           <PublishedSchemaForm
             schema={schema}
-            formKey={`${schema.id}-${visitParam ?? "new"}-${prefill?.uhid ?? "blank"}-${departmentId}-${ready ? "ready" : "loading"}`}
+            formKey={`checkin-${schemaFingerprint(schema)}-${visitParam ?? "new"}-${prefill?.uhid ?? "blank"}-${departmentId}`}
             initialValues={prefill}
             onValuesChange={(values) => {
               if (values.department && values.department !== formDept) {
