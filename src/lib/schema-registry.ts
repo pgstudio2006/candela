@@ -260,6 +260,11 @@ export function isCorruptSchemaOverride(schemaId: string, override: FormSchema):
   return false;
 }
 
+export function corruptSchemaOverrideMessage(schemaId: string): string {
+  const label = SCHEMA_CATALOG.find((e) => e.id === schemaId)?.label ?? schemaId;
+  return `This ${label} form still looks like patient registration (wrong sections or fields). Click Reset to default, edit the correct form, then publish again.`;
+}
+
 export function getAnyFormSchema(id: string): FormSchema {
   const override = schemaOverrides[id];
   const fallback = ALL_DEFAULT_SCHEMAS[id];

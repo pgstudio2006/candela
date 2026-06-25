@@ -40,7 +40,7 @@ import { ServerActionError } from "@/server/errors";
 import { writePlatformAudit } from "@/server/platform-audit";
 import { withPrismaError } from "@/server/prisma-errors";
 import { backfillBranchScope } from "@/server/branch-scope";
-import { branchClinicalWhere } from "@/server/tenancy";
+import { branchClinicalWhere, tenantClinicalWhere } from "@/server/tenancy";
 
 export type AdminAuditEvent = {
   id: string;
@@ -206,6 +206,7 @@ export async function getAdminSnapshotForContext(
   await ensureBootstrapData();
   await backfillBranchScope(ctx);
   const clinicalWhere = branchClinicalWhere(ctx);
+  const tenantWhere = tenantClinicalWhere(ctx);
   if (ctx.branchId?.trim()) {
     try {
       await prisma.adminStaff.updateMany({
@@ -250,7 +251,7 @@ export async function getAdminSnapshotForContext(
     prisma.adminMrdRequest.findMany({ where: branchScopedWhere(ctx), orderBy: { requestedAt: "desc" } }),
     prisma.adminMisReport.findMany({ orderBy: { label: "asc" } }),
     prisma.adminAuditLog.findMany({ orderBy: { at: "desc" }, take: 300 }),
-    prisma.patient.findMany({ where: clinicalWhere, orderBy: { fullName: "asc" }, take: 3000 }),
+    prisma.patient.findMany({ where: tenantWhere, orderBy: { fullName: "asc" }, take: 3000 }),
     prisma.opdVisit.findMany({ where: clinicalWhere, orderBy: { checkInAt: "desc" }, take: 5000 }),
     prisma.documentTemplate.findMany({ where: { kind: { startsWith: "admin:" } } }),
     prisma.formSubmission.findMany({ orderBy: { submittedAt: "desc" }, take: 500 }),
@@ -1017,6 +1018,10 @@ export async function saveFormSchemaOverride(
   assertConfigAccess(operator);
   const schemaId = targetSchemaId ?? schema.id;
   const payload: FormSchema = { ...schema, id: schemaId };
+  const { isCorruptSchemaOverride, corruptSchemaOverrideMessage } = await import("@/lib/schema-registry");
+  if (isCorruptSchemaOverride(schemaId, payload)) {
+    throw new ServerActionError("VALIDATION", corruptSchemaOverrideMessage(schemaId));
+  }
   await prisma.formSchemaOverride.upsert({
     where: { schemaId },
     update: { payload },
@@ -1029,8 +1034,8 @@ export async function saveFormSchemaOverride(
     module: "forms",
     action: "schema_published",
     entityType: "form_schema",
-    entityId: schema.id,
-    summary: `Schema published: ${schema.id}`,
+    entityId: schemaId,
+    summary: `Schema published: ${schemaId}`,
   });
 }
 
@@ -1060,10 +1065,10 @@ export async function resetFormSchemaOverride(
   });
 }
 
-export async function listFormSchemaOverrides(ctx: ServerContext) {
+export async function listFormSchemaOverrides(ctx: ServerContext, purge = true) {
   await resolveAdminRead(ctx);
   const { loadValidSchemaOverrides } = await import("@/server/form-schema-overrides");
-  const { overrides, purgedIds } = await loadValidSchemaOverrides(true);
+  const { overrides, purgedIds } = await loadValidSchemaOverrides(purge);
 
   if (purgedIds.length > 0) {
     await writePlatformAudit({

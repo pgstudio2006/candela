@@ -1,7 +1,9 @@
 "use client";
 
 import {
+  corruptSchemaOverrideMessage,
   getAnyFormSchema,
+  isCorruptSchemaOverride,
   listSchemasForDepartment,
   newFieldId,
   SCHEMA_CATALOG,
@@ -11,6 +13,7 @@ import type { FieldType, FormSchema, SchemaField } from "@/design-system/frontde
 import { FIELD_TYPE_CATALOG, FORM_DEPARTMENTS, type FormDepartment } from "@/design-system/admin-data";
 import { FormFieldEditor } from "@/components/admin/form-field-editor";
 import { SchemaForm } from "@/components/candela/schema-form";
+import { useSchemaOverrides } from "@/components/candela/schema-override-provider";
 import { AttioButton, Panel } from "@/components/frontdesk/ui";
 import { schemaLiveRoute, schemaUsageLabel } from "@/lib/schema-usage";
 import { schemaFingerprint } from "@/lib/schema-field-utils";
@@ -21,9 +24,106 @@ import {
   listFormSchemaOverrides,
   resetFormSchemaOverride,
   saveFormSchemaOverride,
+  type FormSchemaOverridesResult,
 } from "@/server/admin/actions";
 
 type SchemaGroup = FormDepartment;
+
+type SchemaListResponse =
+  | { ok: true; data: FormSchemaOverridesResult }
+  | { ok: false; error: string };
+
+type SchemaMutationResponse =
+  | { ok: true; data: { schemaId: string } }
+  | { ok: false; error: string };
+
+async function fetchFormSchemas(purge: boolean): Promise<SchemaListResponse> {
+  const params = purge ? "" : "?purge=0";
+  const res = await fetch(`/api/admin/form-schemas${params}`, {
+    cache: "no-store",
+    credentials: "include",
+  });
+  const json = (await res.json()) as SchemaListResponse;
+  if (res.ok && json.ok) return json;
+  return {
+    ok: false,
+    error: (!json.ok && json.error) || "Failed to load form schemas.",
+  };
+}
+
+async function publishFormSchema(schema: FormSchema, schemaId: string): Promise<SchemaMutationResponse> {
+  const res = await fetch("/api/admin/form-schemas", {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ schema, schemaId }),
+  });
+  const json = (await res.json()) as SchemaMutationResponse;
+  if (res.ok && json.ok) return json;
+  return {
+    ok: false,
+    error: (!json.ok && json.error) || "Failed to publish schema.",
+  };
+}
+
+async function resetFormSchema(schemaId: string): Promise<SchemaMutationResponse> {
+  const res = await fetch(`/api/admin/form-schemas?schemaId=${encodeURIComponent(schemaId)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  const json = (await res.json()) as SchemaMutationResponse;
+  if (res.ok && json.ok) return json;
+  return {
+    ok: false,
+    error: (!json.ok && json.error) || "Failed to reset schema.",
+  };
+}
+
+async function loadFormSchemas(purge: boolean): Promise<SchemaListResponse> {
+  const api = await fetchFormSchemas(purge);
+  if (api.ok) return api;
+  try {
+    const action = await listFormSchemaOverrides({ purge });
+    if (action.ok) return { ok: true, data: action.data };
+    return { ok: false, error: action.error };
+  } catch {
+    return { ok: false, error: api.error };
+  }
+}
+
+async function savePublishedSchema(schema: FormSchema, schemaId: string): Promise<SchemaMutationResponse> {
+  const api = await publishFormSchema(schema, schemaId);
+  if (api.ok) return api;
+  try {
+    const action = await saveFormSchemaOverride(schema, schemaId);
+    if (action.ok) return { ok: true, data: action.data };
+    return { ok: false, error: action.error };
+  } catch {
+    return { ok: false, error: api.error };
+  }
+}
+
+async function resetPublishedSchema(schemaId: string): Promise<SchemaMutationResponse> {
+  const api = await resetFormSchema(schemaId);
+  if (api.ok) return api;
+  try {
+    const action = await resetFormSchemaOverride(schemaId);
+    if (action.ok) return { ok: true, data: action.data };
+    return { ok: false, error: action.error };
+  } catch {
+    return { ok: false, error: api.error };
+  }
+}
+
+function broadcastSchemaUpdate(schemaId: string) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("candela-schema-updated", { detail: { id: schemaId } }));
+  try {
+    new BroadcastChannel("candela-schema").postMessage({ type: "updated", id: schemaId, at: Date.now() });
+  } catch {
+    /* ignore */
+  }
+}
 
 const FIELD_CATEGORIES = ["basic", "numeric", "datetime", "choice", "clinical", "commercial", "media", "layout", "compliance", "computed"] as const;
 
@@ -37,37 +137,48 @@ function loadSchema(id: string): FormSchema {
 }
 
 export function AdminFormBuilder() {
+  const { refresh: refreshPublishedSchemas } = useSchemaOverrides();
   const initialDept = "frontdesk";
   const initialSchemas = listSchemasForDepartment(initialDept);
   const [activeId, setActiveId] = useState<string>(initialSchemas[0]?.id ?? "registration");
   const [deptFilter, setDeptFilter] = useState<SchemaGroup>(initialDept);
   const [schema, setSchema] = useState<FormSchema>(() => loadSchema("registration"));
   const [saved, setSaved] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
   const [addType, setAddType] = useState<FieldType>("text");
   const [ready, setReady] = useState(false);
   const [purgedNotice, setPurgedNotice] = useState<string | null>(null);
   const activeIdRef = useRef(activeId);
   activeIdRef.current = activeId;
 
+  const applyOverrides = useCallback((result: FormSchemaOverridesResult) => {
+    setSchemaOverrideCache(result.overrides);
+    setSchema(loadSchema(activeIdRef.current));
+    if (result.purgedIds.length > 0) {
+      setPurgedNotice(
+        `Fixed ${result.purgedIds.length} corrupted form(s) that had registration fields on the wrong schema (${result.purgedIds.join(", ")}). Each now uses its correct default until you publish again.`,
+      );
+    }
+  }, []);
+
   const selectSchema = useCallback((id: string) => {
     setActiveId(id);
     setSchema(loadSchema(id));
     setSaved(false);
+    setPublishError(null);
   }, []);
 
   useEffect(() => {
     void (async () => {
-      const { overrides, purgedIds } = await listFormSchemaOverrides();
-      setSchemaOverrideCache(overrides);
-      setSchema(loadSchema(activeIdRef.current));
-      if (purgedIds.length > 0) {
-        setPurgedNotice(
-          `Fixed ${purgedIds.length} corrupted form(s) that had registration fields on the wrong schema (${purgedIds.join(", ")}). Each now uses its correct default until you publish again.`,
-        );
+      const result = await loadFormSchemas(true);
+      if (result.ok) {
+        applyOverrides(result.data);
       }
       setReady(true);
     })();
-  }, []);
+  }, [applyOverrides]);
 
   useEffect(() => {
     if (!ready) return;
@@ -126,6 +237,7 @@ export function AdminFormBuilder() {
       }),
     );
     setSaved(false);
+    setPublishError(null);
   };
 
   const removeField = (fieldId: string) => {
@@ -139,6 +251,7 @@ export function AdminFormBuilder() {
       }),
     );
     setSaved(false);
+    setPublishError(null);
   };
 
   const addField = (sectionId: string) => {
@@ -165,42 +278,67 @@ export function AdminFormBuilder() {
       }),
     );
     setSaved(false);
+    setPublishError(null);
   };
 
   const publish = () => {
     void (async () => {
       const payload = pinSchemaMeta(schema);
-      await saveFormSchemaOverride(payload, activeId);
-      const { overrides } = await listFormSchemaOverrides();
-      setSchemaOverrideCache(overrides);
-      setSchema(loadSchema(activeId));
-      setSaved(true);
-      setPurgedNotice(null);
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("candela-schema-updated", { detail: { id: activeId } }));
-        try {
-          new BroadcastChannel("candela-schema").postMessage({ type: "updated", id: activeId, at: Date.now() });
-        } catch {
-          /* ignore */
+      setPublishing(true);
+      setPublishError(null);
+      setSaved(false);
+
+      if (isCorruptSchemaOverride(activeId, payload)) {
+        setPublishError(corruptSchemaOverrideMessage(activeId));
+        setPublishing(false);
+        return;
+      }
+
+      try {
+        const saveResult = await savePublishedSchema(payload, activeId);
+        if (!saveResult.ok) {
+          setPublishError(saveResult.error);
+          return;
         }
+
+        const listResult = await loadFormSchemas(false);
+        if (listResult.ok) {
+          applyOverrides(listResult.data);
+        }
+        await refreshPublishedSchemas();
+        broadcastSchemaUpdate(activeId);
+        setSaved(true);
+        setPurgedNotice(null);
+      } catch (err) {
+        setPublishError(err instanceof Error ? err.message : "Failed to publish schema.");
+      } finally {
+        setPublishing(false);
       }
     })();
   };
 
   const reset = () => {
     void (async () => {
-      await resetFormSchemaOverride(activeId);
-      const { overrides } = await listFormSchemaOverrides();
-      setSchemaOverrideCache(overrides);
-      setSchema(loadSchema(activeId));
+      setResetting(true);
+      setPublishError(null);
       setSaved(false);
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("candela-schema-updated", { detail: { id: activeId } }));
-        try {
-          new BroadcastChannel("candela-schema").postMessage({ type: "updated", id: activeId, at: Date.now() });
-        } catch {
-          /* ignore */
+      try {
+        const resetResult = await resetPublishedSchema(activeId);
+        if (!resetResult.ok) {
+          setPublishError(resetResult.error);
+          return;
         }
+
+        const listResult = await loadFormSchemas(false);
+        if (listResult.ok) {
+          applyOverrides(listResult.data);
+        }
+        await refreshPublishedSchemas();
+        broadcastSchemaUpdate(activeId);
+      } catch (err) {
+        setPublishError(err instanceof Error ? err.message : "Failed to reset schema.");
+      } finally {
+        setResetting(false);
       }
     })();
   };
@@ -300,10 +438,24 @@ export function AdminFormBuilder() {
       </Panel>
 
       <div className="flex flex-wrap gap-2">
-        <AttioButton variant="primary" onClick={publish}>Publish schema</AttioButton>
-        <AttioButton variant="secondary" onClick={reset}>Reset to default</AttioButton>
-        {saved && <span className="self-center text-[12px] text-green-700">Published — all workspaces update immediately</span>}
+        <AttioButton variant="primary" onClick={publish} disabled={publishing || resetting}>
+          {publishing ? "Publishing…" : "Publish schema"}
+        </AttioButton>
+        <AttioButton variant="secondary" onClick={reset} disabled={publishing || resetting}>
+          {resetting ? "Resetting…" : "Reset to default"}
+        </AttioButton>
+        {saved && (
+          <span className="self-center text-[12px] text-green-700">
+            Published — all workspaces update immediately
+          </span>
+        )}
       </div>
+
+      {publishError && (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-900">
+          {publishError}
+        </p>
+      )}
 
       <div key={activeId} className="space-y-6">
       {schema.sections.map((section) => (

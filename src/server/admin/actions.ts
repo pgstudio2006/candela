@@ -147,21 +147,29 @@ export async function logAdminAction(summary: string) {
 }
 
 export async function saveFormSchemaOverride(schema: FormSchema, targetSchemaId?: string) {
-  const { ctx, operator } = await resolveAdminOperator();
-  const { saveFormSchemaOverride: core } = await loadAdminCore();
-  await core(ctx, operator, schema, targetSchemaId);
+  return runAction(async () => {
+    const { ctx, operator } = await resolveAdminOperator();
+    const { saveFormSchemaOverride: core } = await loadAdminCore();
+    await core(ctx, operator, schema, targetSchemaId);
+    return { schemaId: targetSchemaId ?? schema.id };
+  });
 }
 
 export async function getFormSchemaOverride(schemaId: string) {
-  const { ctx } = await resolveAdminOperator();
-  const { getFormSchemaOverride: core } = await loadAdminCore();
-  return core(ctx, schemaId);
+  return runAction(async () => {
+    const { ctx } = await resolveAdminOperator();
+    const { getFormSchemaOverride: core } = await loadAdminCore();
+    return core(ctx, schemaId);
+  });
 }
 
 export async function resetFormSchemaOverride(schemaId: string) {
-  const { ctx, operator } = await resolveAdminOperator();
-  const { resetFormSchemaOverride: core } = await loadAdminCore();
-  await core(ctx, operator, schemaId);
+  return runAction(async () => {
+    const { ctx, operator } = await resolveAdminOperator();
+    const { resetFormSchemaOverride: core } = await loadAdminCore();
+    await core(ctx, operator, schemaId);
+    return { schemaId };
+  });
 }
 
 export type FormSchemaOverridesResult = {
@@ -169,10 +177,14 @@ export type FormSchemaOverridesResult = {
   purgedIds: string[];
 };
 
-export async function listFormSchemaOverrides(): Promise<FormSchemaOverridesResult> {
-  const { ctx } = await resolveAdminOperator();
-  const { listFormSchemaOverrides: core } = await loadAdminCore();
-  return core(ctx);
+export async function listFormSchemaOverrides(
+  opts?: { purge?: boolean },
+): Promise<ActionResult<FormSchemaOverridesResult>> {
+  return runAction(async () => {
+    const { ctx } = await resolveAdminOperator();
+    const { listFormSchemaOverrides: core } = await loadAdminCore();
+    return core(ctx, opts?.purge ?? true);
+  });
 }
 
 export async function saveDocumentTemplate(

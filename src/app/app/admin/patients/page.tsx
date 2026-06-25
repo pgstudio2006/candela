@@ -8,6 +8,60 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
+type PatientSearchResult = {
+  patients: Patient[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+type PatientSearchResponse =
+  | { ok: true; data: PatientSearchResult }
+  | { ok: false; error: string };
+
+async function fetchAdminPatients(input: {
+  q?: string;
+  page: number;
+  pageSize: number;
+  view: "all" | "balance" | "today";
+}): Promise<PatientSearchResponse> {
+  const params = new URLSearchParams({
+    page: String(input.page),
+    pageSize: String(input.pageSize),
+    view: input.view,
+  });
+  if (input.q) params.set("q", input.q);
+
+  const res = await fetch(`/api/admin/patients?${params}`, {
+    cache: "no-store",
+    credentials: "include",
+  });
+  const json = (await res.json()) as PatientSearchResponse;
+  if (res.ok && json.ok) return json;
+  return {
+    ok: false,
+    error: (!json.ok && json.error) || "Failed to load patients.",
+  };
+}
+
+async function loadAdminPatients(input: {
+  q?: string;
+  page: number;
+  pageSize: number;
+  view: "all" | "balance" | "today";
+}): Promise<PatientSearchResponse> {
+  const api = await fetchAdminPatients(input);
+  if (api.ok) return api;
+
+  try {
+    const action = await searchAdminPatientsAction(input);
+    if (action.ok) return { ok: true, data: action.data };
+    return { ok: false, error: action.error };
+  } catch {
+    return { ok: false, error: api.error };
+  }
+}
+
 const VIEWS = [
   { id: "all" as const, label: "All patients" },
   { id: "today" as const, label: "Today's visitors" },
@@ -28,21 +82,28 @@ export default function AdminPatientsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
-    const result = await searchAdminPatientsAction({
-      q: q || undefined,
-      page,
-      pageSize,
-      view: view === "all" ? "all" : view,
-    });
-    if (result.ok) {
-      setPatients(result.data.patients);
-      setTotal(result.data.total);
-    } else {
+    try {
+      const result = await loadAdminPatients({
+        q: q || undefined,
+        page,
+        pageSize,
+        view: view === "all" ? "all" : view,
+      });
+      if (result.ok) {
+        setPatients(result.data.patients);
+        setTotal(result.data.total);
+      } else {
+        setPatients([]);
+        setTotal(0);
+        setError(result.error);
+      }
+    } catch (err) {
       setPatients([]);
       setTotal(0);
-      setError(result.error);
+      setError(err instanceof Error ? err.message : "Failed to load patients.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [q, page, view]);
 
   useEffect(() => {
