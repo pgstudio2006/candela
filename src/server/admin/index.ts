@@ -1009,83 +1009,12 @@ export async function logAdminAction(
   return getAdminSnapshotForContext(ctx, operator);
 }
 
-export async function saveFormSchemaOverride(
-  ctx: ServerContext,
-  operator: AdminOperator,
-  schema: FormSchema,
-  targetSchemaId?: string,
-) {
-  assertConfigAccess(operator);
-  const schemaId = targetSchemaId ?? schema.id;
-  const payload: FormSchema = { ...schema, id: schemaId };
-  const { isCorruptSchemaOverride, corruptSchemaOverrideMessage } = await import("@/lib/schema-registry");
-  if (isCorruptSchemaOverride(schemaId, payload)) {
-    throw new ServerActionError("VALIDATION", corruptSchemaOverrideMessage(schemaId));
-  }
-  await prisma.formSchemaOverride.upsert({
-    where: { schemaId },
-    update: { payload },
-    create: { id: createId("schema"), schemaId, payload },
-  });
-  await writePlatformAudit({
-    ctx,
-    actor: operator.name,
-    actorRole: operator.staffRole,
-    module: "forms",
-    action: "schema_published",
-    entityType: "form_schema",
-    entityId: schemaId,
-    summary: `Schema published: ${schemaId}`,
-  });
-}
-
-export async function getFormSchemaOverride(ctx: ServerContext, schemaId: string) {
-  await resolveAdminRead(ctx);
-  const row = await prisma.formSchemaOverride.findUnique({ where: { schemaId } });
-  return (row?.payload as FormSchema | null) ?? null;
-}
-
-export async function resetFormSchemaOverride(
-  ctx: ServerContext,
-  operator: AdminOperator,
-  schemaId: string,
-) {
-  assertConfigAccess(operator);
-  await prisma.formSchemaOverride.deleteMany({ where: { schemaId } });
-  await writePlatformAudit({
-    ctx,
-    actor: operator.name,
-    actorRole: operator.staffRole,
-    module: "forms",
-    action: "schema_reset",
-    entityType: "form_schema",
-    entityId: schemaId,
-    summary: `Schema reset: ${schemaId}`,
-    severity: "warning",
-  });
-}
-
-export async function listFormSchemaOverrides(ctx: ServerContext, purge = true) {
-  await resolveAdminRead(ctx);
-  const { loadValidSchemaOverrides } = await import("@/server/form-schema-overrides");
-  const { overrides, purgedIds } = await loadValidSchemaOverrides(purge);
-
-  if (purgedIds.length > 0) {
-    await writePlatformAudit({
-      ctx,
-      actor: "system",
-      actorRole: "admin",
-      module: "forms",
-      action: "schema_purge_corrupt",
-      entityType: "form_schema",
-      entityId: purgedIds.join(","),
-      summary: `Removed corrupt schema overrides (registration data on wrong keys): ${purgedIds.join(", ")}`,
-      severity: "warning",
-    });
-  }
-
-  return { overrides, purgedIds };
-}
+export {
+  getFormSchemaOverride,
+  listFormSchemaOverrides,
+  resetFormSchemaOverride,
+  saveFormSchemaOverride,
+} from "@/server/admin/form-schemas";
 
 export async function saveDocumentTemplate(
   ctx: ServerContext,
@@ -1159,8 +1088,4 @@ export async function exportRevenueShareCsv(
     summary: `Revenue share export: ${doctorName} · ₹${share}`,
   });
   return { csv, filename: `revenue-share-${policyId}.csv` };
-}
-
-async function resolveAdminRead(_ctx: ServerContext) {
-  await import("@/server/module-operator").then(({ resolveAdminOperator }) => resolveAdminOperator());
 }

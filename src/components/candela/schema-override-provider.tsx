@@ -1,6 +1,6 @@
 "use client";
 
-import { getPublishedFormSchemasAction } from "@/app/actions/form-schema-actions";
+import { fetchPublishedFormSchemas } from "@/lib/published-form-schemas-client";
 import { setSchemaOverrideCache } from "@/lib/schema-registry";
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 
@@ -16,7 +16,7 @@ export function SchemaOverrideProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const result = await getPublishedFormSchemasAction();
+      const result = await fetchPublishedFormSchemas({ purge: true });
       if (result.ok) {
         setSchemaOverrideCache(result.data);
         if (typeof window !== "undefined") {

@@ -4,7 +4,7 @@ import {
   listFormSchemaOverrides,
   resetFormSchemaOverride,
   saveFormSchemaOverride,
-} from "@/server/admin/index";
+} from "@/server/admin/form-schemas";
 import { resolveAdminOperator } from "@/server/module-operator";
 import { ServerActionError } from "@/server/errors";
 import { serializeForClient } from "@/server/serialize";

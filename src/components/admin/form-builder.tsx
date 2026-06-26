@@ -13,7 +13,6 @@ import type { FieldType, FormSchema, SchemaField } from "@/design-system/frontde
 import { FIELD_TYPE_CATALOG, FORM_DEPARTMENTS, type FormDepartment } from "@/design-system/admin-data";
 import { FormFieldEditor } from "@/components/admin/form-field-editor";
 import { SchemaForm } from "@/components/candela/schema-form";
-import { useSchemaOverrides } from "@/components/candela/schema-override-provider";
 import { AttioButton, Panel } from "@/components/frontdesk/ui";
 import { schemaLiveRoute, schemaUsageLabel } from "@/lib/schema-usage";
 import { schemaFingerprint } from "@/lib/schema-field-utils";
@@ -22,8 +21,6 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   listFormSchemaOverrides,
-  resetFormSchemaOverride,
-  saveFormSchemaOverride,
   type FormSchemaOverridesResult,
 } from "@/server/admin/actions";
 
@@ -52,18 +49,25 @@ async function fetchFormSchemas(purge: boolean): Promise<SchemaListResponse> {
 }
 
 async function publishFormSchema(schema: FormSchema, schemaId: string): Promise<SchemaMutationResponse> {
-  const res = await fetch("/api/admin/form-schemas", {
-    method: "PUT",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ schema, schemaId }),
-  });
-  const json = (await res.json()) as SchemaMutationResponse;
-  if (res.ok && json.ok) return json;
-  return {
-    ok: false,
-    error: (!json.ok && json.error) || "Failed to publish schema.",
-  };
+  try {
+    const res = await fetch("/api/admin/form-schemas", {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ schema, schemaId }),
+    });
+    const json = (await res.json()) as SchemaMutationResponse;
+    if (res.ok && json.ok) return json;
+    return {
+      ok: false,
+      error: (!json.ok && json.error) || "Failed to publish schema.",
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Failed to publish schema.",
+    };
+  }
 }
 
 async function resetFormSchema(schemaId: string): Promise<SchemaMutationResponse> {
@@ -92,27 +96,11 @@ async function loadFormSchemas(purge: boolean): Promise<SchemaListResponse> {
 }
 
 async function savePublishedSchema(schema: FormSchema, schemaId: string): Promise<SchemaMutationResponse> {
-  const api = await publishFormSchema(schema, schemaId);
-  if (api.ok) return api;
-  try {
-    const action = await saveFormSchemaOverride(schema, schemaId);
-    if (action.ok) return { ok: true, data: action.data };
-    return { ok: false, error: action.error };
-  } catch {
-    return { ok: false, error: api.error };
-  }
+  return publishFormSchema(schema, schemaId);
 }
 
 async function resetPublishedSchema(schemaId: string): Promise<SchemaMutationResponse> {
-  const api = await resetFormSchema(schemaId);
-  if (api.ok) return api;
-  try {
-    const action = await resetFormSchemaOverride(schemaId);
-    if (action.ok) return { ok: true, data: action.data };
-    return { ok: false, error: action.error };
-  } catch {
-    return { ok: false, error: api.error };
-  }
+  return resetFormSchema(schemaId);
 }
 
 function broadcastSchemaUpdate(schemaId: string) {
@@ -137,7 +125,6 @@ function loadSchema(id: string): FormSchema {
 }
 
 export function AdminFormBuilder() {
-  const { refresh: refreshPublishedSchemas } = useSchemaOverrides();
   const initialDept = "frontdesk";
   const initialSchemas = listSchemasForDepartment(initialDept);
   const [activeId, setActiveId] = useState<string>(initialSchemas[0]?.id ?? "registration");
@@ -304,8 +291,10 @@ export function AdminFormBuilder() {
         const listResult = await loadFormSchemas(false);
         if (listResult.ok) {
           applyOverrides(listResult.data);
+        } else {
+          setPublishError(listResult.error);
+          return;
         }
-        await refreshPublishedSchemas();
         broadcastSchemaUpdate(activeId);
         setSaved(true);
         setPurgedNotice(null);
@@ -333,7 +322,6 @@ export function AdminFormBuilder() {
         if (listResult.ok) {
           applyOverrides(listResult.data);
         }
-        await refreshPublishedSchemas();
         broadcastSchemaUpdate(activeId);
       } catch (err) {
         setPublishError(err instanceof Error ? err.message : "Failed to reset schema.");
