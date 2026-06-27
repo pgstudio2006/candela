@@ -38,6 +38,7 @@ export async function createPackage(
   await requireModule("admin");
   const pkg = await prisma.package.create({
     data: {
+      id: `pkg_${Date.now()}`,
       tenantId: ctx.tenantId,
       branchId: ctx.branchId,
       label: data.label,
