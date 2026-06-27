@@ -11,18 +11,40 @@ import {
   type DiscountPolicy,
 } from "@/design-system/counsellor-data";
 import type { CounsellorQueueItem } from "@/design-system/doctor-data";
-import {
-  claimCounselSessionAction,
-  completeCounselSessionAction,
-  getCounsellorSnapshotAction,
-  requestDiscountApprovalAction,
-  resolveDiscountApprovalAction,
-  saveCounsellorPrefsAction,
-} from "@/server/counsellor/actions";
 import type { CounsellorSnapshot } from "@/server/counsellor/index";
-import { parseActionError } from "@/lib/action-errors";
 import { patientDisplayName } from "@/lib/frontdesk-workflow";
 import { isTransientSessionError, sleep } from "@/lib/session-retry";
+
+async function fetchCounsellorSnapshot(): Promise<{ ok: true; data: CounsellorSnapshot } | { ok: false; error: string }> {
+  try {
+    const res = await fetch("/api/counsellor/snapshot", { cache: "no-store", credentials: "include" });
+    const json = await res.json();
+    if (res.ok && json.ok) {
+      return { ok: true, data: json.data as CounsellorSnapshot };
+    }
+    return { ok: false, error: json.error || "Failed to load counsellor workspace." };
+  } catch {
+    return { ok: false, error: "Failed to connect to counsellor workspace. Please refresh the page." };
+  }
+}
+
+async function counsellorMutate(body: Record<string, unknown>): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
+  try {
+    const res = await fetch("/api/counsellor/mutate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body),
+    });
+    const json = await res.json();
+    if (res.ok && json.ok) {
+      return { ok: true, data: json.data };
+    }
+    return { ok: false, error: json.error || "Failed to save." };
+  } catch {
+    return { ok: false, error: "Failed to connect. Please try again." };
+  }
+}
 import {
   createContext,
   useCallback,
@@ -146,7 +168,7 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
     const silent = opts?.silent ?? false;
     if (!silent) setReady(false);
     try {
-      const result = await getCounsellorSnapshotAction();
+      const result = await fetchCounsellorSnapshot();
       if (result.ok) {
         setState(applySnapshot(result.data));
         setError(null);
@@ -154,7 +176,7 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
         setError(result.error);
       }
     } catch (err) {
-      setError(parseActionError(err).message);
+      setError(err instanceof Error ? err.message : "Failed to refresh counsellor workspace.");
     } finally {
       setReady(true);
     }
@@ -167,7 +189,7 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
     const load = async (attempt = 0) => {
       if (cancelled) return;
       try {
-        const result = await getCounsellorSnapshotAction();
+        const result = await fetchCounsellorSnapshot();
         if (cancelled) return;
         if (result.ok) {
           setState(applySnapshot(result.data));
@@ -183,7 +205,7 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
           await load(attempt + 1);
           return;
         }
-        setError(parseActionError(err).message);
+        setError(err instanceof Error ? err.message : "Failed to load counsellor workspace.");
         setReady(true);
       }
     };
@@ -283,44 +305,46 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
       getSession,
       getFilteredQueue,
       claimSession: async (visitId) => {
-        const session = await claimCounselSessionAction(visitId);
+        const result = await counsellorMutate({ op: "claimSession", visitId });
+        if (!result.ok) throw new Error(result.error);
         await refresh({ silent: true });
-        return session;
+        return result.data as CounselSession;
       },
       buildQuote,
       requestDiscountApproval: async (visitId, quote, reason) => {
-        await requestDiscountApprovalAction(visitId, quote, reason);
+        const result = await counsellorMutate({ op: "requestDiscountApproval", visitId, quote, reason });
+        if (!result.ok) throw new Error(result.error);
         await refresh({ silent: true });
       },
       resolveApproval: async (approvalId, approved) => {
-        await resolveDiscountApprovalAction(approvalId, approved);
+        const result = await counsellorMutate({ op: "resolveDiscountApproval", approvalId, approved });
+        if (!result.ok) throw new Error(result.error);
         await refresh({ silent: true });
       },
       completeSession: async (visitId, outcome, opts) => {
-        try {
-          await completeCounselSessionAction(visitId, {
-            outcome,
-            quote: opts.quote,
-            internalNotes: opts.internalNotes,
-            objections: opts.objections,
-            callbackAt: opts.callbackAt,
-            sendToBilling: Boolean(opts.sendToBilling),
-            paymentExpectation: opts.paymentExpectation ?? "desk",
-            consentCaptured: opts.consentCaptured,
-            whatsappSent: opts.whatsappSent,
-            voiceNote: opts.voiceNote,
-            aiScript: opts.aiScript,
-          });
-          await refresh();
-          return { ok: true };
-        } catch (err) {
-          return { ok: false, error: parseActionError(err).message };
-        }
+        const result = await counsellorMutate({
+          op: "completeSession",
+          visitId,
+          outcome,
+          quote: opts.quote,
+          internalNotes: opts.internalNotes,
+          objections: opts.objections,
+          callbackAt: opts.callbackAt,
+          sendToBilling: Boolean(opts.sendToBilling),
+          paymentExpectation: opts.paymentExpectation ?? "desk",
+          consentCaptured: opts.consentCaptured,
+          whatsappSent: opts.whatsappSent,
+          voiceNote: opts.voiceNote,
+          aiScript: opts.aiScript,
+        });
+        if (!result.ok) return { ok: false, error: result.error };
+        await refresh();
+        return { ok: true };
       },
       getBillingHandoffs: () => data.billingHandoffs,
       maxDiscountPercent,
       setSeniorMode: (v) => {
-        void saveCounsellorPrefsAction({ seniorMode: v }).then(() => refresh({ silent: true }));
+        void counsellorMutate({ op: "savePrefs", prefs: { seniorMode: v } }).then(() => refresh({ silent: true }));
         setState((prev) => (prev ? { ...prev, seniorMode: v } : prev));
       },
       getDashboardKpis: () => {

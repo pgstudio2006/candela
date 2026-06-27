@@ -15,10 +15,6 @@ import {
   writeSavedEmail,
   WORKSPACE_SIGN_IN_PATH,
 } from "@/lib/auth-storage";
-import { validateCounsellorLoginAction } from "@/server/counsellor/actions";
-import { validateCrmLoginAction } from "@/server/crm/actions";
-import { validatePharmacyLoginAction } from "@/server/pharmacy/actions";
-import { validateHrLoginAction } from "@/server/hr/actions";
 import { cn } from "@/lib/utils";
 import { ChevronLeft, Lock, Mail } from "lucide-react";
 import Link from "next/link";
@@ -155,7 +151,12 @@ export default function WorkspacePage() {
       let hrOperatorId = jwtSession.hrOperatorId;
 
       if (role === "crm" && !crmOperatorId) {
-        const result = await validateCrmLoginAction(email, password);
+        const res = await fetch("/api/crm/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        const result = await res.json();
         if (!result.ok) {
           setError(result.error);
           return;
@@ -163,7 +164,12 @@ export default function WorkspacePage() {
         crmOperatorId = result.operatorId;
       }
       if (role === "pharmacy" && !pharmacyOperatorId) {
-        const result = await validatePharmacyLoginAction(email, password);
+        const res = await fetch("/api/pharmacy/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        const result = await res.json();
         if (!result.ok) {
           setError(result.error);
           return;
@@ -171,7 +177,12 @@ export default function WorkspacePage() {
         pharmacyOperatorId = result.operatorId;
       }
       if (role === "hr" && !hrOperatorId) {
-        const result = await validateHrLoginAction(email, password);
+        const res = await fetch("/api/hr/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        const result = await res.json();
         if (!result.ok) {
           setError(result.error);
           return;
@@ -179,7 +190,12 @@ export default function WorkspacePage() {
         hrOperatorId = result.operatorId;
       }
       if (role === "counsellor") {
-        const result = await validateCounsellorLoginAction(email, password);
+        const res = await fetch("/api/counsellor/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        const result = await res.json();
         if (!result.ok) {
           setError(result.error);
           return;
