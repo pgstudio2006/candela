@@ -10,33 +10,6 @@ import {
   type CrmLead,
   type CrmPipelineStage,
 } from "@/design-system/crm-data";
-import {
-  addAgentAction,
-  addFollowUpAction,
-  addRuleAction,
-  addStageAction,
-  assignLeadManualAction,
-  clearAgentUnavailableAction,
-  completeFollowUpAction,
-  createLeadAction,
-  ingestFromIntegrationAction,
-  logActivityAction,
-  markAgentUnavailableAction,
-  markMissedFollowUpAction,
-  moveLeadStageAction,
-  removeAgentAction,
-  removeStageAction,
-  reorderStageAction,
-  rescheduleFollowUpAction,
-  setAgentPasswordAction,
-  toggleIntegrationAction,
-  transferOpenLeadsAction,
-  updateAgentAction,
-  updateLeadAction,
-  updateRuleAction,
-  updateStageAction,
-  updateStagesAction,
-} from "@/server/crm/actions";
 import type { CrmSnapshot } from "@/server/crm/index";
 
 async function fetchCrmSnapshot(operatorId: string): Promise<{ ok: true; data: CrmSnapshot } | { ok: false; error: string }> {
@@ -54,6 +27,24 @@ async function fetchCrmSnapshot(operatorId: string): Promise<{ ok: true; data: C
     return { ok: false, error: "Failed to connect to CRM workspace. Please refresh the page." };
   }
 }
+
+async function crmMutate(body: Record<string, unknown>): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
+  try {
+    const res = await fetch("/api/crm/mutate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(body),
+    });
+    const json = await res.json();
+    if (res.ok && json.ok) {
+      return { ok: true, data: json.data };
+    }
+    return { ok: false, error: json.error || "Failed to save." };
+  } catch {
+    return { ok: false, error: "Failed to connect. Please try again." };
+  }
+}
 import { useSession } from "@/components/candela/session-provider";
 import { CRM_MANAGER_ID } from "@/lib/crm-auth";
 import {
@@ -63,7 +54,6 @@ import {
   type AgentDistributionStat,
   type AgentKpi,
 } from "@/lib/crm-platform";
-import { parseActionError } from "@/lib/action-errors";
 import { isTransientSessionError, sleep } from "@/lib/session-retry";
 import {
   createContext,
@@ -154,7 +144,7 @@ export function CrmStoreProvider({ children }: { children: ReactNode }) {
           setError(result.error);
         }
       } catch (err) {
-        setError(parseActionError(err).message);
+        setError(err instanceof Error ? err.message : "Failed to refresh CRM workspace.");
       } finally {
         setReady(true);
       }
@@ -185,7 +175,7 @@ export function CrmStoreProvider({ children }: { children: ReactNode }) {
           await load(attempt + 1);
           return;
         }
-        setError(parseActionError(err).message);
+        setError(err instanceof Error ? err.message : "Failed to load CRM workspace.");
         setReady(true);
       }
     };
@@ -231,14 +221,13 @@ export function CrmStoreProvider({ children }: { children: ReactNode }) {
       return data.followUps.filter((f) => leadIds.has(f.leadId));
     };
 
-    const run = async (fn: () => Promise<unknown>) => {
-      try {
-        await fn();
-        await refresh({ silent: true });
-      } catch (err) {
-        setError(parseActionError(err).message);
-        throw err;
+    const run = async (fn: () => Promise<{ ok: true; data: unknown } | { ok: false; error: string }>) => {
+      const result = await fn();
+      if (!result.ok) {
+        setError(result.error);
+        throw new Error(result.error);
       }
+      await refresh({ silent: true });
     };
 
     return {
@@ -264,34 +253,38 @@ export function CrmStoreProvider({ children }: { children: ReactNode }) {
           .map((a) => computeAgentKpis(a.id, a.name, data.leads, data.followUps, data.stages)),
       getFilteredLeads,
       getFilteredFollowUps,
-      addLead: (partial) => run(() => createLeadAction(opId(), partial)),
-      updateLead: (id, patch) => run(() => updateLeadAction(opId(), id, patch)),
-      assignLeadManual: (leadId, agentId) => run(() => assignLeadManualAction(opId(), leadId, agentId)),
-      moveLeadStage: (leadId, stageId) => run(() => moveLeadStageAction(opId(), leadId, stageId)),
+      addLead: (partial) => run(() => crmMutate({ op: "createLead", operatorId: opId(), partial })),
+      updateLead: (id, patch) => run(() => crmMutate({ op: "updateLead", operatorId: opId(), leadId: id, patch })),
+      assignLeadManual: (leadId, agentId) => run(() => crmMutate({ op: "assignLeadManual", operatorId: opId(), leadId, agentId })),
+      moveLeadStage: (leadId, stageId) => run(() => crmMutate({ op: "moveLeadStage", operatorId: opId(), leadId, agentId: stageId })),
       ingestFromIntegration: (integrationId, payload) =>
-        run(() => ingestFromIntegrationAction(opId(), integrationId, payload)),
-      toggleIntegration: (id, connected) => run(() => toggleIntegrationAction(opId(), id, connected)),
-      updateRule: (id, patch) => run(() => updateRuleAction(opId(), id, patch)),
-      addRule: (rule) => run(() => addRuleAction(opId(), rule)),
+        run(() => crmMutate({ op: "ingestFromIntegration", operatorId: opId(), integrationId, payload })),
+      toggleIntegration: (id, connected) => run(() => crmMutate({ op: "toggleIntegration", operatorId: opId(), integrationId: id, connected })),
+      updateRule: (id, patch) => run(() => crmMutate({ op: "updateRule", operatorId: opId(), id, patch })),
+      addRule: (rule) => run(() => crmMutate({ op: "addRule", operatorId: opId(), rule })),
       addAgent: async (agent, password) => {
-        const result = await addAgentAction(opId(), agent, password);
+        const result = await crmMutate({ op: "addAgent", operatorId: opId(), agent, password });
+        if (!result.ok) {
+          setError(result.error);
+          throw new Error(result.error);
+        }
         await refresh({ silent: true });
-        return result.password;
+        return (result.data as { agentId: string; password: string }).password;
       },
-      updateAgent: (id, patch) => run(() => updateAgentAction(opId(), id, patch)),
-      setAgentPassword: (id, password) => run(() => setAgentPasswordAction(opId(), id, password)),
+      updateAgent: (id, patch) => run(() => crmMutate({ op: "updateAgent", operatorId: opId(), id, patch })),
+      setAgentPassword: (id, password) => run(() => crmMutate({ op: "setAgentPassword", operatorId: opId(), id, password })),
       getAgentPassword: (id) => data.agentPasswords[id],
-      removeAgent: (id) => run(() => removeAgentAction(opId(), id)),
-      updateStage: (id, patch) => run(() => updateStageAction(opId(), id, patch)),
-      addStage: (label, color) => run(() => addStageAction(opId(), label, color)),
-      removeStage: (id) => run(() => removeStageAction(opId(), id)),
-      reorderStage: (id, dir) => run(() => reorderStageAction(opId(), id, dir)),
-      updateStages: (stages) => run(() => updateStagesAction(opId(), stages)),
-      addFollowUp: (fu) => run(() => addFollowUpAction(opId(), fu)),
-      completeFollowUp: (id, outcome) => run(() => completeFollowUpAction(opId(), id, outcome)),
-      rescheduleFollowUp: (id, scheduledAt, notes) => run(() => rescheduleFollowUpAction(opId(), id, scheduledAt, notes)),
-      markMissedFollowUp: (id, reason) => run(() => markMissedFollowUpAction(opId(), id, reason)),
-      logActivity: (leadId, summary, type) => run(() => logActivityAction(opId(), leadId, summary, type)),
+      removeAgent: (id) => run(() => crmMutate({ op: "removeAgent", operatorId: opId(), id })),
+      updateStage: (id, patch) => run(() => crmMutate({ op: "updateStage", operatorId: opId(), id, patch })),
+      addStage: (label, color) => run(() => crmMutate({ op: "addStage", operatorId: opId(), label, color })),
+      removeStage: (id) => run(() => crmMutate({ op: "removeStage", operatorId: opId(), id })),
+      reorderStage: (id, dir) => run(() => crmMutate({ op: "reorderStage", operatorId: opId(), id, dir })),
+      updateStages: (stages) => run(() => crmMutate({ op: "updateStages", operatorId: opId(), stages })),
+      addFollowUp: (fu) => run(() => crmMutate({ op: "addFollowUp", operatorId: opId(), fu })),
+      completeFollowUp: (id, outcome) => run(() => crmMutate({ op: "completeFollowUp", operatorId: opId(), id, outcome })),
+      rescheduleFollowUp: (id, scheduledAt, notes) => run(() => crmMutate({ op: "rescheduleFollowUp", operatorId: opId(), id, scheduledAt, notes })),
+      markMissedFollowUp: (id, reason) => run(() => crmMutate({ op: "markMissedFollowUp", operatorId: opId(), id, reason })),
+      logActivity: (leadId, summary, type) => run(() => crmMutate({ op: "logActivity", operatorId: opId(), leadId, outcome: summary, reason: type })),
       getLeadDistribution: () => {
         const pctRule =
           data.rules.find((r) => r.active && r.strategy === "percentage") ??
@@ -300,12 +293,16 @@ export function CrmStoreProvider({ children }: { children: ReactNode }) {
         return computeLeadDistribution(pctRule, data.agents, data.leads);
       },
       markAgentUnavailable: (agentId, until, reason, transferLeads) =>
-        run(() => markAgentUnavailableAction(opId(), agentId, until, reason, transferLeads)),
-      clearAgentUnavailable: (agentId) => run(() => clearAgentUnavailableAction(opId(), agentId)),
+        run(() => crmMutate({ op: "markAgentUnavailable", operatorId: opId(), agentId, until, reason, transferLeads })),
+      clearAgentUnavailable: (agentId) => run(() => crmMutate({ op: "clearAgentUnavailable", operatorId: opId(), agentId })),
       transferOpenLeads: async (fromAgentId, toAgentId) => {
-        const result = await transferOpenLeadsAction(opId(), fromAgentId, toAgentId);
+        const result = await crmMutate({ op: "transferOpenLeads", operatorId: opId(), fromAgentId, toAgentId });
+        if (!result.ok) {
+          setError(result.error);
+          throw new Error(result.error);
+        }
         await refresh({ silent: true });
-        return result.count;
+        return (result.data as { count: number }).count;
       },
     };
   }, [state, ready, error, refresh, operatorId, viewAsAgentId]);
