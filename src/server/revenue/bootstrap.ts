@@ -11,11 +11,21 @@ let bootstrapped = false;
 export async function ensureRevenueSeeded() {
   if (bootstrapped) return;
 
-  const [pharmacyCredentialCount, crmCredentialCount, counsellorCredentialCount] = await Promise.all([
-    prisma.pharmacyOperatorCredential.count(),
-    prisma.crmOperatorCredential.count(),
-    prisma.counsellorOperatorCredential.count(),
-  ]);
+  let pharmacyCredentialCount = 0;
+  let crmCredentialCount = 0;
+  let counsellorCredentialCount = 0;
+
+  try {
+    [pharmacyCredentialCount, crmCredentialCount, counsellorCredentialCount] = await Promise.all([
+      prisma.pharmacyOperatorCredential.count(),
+      prisma.crmOperatorCredential.count(),
+      prisma.counsellorOperatorCredential.count(),
+    ]);
+  } catch {
+    // Tables may not exist yet if prisma db push hasn't completed
+    bootstrapped = true;
+    return;
+  }
 
   if (pharmacyCredentialCount === 0) {
     const [pharmaHash, opdHash, purchaseHash] = await Promise.all([
@@ -160,52 +170,56 @@ export async function ensureRevenueSeeded() {
     });
   }
 
-  const [pharmacyState, counsellorState, crmState] = await Promise.all([
-    prisma.pharmacyWorkspaceState.findUnique({ where: { id: "default" } }),
-    prisma.counsellorWorkspaceState.findUnique({ where: { id: "default" } }),
-    prisma.crmWorkspaceState.findUnique({ where: { id: "default" } }),
-  ]);
+  try {
+    const [pharmacyState, counsellorState, crmState] = await Promise.all([
+      prisma.pharmacyWorkspaceState.findUnique({ where: { id: "default" } }),
+      prisma.counsellorWorkspaceState.findUnique({ where: { id: "default" } }),
+      prisma.crmWorkspaceState.findUnique({ where: { id: "default" } }),
+    ]);
 
-  if (!pharmacyState) {
-    await prisma.pharmacyWorkspaceState.create({
-      data: {
-        id: "default",
-        payload: defaultPharmacyState({ ...SEED_STAFF_PASSWORDS }),
-      },
-    });
-  }
+    if (!pharmacyState) {
+      await prisma.pharmacyWorkspaceState.create({
+        data: {
+          id: "default",
+          payload: defaultPharmacyState({ ...SEED_STAFF_PASSWORDS }),
+        },
+      });
+    }
 
-  if (!counsellorState) {
-    await prisma.counsellorWorkspaceState.create({
-      data: { id: "default", payload: defaultCounsellorState() },
-    });
-  }
+    if (!counsellorState) {
+      await prisma.counsellorWorkspaceState.create({
+        data: { id: "default", payload: defaultCounsellorState() },
+      });
+    }
 
-  if (!crmState) {
-    await prisma.crmWorkspaceState.create({
-      data: {
-        id: "default",
-        payload: defaultCrmState({ ...SEED_AGENT_PASSWORDS }),
-      },
-    });
-  }
+    if (!crmState) {
+      await prisma.crmWorkspaceState.create({
+        data: {
+          id: "default",
+          payload: defaultCrmState({ ...SEED_AGENT_PASSWORDS }),
+        },
+      });
+    }
 
-  const webhookCount = await prisma.crmWebhookConfig.count();
-  if (webhookCount === 0) {
-    const seeded = defaultCrmState({ ...SEED_AGENT_PASSWORDS }).integrations;
-    await prisma.crmWebhookConfig.createMany({
-      data: seeded.map((item) => ({
-        id: item.id,
-        label: item.label,
-        description: item.description,
-        icon: item.icon,
-        connected: item.connected,
-        webhookUrl: item.webhookUrl,
-        lastEventAt: item.lastEventAt,
-        leadsToday: item.leadsToday,
-      })),
-      skipDuplicates: true,
-    });
+    const webhookCount = await prisma.crmWebhookConfig.count();
+    if (webhookCount === 0) {
+      const seeded = defaultCrmState({ ...SEED_AGENT_PASSWORDS }).integrations;
+      await prisma.crmWebhookConfig.createMany({
+        data: seeded.map((item) => ({
+          id: item.id,
+          label: item.label,
+          description: item.description,
+          icon: item.icon,
+          connected: item.connected,
+          webhookUrl: item.webhookUrl,
+          lastEventAt: item.lastEventAt,
+          leadsToday: item.leadsToday,
+        })),
+        skipDuplicates: true,
+      });
+    }
+  } catch {
+    // Workspace state tables may not exist yet
   }
 
   bootstrapped = true;

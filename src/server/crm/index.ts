@@ -165,7 +165,11 @@ async function mergeIntegrations(state: CrmStateShape): Promise<CrmStateShape> {
 }
 
 export async function readState(ctx: ServerContext): Promise<CrmStateShape> {
-  await ensureRevenueSeeded();
+  try {
+    await ensureRevenueSeeded();
+  } catch {
+    // Bootstrap may fail if DB schema isn't synced yet
+  }
   const state = await readCrmWorkspace(ctx, () => defaultCrmState({}));
   const cleanedFollowUps = stripDemoFollowUps(state.followUps);
   if (cleanedFollowUps.length !== state.followUps.length) {
