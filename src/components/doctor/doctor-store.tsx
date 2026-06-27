@@ -13,26 +13,11 @@ import {
   type TreatmentMode,
 } from "@/design-system/doctor-data";
 import type { DocumentTemplate } from "@/design-system/document-templates";
-import {
-  addDocumentTemplateAction,
-  completeConsultationAction,
-  createDoctorTemplateAction,
-  deleteDoctorTemplateAction,
-  getDoctorSnapshotAction,
-  saveConsultSectionAction,
-  saveDocumentTemplateAction,
-  saveIpdRoundAction,
-  setPrescriptionAction,
-  startConsultationAction,
-  updateConsultationAction,
-  updateDoctorTemplateAction,
-} from "@/app/actions/doctor-actions";
 import type { DoctorSnapshot } from "@/server/doctor";
 import type { ScribeDraft } from "@/lib/ai/scribe-types";
 import { computeDoctorChartAnalytics } from "@/lib/doctor-analytics-data";
 import { filterDoctorOpdQueue } from "@/lib/doctor-queue";
 import { patientDisplayName } from "@/lib/frontdesk-workflow";
-import { parseActionError } from "@/lib/action-errors";
 import { sleep } from "@/lib/session-retry";
 import {
   isRetryableWorkspaceError,
@@ -180,16 +165,9 @@ function applySnapshot(snapshot: DoctorSnapshot): DoctorState {
   };
 }
 
-type DoctorSnapshotResult = ActionResult<DoctorSnapshot>;
+type DoctorSnapshotResult = { ok: true; data: DoctorSnapshot } | { ok: false; code: string; error: string };
 
 async function loadDoctorSnapshot(): Promise<DoctorSnapshotResult> {
-  try {
-    const result = await getDoctorSnapshotAction();
-    if (result.ok) return result;
-  } catch {
-    /* Server actions can throw masked errors in production — fall through to API route. */
-  }
-
   try {
     const res = await fetch("/api/doctor/snapshot", { cache: "no-store" });
     if (res.ok) {
@@ -207,6 +185,20 @@ async function loadDoctorSnapshot(): Promise<DoctorSnapshotResult> {
       code: "INTERNAL_ERROR",
       error: WORKSPACE_LOAD_FAILED,
     };
+  }
+}
+
+async function doctorMutate(body: Record<string, unknown>): Promise<{ ok: boolean; data?: any; error?: string }> {
+  try {
+    const res = await fetch("/api/doctor/mutate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return await res.json();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Something went wrong.";
+    return { ok: false, error: msg };
   }
 }
 
@@ -340,9 +332,9 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
       if (existing?.status === "completed") return existing;
 
       try {
-        const record = await startConsultationAction(visitId);
+        const record = await doctorMutate({ op: "startConsultation", visitId });
         if (!record.ok) {
-          setError(record.error);
+          setError(record.error!);
           throw new Error(record.error);
         }
         const data = record.data;
@@ -357,7 +349,8 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
         }
         return data ?? getConsultation(visitId);
       } catch (err) {
-        setError(parseActionError(err).message);
+        const msg = err instanceof Error ? err.message : "Something went wrong.";
+        setError(msg);
         throw err;
       }
     };
@@ -369,7 +362,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
           c.visitId === visitId ? { ...c, ...patch } : c,
         ),
       }));
-      void updateConsultationAction(visitId, patch as Record<string, unknown>).then(() =>
+      void doctorMutate({ op: "updateConsultation", visitId, patch: patch as Record<string, unknown> }).then(() =>
         scheduleRefresh(),
       );
     };
@@ -385,7 +378,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
           c.visitId === visitId ? { ...c, [section]: { ...c[section], ...data } } : c,
         ),
       }));
-      void saveConsultSectionAction(visitId, section, data).then(() => scheduleRefresh());
+      void doctorMutate({ op: "saveConsultSection", visitId, section, data }).then(() => scheduleRefresh());
     };
 
     const patchConsultSectionLocal = (
@@ -408,7 +401,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
           c.visitId === visitId ? { ...c, prescription: lines } : c,
         ),
       }));
-      void setPrescriptionAction(visitId, lines).then(() => scheduleRefresh());
+      void doctorMutate({ op: "setPrescription", visitId, lines }).then(() => scheduleRefresh());
     };
 
     const applyTemplate = (visitId: string, templateId: string) => {
@@ -434,7 +427,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
 
     const persistScribeTranscript = (visitId: string, transcript: string, language: string) => {
       setScribeTranscript(visitId, transcript, language);
-      void updateConsultationAction(visitId, { scribeTranscript: transcript, scribeLanguage: language }).then(
+      void doctorMutate({ op: "updateConsultation", visitId, patch: { scribeTranscript: transcript, scribeLanguage: language } }).then(
         () => scheduleRefresh(),
       );
     };
@@ -488,19 +481,17 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
       try {
         const c = getConsultation(visitId);
         if (c?.scribeTranscript?.trim()) {
-          await updateConsultationAction(visitId, {
-            scribeTranscript: c.scribeTranscript,
-            scribeLanguage: c.scribeLanguage ?? "en",
-          });
+          await doctorMutate({ op: "updateConsultation", visitId, patch: { scribeTranscript: c.scribeTranscript, scribeLanguage: c.scribeLanguage ?? "en" } });
         }
-        const result = await completeConsultationAction(visitId, opts);
+        const result = await doctorMutate({ op: "completeConsultation", visitId, opts });
         if (!result.ok) {
           return { ok: false, error: result.error };
         }
         await refresh();
         return { ok: true };
       } catch (err) {
-        return { ok: false, error: parseActionError(err).message };
+        const msg = err instanceof Error ? err.message : "Something went wrong.";
+        return { ok: false, error: msg };
       }
     };
 
@@ -514,7 +505,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
             : ip,
         ),
       }));
-      void saveIpdRoundAction(ipdId, note).then(() => refresh({ silent: true }));
+      void doctorMutate({ op: "saveIpdRound", ipdId, note }).then(() => refresh({ silent: true }));
     };
 
     const completed = doctor.consultations.filter((c) => c.status === "completed");
@@ -538,7 +529,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
         ...prev,
         templates: [...prev.templates, created],
       }));
-      void createDoctorTemplateAction(doctorId, tpl).then(() => refresh({ silent: true }));
+      void doctorMutate({ op: "createDoctorTemplate", doctorId, tpl }).then(() => refresh({ silent: true }));
       return created;
     };
 
@@ -549,7 +540,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
           t.id === id ? { ...t, ...patch } : t,
         ),
       }));
-      void updateDoctorTemplateAction(id, patch).then(() => refresh({ silent: true }));
+      void doctorMutate({ op: "updateDoctorTemplate", id, templatePatch: patch }).then(() => refresh({ silent: true }));
     };
 
     const deleteDoctorTemplate = (id: string) => {
@@ -557,7 +548,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
         ...prev,
         templates: prev.templates.filter((t) => t.id !== id),
       }));
-      void deleteDoctorTemplateAction(id).then(() => refresh({ silent: true }));
+      void doctorMutate({ op: "deleteDoctorTemplate", id }).then(() => refresh({ silent: true }));
     };
 
     const getPatientConsultations = (patientId: string) =>
@@ -596,7 +587,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
             },
           ],
         }));
-        void addDocumentTemplateAction(kind, label, description).then(() => refresh({ silent: true }));
+        void doctorMutate({ op: "addDocumentTemplate", kind, label, description }).then(() => refresh({ silent: true }));
       },
       saveDocumentTemplate: (template) => {
         syncDoctor((prev) => ({
@@ -605,7 +596,7 @@ export function DoctorStoreProvider({ children }: { children: ReactNode }) {
             t.id === template.id ? template : t,
           ),
         }));
-        void saveDocumentTemplateAction(template).then(() => refresh({ silent: true }));
+        void doctorMutate({ op: "saveDocumentTemplate", template }).then(() => refresh({ silent: true }));
       },
       getPatientConsultations,
       createDoctorTemplate,

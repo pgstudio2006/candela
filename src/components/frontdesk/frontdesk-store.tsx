@@ -12,7 +12,6 @@ import {
   resolveDoctorName as rosterDoctorName,
   type ClinicalRoster,
 } from "@/lib/clinical-roster";
-import { parseActionError } from "@/lib/action-errors";
 import { isTransientSessionError, sleep } from "@/lib/session-retry";
 import {
   isRetryableWorkspaceError,
@@ -21,19 +20,6 @@ import {
   WORKSPACE_SYNC_MESSAGE,
   workspaceErrorMessage,
 } from "@/lib/workspace-load";
-import {
-  bookAppointmentAction,
-  cancelAppointmentAction,
-  checkInVisitAction,
-  completeJuniorExamAction,
-  getClinicalSnapshotAction,
-  processBillingAction,
-  processCounselBillingAction,
-  registerPatientAction,
-  rescheduleAppointmentAction,
-  saveSubmissionAction,
-  updatePatientAction,
-} from "@/app/actions/clinical-actions";
 import {
   createContext,
   useCallback,
@@ -139,16 +125,9 @@ type FrontdeskStoreValue = FrontdeskState & {
 
 const FrontdeskContext = createContext<FrontdeskStoreValue | null>(null);
 
-type ClinicalSnapshotResult = Awaited<ReturnType<typeof getClinicalSnapshotAction>>;
+type ClinicalSnapshotResult = { ok: true; data: any } | { ok: false; code: string; error: string };
 
 async function loadClinicalSnapshot(): Promise<ClinicalSnapshotResult> {
-  try {
-    const result = await getClinicalSnapshotAction();
-    if (result.ok) return result;
-  } catch {
-    /* Server actions can throw masked errors in production — fall through to API route. */
-  }
-
   try {
     const res = await fetch("/api/clinical/snapshot", { cache: "no-store" });
     if (res.ok) {
@@ -166,6 +145,21 @@ async function loadClinicalSnapshot(): Promise<ClinicalSnapshotResult> {
       code: "INTERNAL_ERROR",
       error: WORKSPACE_LOAD_FAILED,
     };
+  }
+}
+
+async function clinicalMutate(body: Record<string, unknown>): Promise<{ ok: boolean; data?: any; error?: string }> {
+  try {
+    const res = await fetch("/api/clinical/mutate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const result = await res.json();
+    return result;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Something went wrong.";
+    return { ok: false, error: msg };
   }
 }
 
@@ -319,7 +313,8 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
       const uhid = nextUhid(state.counters.patient + 1);
 
       try {
-        const serverResult = await registerPatientAction({
+        const serverResult = await clinicalMutate({
+          op: "registerPatient",
           data,
           patientId,
           visitId: visitId || undefined,
@@ -327,7 +322,7 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
           forceDuplicate: opts?.forceDuplicate,
         });
         if (!serverResult.ok) {
-          return { ok: false, error: serverResult.error, code: serverResult.code };
+          return { ok: false, error: serverResult.error!, code: "INTERNAL_ERROR" };
         }
         await refresh();
         return {
@@ -337,8 +332,8 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
           uhid: serverResult.data.uhid,
         };
       } catch (err) {
-        const parsed = parseActionError(err);
-        return { ok: false, error: parsed.message, code: parsed.code };
+        const msg = err instanceof Error ? err.message : "Something went wrong.";
+        return { ok: false, error: msg, code: "INTERNAL_ERROR" };
       }
     },
     [refresh, state.counters.patient],
@@ -352,23 +347,26 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
       }
       try {
         const newVisitId = existingVisitId ? undefined : randomId("v");
-        const result = await checkInVisitAction({
+        const res = await clinicalMutate({
+          op: "checkInVisit",
           data,
           existingVisitId,
           newVisitId,
         });
-        if (!result.visitId) {
+        const result = res.ok ? res.data : null;
+        if (!result?.visitId) {
           return {
             ok: false,
             visitId: "",
-            patientId: result.patientId ?? "",
-            error: "Patient not found. Select a valid UHID or phone from search.",
+            patientId: result?.patientId ?? "",
+            error: res.error ?? "Patient not found. Select a valid UHID or phone from search.",
           };
         }
         await refresh();
         return { ok: true, visitId: result.visitId, patientId: result.patientId };
       } catch (err) {
-        return { ok: false, visitId: "", patientId: "", error: parseActionError(err).message };
+        const msg = err instanceof Error ? err.message : "Something went wrong.";
+        return { ok: false, visitId: "", patientId: "", error: msg };
       }
     },
     [refresh],
@@ -377,11 +375,13 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
   const processBilling = useCallback(
     async (visitId: string, data: BillingInput): Promise<BillingResult> => {
       try {
-        const result = await processBillingAction(visitId, data);
+        const res = await clinicalMutate({ op: "processBilling", visitId, data });
+        if (!res.ok) return { ok: false, error: res.error! };
         await refresh({ silent: true });
-        return { ok: true, ...result };
+        return { ok: true, ...res.data };
       } catch (err) {
-        return { ok: false, error: parseActionError(err).message };
+        const msg = err instanceof Error ? err.message : "Something went wrong.";
+        return { ok: false, error: msg };
       }
     },
     [refresh],
@@ -390,11 +390,13 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
   const processCounselBilling = useCallback(
     async (visitId: string, input: CounselBillingInput): Promise<BillingResult> => {
       try {
-        const result = await processCounselBillingAction(visitId, input);
+        const res = await clinicalMutate({ op: "processCounselBilling", visitId, input });
+        if (!res.ok) return { ok: false, error: res.error! };
         await refresh({ silent: true });
-        return { ok: true, ...result };
+        return { ok: true, ...res.data };
       } catch (err) {
-        return { ok: false, error: parseActionError(err).message };
+        const msg = err instanceof Error ? err.message : "Something went wrong.";
+        return { ok: false, error: msg };
       }
     },
     [refresh],
@@ -403,7 +405,8 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
   const completeJuniorExam = useCallback(
     async (visitId: string, data: JuniorExamInput): Promise<{ ok: boolean; error?: string }> => {
       try {
-        await completeJuniorExamAction(visitId, data);
+        const res = await clinicalMutate({ op: "completeJuniorExam", visitId, data });
+        if (!res.ok) return { ok: false, error: res.error! };
         update((prev) => ({
           ...prev,
           visits: prev.visits.map((visit) =>
@@ -422,7 +425,8 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
         await refresh({ silent: true });
         return { ok: true };
       } catch (err) {
-        return { ok: false, error: parseActionError(err).message };
+        const msg = err instanceof Error ? err.message : "Something went wrong.";
+        return { ok: false, error: msg };
       }
     },
     [refresh, update],
@@ -432,12 +436,13 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
     async (data: AppointmentInput) => {
       const appointmentId = randomId("ap");
       const visitId = randomId("v");
-      const res = await bookAppointmentAction({ data, appointmentId, visitId });
-      if (res.error || !res.visitId) {
-        return { appointmentId: "", visitId: "", error: res.error ?? "Could not book appointment" };
+      const res = await clinicalMutate({ op: "bookAppointment", data, appointmentId, visitId });
+      const result = res.ok ? res.data : null;
+      if (!res.ok || !result?.visitId) {
+        return { appointmentId: "", visitId: "", error: res.error ?? result?.error ?? "Could not book appointment" };
       }
       await refresh();
-      return { appointmentId: res.appointmentId, visitId: res.visitId };
+      return { appointmentId: result.appointmentId, visitId: result.visitId };
     },
     [refresh],
   );
@@ -445,11 +450,13 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
   const cancelAppointment = useCallback(
     async (appointmentId: string): Promise<{ ok: boolean; error?: string }> => {
       try {
-        await cancelAppointmentAction(appointmentId);
+        const res = await clinicalMutate({ op: "cancelAppointment", appointmentId });
+        if (!res.ok) return { ok: false, error: res.error! };
         await refresh();
         return { ok: true };
       } catch (err) {
-        return { ok: false, error: parseActionError(err).message };
+        const msg = err instanceof Error ? err.message : "Something went wrong.";
+        return { ok: false, error: msg };
       }
     },
     [refresh],
@@ -461,11 +468,13 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
       input: { date: string; time: string; doctorId?: string; departmentId?: string },
     ): Promise<{ ok: boolean; error?: string }> => {
       try {
-        await rescheduleAppointmentAction(appointmentId, input);
+        const res = await clinicalMutate({ op: "rescheduleAppointment", appointmentId, ...input });
+        if (!res.ok) return { ok: false, error: res.error! };
         await refresh();
         return { ok: true };
       } catch (err) {
-        return { ok: false, error: parseActionError(err).message };
+        const msg = err instanceof Error ? err.message : "Something went wrong.";
+        return { ok: false, error: msg };
       }
     },
     [refresh],
@@ -477,11 +486,13 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
       data: RegisterInput,
     ): Promise<{ ok: true; patientId: string; uhid: string } | { ok: false; error: string }> => {
       try {
-        const result = await updatePatientAction(patientId, data);
+        const res = await clinicalMutate({ op: "updatePatient", patientId, data });
+        if (!res.ok) return { ok: false, error: res.error! };
         await refresh({ silent: true });
-        return { ok: true, ...result };
+        return { ok: true, ...res.data };
       } catch (err) {
-        return { ok: false, error: parseActionError(err).message };
+        const msg = err instanceof Error ? err.message : "Something went wrong.";
+        return { ok: false, error: msg };
       }
     },
     [refresh],
@@ -493,7 +504,7 @@ export function FrontdeskStoreProvider({ children }: { children: ReactNode }) {
       data: Record<string, string | number | boolean>,
       ctx?: { patientId?: string; visitId?: string },
     ) => {
-      await saveSubmissionAction(formId, data, ctx);
+      await clinicalMutate({ op: "saveSubmission", formId, data, ctx });
       await refresh({ silent: true });
     },
     [refresh],

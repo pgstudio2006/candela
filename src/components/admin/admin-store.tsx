@@ -1,15 +1,15 @@
 "use client";
 
-import {
-  type AdminPlatformSettings,
-  type DepartmentConfig,
-  type DiseaseCluster,
-  type DiseaseMapNode,
-  type ExpenseEntry,
-  type MisReport,
-  type MrdRequest,
-  type RevenueSharePolicy,
-  type StaffMember,
+import type {
+  AdminPlatformSettings,
+  DepartmentConfig,
+  DiseaseCluster,
+  DiseaseMapNode,
+  ExpenseEntry,
+  MisReport,
+  MrdRequest,
+  RevenueSharePolicy,
+  StaffMember,
 } from "@/design-system/admin-data";
 import type { Patient, Visit } from "@/design-system/frontdesk-data";
 import {
@@ -19,7 +19,6 @@ import {
   simulateRevenueShare,
 } from "@/lib/admin-platform";
 import type { DataMiningSnapshot } from "@/lib/admin-analytics";
-import { parseActionError } from "@/lib/action-errors";
 import { doctorIdFromStaffId } from "@/lib/healthcare-roles";
 import { sleep } from "@/lib/session-retry";
 import {
@@ -29,29 +28,7 @@ import {
   WORKSPACE_SYNC_MESSAGE,
   workspaceErrorMessage,
 } from "@/lib/workspace-load";
-import {
-  addDepartment as addDepartmentAction,
-  addDiseaseNode as addDiseaseNodeAction,
-  addExpense as addExpenseAction,
-  addMrdRequest as addMrdRequestAction,
-  addRevenuePolicy as addRevenuePolicyAction,
-  addStaff as addStaffAction,
-  approveExpense as approveExpenseAction,
-  exportRevenueShareCsvAction,
-  logAdminAction as logAdminActionMutation,
-  removeDepartment as removeDepartmentAction,
-  removeDiseaseNode as removeDiseaseNodeAction,
-  removeStaff as removeStaffAction,
-  resolveLeakageFlag as resolveLeakageFlagAction,
-  runMisReport as runMisReportAction,
-  updateAdminSettings as updateAdminSettingsAction,
-  updateDepartment as updateDepartmentAction,
-  updateDiseaseNode as updateDiseaseNodeAction,
-  updateMrdStatus as updateMrdStatusAction,
-  updateRevenuePolicy as updateRevenuePolicyAction,
-  updateStaff as updateStaffAction,
-  type AdminSnapshot,
-} from "@/server/admin/actions";
+import type { AdminSnapshot } from "@/server/admin/index";
 import { useSession } from "@/components/candela/session-provider";
 import {
   createContext,
@@ -138,6 +115,20 @@ async function loadAdminSnapshot(): Promise<AdminSnapshotLoadResult> {
     code: "INTERNAL_ERROR",
     error: WORKSPACE_LOAD_FAILED,
   };
+}
+
+async function adminMutate(body: Record<string, unknown>): Promise<{ ok: boolean; data?: any; error?: string }> {
+  try {
+    const res = await fetch("/api/admin/mutate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return await res.json();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Something went wrong.";
+    return { ok: false, error: msg };
+  }
 }
 
 export function AdminStoreProvider({ children }: { children: ReactNode }) {
@@ -241,13 +232,15 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const run = useCallback(
-    async (fn: () => Promise<AdminSnapshot>) => {
+    async (fn: () => Promise<{ ok: boolean; data?: any; error?: string }>) => {
       try {
-        const snapshot = await fn();
-        setState(snapshot);
+        const res = await fn();
+        if (!res.ok) throw new Error(res.error);
+        if (res.data) setState(res.data as AdminSnapshot);
         setError(null);
       } catch (err) {
-        setError(parseActionError(err).message);
+        const msg = err instanceof Error ? err.message : "Something went wrong.";
+        setError(msg);
         throw err;
       }
     },
@@ -325,37 +318,42 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
         const name = doctorStaff?.name ?? policy.label;
         return simulateRevenueShare(doctorId, name, policy, visits);
       },
-      updateStaff: (id, patch) => run(() => updateStaffAction(id, patch)),
-      addStaff: (member) => run(() => addStaffAction(member)),
-      removeStaff: (id) => run(() => removeStaffAction(id)),
-      updateDepartment: (id, patch) => run(() => updateDepartmentAction(id, patch)),
-      addDepartment: (dept) => run(() => addDepartmentAction(dept)),
-      removeDepartment: (id) => run(() => removeDepartmentAction(id)),
-      updateDiseaseNode: (id, patch) => run(() => updateDiseaseNodeAction(id, patch)),
-      addDiseaseNode: (node) => run(() => addDiseaseNodeAction(node)),
-      removeDiseaseNode: (id) => run(() => removeDiseaseNodeAction(id)),
-      updateSettings: (patch) => run(() => updateAdminSettingsAction(patch)),
-      resolveLeakageFlag: (id) => run(() => resolveLeakageFlagAction(id)),
-      addExpense: (entry) => run(() => addExpenseAction(entry)),
-      approveExpense: (id, approved) => run(() => approveExpenseAction(id, approved)),
-      updateRevenuePolicy: (id, patch) => run(() => updateRevenuePolicyAction(id, patch)),
-      addRevenuePolicy: (policy) => run(() => addRevenuePolicyAction(policy)),
-      updateMrdStatus: (id, status) => run(() => updateMrdStatusAction(id, status)),
-      addMrdRequest: (req) => run(() => addMrdRequestAction(req)),
+      updateStaff: (id, patch) => run(() => adminMutate({ op: "updateStaff", id, patch })),
+      addStaff: (member) => run(() => adminMutate({ op: "addStaff", input: member })),
+      removeStaff: (id) => run(() => adminMutate({ op: "removeStaff", id })),
+      updateDepartment: (id, patch) => run(() => adminMutate({ op: "updateDepartment", id, patch })),
+      addDepartment: (dept) => run(() => adminMutate({ op: "addDepartment", input: dept })),
+      removeDepartment: (id) => run(() => adminMutate({ op: "removeDepartment", id })),
+      updateDiseaseNode: (id, patch) => run(() => adminMutate({ op: "updateDiseaseNode", id, patch })),
+      addDiseaseNode: (node) => run(() => adminMutate({ op: "addDiseaseNode", input: node })),
+      removeDiseaseNode: (id) => run(() => adminMutate({ op: "removeDiseaseNode", id })),
+      updateSettings: (patch) => run(() => adminMutate({ op: "updateAdminSettings", patch })),
+      resolveLeakageFlag: (id) => run(() => adminMutate({ op: "resolveLeakageFlag", flagId: id })),
+      addExpense: (entry) => run(() => adminMutate({ op: "addExpense", input: entry })),
+      approveExpense: (id, approved) => run(() => adminMutate({ op: "approveExpense", id, approved })),
+      updateRevenuePolicy: (id, patch) => run(() => adminMutate({ op: "updateRevenuePolicy", id, patch })),
+      addRevenuePolicy: (policy) => run(() => adminMutate({ op: "addRevenuePolicy", input: policy })),
+      updateMrdStatus: (id, status) => run(() => adminMutate({ op: "updateMrdStatus", id, status })),
+      addMrdRequest: (req) => run(() => adminMutate({ op: "addMrdRequest", input: req })),
       runMisReport: async (id) => {
         try {
-          const { snapshot, csv, filename } = await runMisReportAction(id);
-          setState(snapshot);
+          const res = await adminMutate({ op: "runMisReport", id });
+          if (!res.ok) throw new Error(res.error);
+          if (res.data?.snapshot) setState(res.data.snapshot);
           setError(null);
-          return { csv, filename };
+          return { csv: res.data?.csv ?? "", filename: res.data?.filename ?? "" };
         } catch (err) {
-          setError(parseActionError(err).message);
+          const msg = err instanceof Error ? err.message : "Something went wrong.";
+          setError(msg);
           throw err;
         }
       },
-      exportRevenueShare: (policyId, doctorName, gross, share, packagesClosed) =>
-        exportRevenueShareCsvAction(policyId, doctorName, gross, share, packagesClosed),
-      logAdminAction: (summary) => run(() => logAdminActionMutation(summary)),
+      exportRevenueShare: async (policyId, doctorName, gross, share, packagesClosed) => {
+        const res = await adminMutate({ op: "exportRevenueShareCsv", policyId, doctorName, gross, share, packagesClosed });
+        if (!res.ok) throw new Error(res.error);
+        return { csv: res.data?.csv ?? "", filename: res.data?.filename ?? "" };
+      },
+      logAdminAction: (summary) => run(() => adminMutate({ op: "logAdminAction", summary })),
     };
   }, [state, ready, error, refresh, hydrateSnapshot, removeStaffLocal, run, session?.branchId]);
 

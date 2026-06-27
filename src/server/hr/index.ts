@@ -25,7 +25,7 @@ import { leaveDays, computeLeaveBalance, computeHrKpis } from "@/lib/hr-platform
 import { resolveHrOperator } from "@/server/module-operator";
 import { assertLeaveAccess, assertManager, requireEmployeeInBranch } from "@/server/hr/guards";
 import { writePlatformAudit } from "@/server/platform-audit";
-import { clearCrmAbsenceAction, transferCrmAbsenceAction } from "@/server/crm/actions";
+import { clearCrmAbsence, transferCrmAbsence } from "@/server/crm/index";
 import { ensureBootstrapData } from "@/server/bootstrap";
 import { ServerActionError } from "@/server/errors";
 import type { ServerContext } from "@/server/context";
@@ -483,7 +483,7 @@ export async function approveLeave(ctx: ServerContext, id: string, approved: boo
   if (approved && (leave.syncCrmAbsence || settings.autoCrmSync) && employee?.crmAgentId) {
     const until = new Date(leave.toDate);
     until.setHours(23, 59, 59, 0);
-    const result = await transferCrmAbsenceAction({
+    const result = await transferCrmAbsence(ctx, {
       crmAgentId: employee.crmAgentId,
       until: until.toISOString(),
       reason: `Leave: ${leave.reason}`,
@@ -492,7 +492,7 @@ export async function approveLeave(ctx: ServerContext, id: string, approved: boo
     transferred = result.transferred;
   }
   if (!approved && leave.status === "approved" && employee?.crmAgentId) {
-    await clearCrmAbsenceAction(employee.crmAgentId);
+    await clearCrmAbsence(ctx, employee.crmAgentId);
   }
 
   await prisma.hrLeaveRequest.update({

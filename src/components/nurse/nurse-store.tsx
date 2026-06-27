@@ -11,23 +11,8 @@ import {
   type NursingHandoffPayload,
   type VitalsRecord,
 } from "@/design-system/nurse-data";
-import {
-  claimEpisodeAction,
-  completeEpisodeAction,
-  completeSessionAction,
-  declineConsentAction,
-  getNurseSnapshotAction,
-  presentConsentAction,
-  saveVitalsAction,
-  signConsentAction,
-  startSessionAction,
-  updateEpisodeNotesAction,
-  uploadConsentAction,
-  verifyConsentAction,
-} from "@/app/actions/nurse-actions";
 import type { NurseSnapshot } from "@/server/nurse";
 import { useSession } from "@/components/candela/session-provider";
-import { parseActionError } from "@/lib/action-errors";
 import { patientDisplayName } from "@/lib/frontdesk-workflow";
 import { isTransientSessionError, sleep } from "@/lib/session-retry";
 import {
@@ -112,6 +97,35 @@ type NurseStoreValue = {
 
 const NurseContext = createContext<NurseStoreValue | null>(null);
 
+type NurseSnapshotResult = { ok: true; data: NurseSnapshot } | { ok: false; code: string; error: string };
+
+async function loadNurseSnapshot(): Promise<NurseSnapshotResult> {
+  try {
+    const res = await fetch("/api/nurse/snapshot", { cache: "no-store" });
+    if (res.ok) {
+      return (await res.json()) as NurseSnapshotResult;
+    }
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    return { ok: false, code: "INTERNAL_ERROR", error: body?.error ?? "Failed to load nurse workspace." };
+  } catch {
+    return { ok: false, code: "INTERNAL_ERROR", error: "Failed to load nurse workspace." };
+  }
+}
+
+async function nurseMutate(body: Record<string, unknown>): Promise<{ ok: boolean; data?: any; error?: string }> {
+  try {
+    const res = await fetch("/api/nurse/mutate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return await res.json();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Something went wrong.";
+    return { ok: false, error: msg };
+  }
+}
+
 function applySnapshot(snapshot: NurseSnapshot): NurseState {
   return {
     patients: snapshot.patients,
@@ -134,7 +148,7 @@ export function NurseStoreProvider({ children }: { children: ReactNode }) {
     const silent = opts?.silent ?? false;
     if (!silent) setReady(false);
     try {
-      const result = await getNurseSnapshotAction();
+      const result = await loadNurseSnapshot();
       if (result.ok) {
         setState(applySnapshot(result.data));
         setError(null);
@@ -142,7 +156,8 @@ export function NurseStoreProvider({ children }: { children: ReactNode }) {
         setError(result.error);
       }
     } catch (err) {
-      setError(parseActionError(err).message);
+      const msg = err instanceof Error ? err.message : "Something went wrong.";
+      setError(msg);
     } finally {
       setReady(true);
     }
@@ -155,7 +170,7 @@ export function NurseStoreProvider({ children }: { children: ReactNode }) {
     const load = async (attempt = 0) => {
       if (cancelled) return;
       try {
-        const result = await getNurseSnapshotAction();
+        const result = await loadNurseSnapshot();
         if (cancelled) return;
         if (result.ok) {
           setState(applySnapshot(result.data));
@@ -171,7 +186,8 @@ export function NurseStoreProvider({ children }: { children: ReactNode }) {
           await load(attempt + 1);
           return;
         }
-        setError(parseActionError(err).message);
+        const msg = err instanceof Error ? err.message : "Something went wrong.";
+        setError(msg);
         setReady(true);
       }
     };
@@ -246,63 +262,69 @@ export function NurseStoreProvider({ children }: { children: ReactNode }) {
       getFilteredQueue,
       getAllConsents,
       claimEpisode: async (visitId) => {
-        const episode = await claimEpisodeAction(visitId);
+        const res = await nurseMutate({ op: "claimEpisode", visitId });
         await refresh({ silent: true });
-        return episode;
+        return res.ok ? res.data : undefined;
       },
       saveVitals: async (visitId, vitals) => {
         try {
-          await saveVitalsAction(visitId, vitals);
+          const res = await nurseMutate({ op: "saveVitals", visitId, vitals });
+          if (!res.ok) return { ok: false, error: res.error };
           await refresh({ silent: true });
           return { ok: true };
         } catch (err) {
-          return { ok: false, error: parseActionError(err).message };
+          const msg = err instanceof Error ? err.message : "Something went wrong.";
+          return { ok: false, error: msg };
         }
       },
       presentConsent: async (visitId, consentId) => {
-        await presentConsentAction(visitId, consentId);
+        await nurseMutate({ op: "presentConsent", visitId, consentId });
         await refresh({ silent: true });
       },
       signConsent: async (visitId, consentId, payload) => {
-        await signConsentAction(visitId, consentId, payload);
+        await nurseMutate({ op: "signConsent", visitId, consentId, signData: payload });
         await refresh({ silent: true });
       },
       uploadConsent: async (visitId, consentId, payload) => {
-        await uploadConsentAction(visitId, consentId, payload);
+        await nurseMutate({ op: "uploadConsent", visitId, consentId, uploadData: payload });
         await refresh({ silent: true });
       },
       verifyConsent: async (visitId, consentId) => {
-        await verifyConsentAction(visitId, consentId);
+        await nurseMutate({ op: "verifyConsent", visitId, consentId });
         await refresh({ silent: true });
       },
       declineConsent: async (visitId, consentId, reason) => {
-        await declineConsentAction(visitId, consentId, reason);
+        await nurseMutate({ op: "declineConsent", visitId, consentId, reason });
         await refresh({ silent: true });
       },
       startSession: async (visitId, bay) => {
-        await startSessionAction(visitId, bay);
+        await nurseMutate({ op: "startSession", visitId, bay });
         await refresh({ silent: true });
       },
       completeSession: async (visitId, sessionId, notes) => {
         try {
-          const result = await completeSessionAction(visitId, sessionId, notes);
+          const res = await nurseMutate({ op: "completeSession", visitId, sessionId, notes });
+          if (!res.ok) return { ok: false, error: res.error };
           await refresh({ silent: true });
-          return { ok: true, nextSessionNumber: result.nextSessionNumber };
+          return { ok: true, nextSessionNumber: res.data?.nextSessionNumber };
         } catch (err) {
-          return { ok: false, error: parseActionError(err).message };
+          const msg = err instanceof Error ? err.message : "Something went wrong.";
+          return { ok: false, error: msg };
         }
       },
       completeEpisode: async (visitId) => {
         try {
-          await completeEpisodeAction(visitId);
+          const res = await nurseMutate({ op: "completeEpisode", visitId });
+          if (!res.ok) return { ok: false, error: res.error };
           await refresh();
           return { ok: true };
         } catch (err) {
-          return { ok: false, error: parseActionError(err).message };
+          const msg = err instanceof Error ? err.message : "Something went wrong.";
+          return { ok: false, error: msg };
         }
       },
       updateEpisodeNotes: async (visitId, notes) => {
-        await updateEpisodeNotesAction(visitId, notes);
+        await nurseMutate({ op: "updateEpisodeNotes", visitId, notes });
         await refresh({ silent: true });
       },
       getDashboardKpis: () => {

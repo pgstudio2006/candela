@@ -10,28 +10,8 @@ import {
   type PurchaseOrder,
   type Supplier,
 } from "@/design-system/pharmacy-data";
-import {
-  addDrugAction,
-  addSupplierAction,
-  adjustStockAction,
-  approveReturnAction,
-  createPOAction,
-  dispensePrescriptionAction,
-  fulfillIndentAction,
-  getPharmacySnapshotAction,
-  markBillPaidAction,
-  quarantineBatchAction,
-  receivePOAction,
-  rejectPrescriptionAction,
-  restockReturnAction,
-  updateDrugAction,
-  updatePOStatusAction,
-  updateSupplierAction,
-  verifyPrescriptionAction,
-} from "@/server/pharmacy/actions";
 import type { PharmacySnapshot } from "@/server/pharmacy/index";
 import { useSession } from "@/components/candela/session-provider";
-import { parseActionError } from "@/lib/action-errors";
 import { getFilteredPrescriptions } from "@/lib/pharmacy-state-mutations";
 import { computePharmacyKpis } from "@/lib/pharmacy-platform";
 import { isTransientSessionError, sleep } from "@/lib/session-retry";
@@ -85,6 +65,35 @@ function requireOperatorId(operatorId: string) {
   return operatorId;
 }
 
+type PharmacySnapshotResult = { ok: true; data: PharmacySnapshot } | { ok: false; code: string; error: string };
+
+async function loadPharmacySnapshot(operatorId: string): Promise<PharmacySnapshotResult> {
+  try {
+    const res = await fetch(`/api/pharmacy/snapshot?operatorId=${encodeURIComponent(operatorId)}`, { cache: "no-store" });
+    if (res.ok) {
+      return (await res.json()) as PharmacySnapshotResult;
+    }
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    return { ok: false, code: "INTERNAL_ERROR", error: body?.error ?? "Failed to load pharmacy workspace." };
+  } catch {
+    return { ok: false, code: "INTERNAL_ERROR", error: "Failed to load pharmacy workspace." };
+  }
+}
+
+async function pharmacyMutate(body: Record<string, unknown>): Promise<{ ok: boolean; data?: any; error?: string }> {
+  try {
+    const res = await fetch("/api/pharmacy/mutate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return await res.json();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Something went wrong.";
+    return { ok: false, error: msg };
+  }
+}
+
 export function PharmacyStoreProvider({ children }: { children: ReactNode }) {
   const { authReady, session } = useSession();
   const operatorId = session?.pharmacyOperatorId ?? "";
@@ -98,7 +107,7 @@ export function PharmacyStoreProvider({ children }: { children: ReactNode }) {
       const silent = opts?.silent ?? false;
       if (!silent) setReady(false);
       try {
-        const result = await getPharmacySnapshotAction(operatorId);
+        const result = await loadPharmacySnapshot(operatorId);
         if (result.ok) {
           setState(result.data);
           setError(null);
@@ -106,7 +115,8 @@ export function PharmacyStoreProvider({ children }: { children: ReactNode }) {
           setError(result.error);
         }
       } catch (err) {
-        setError(parseActionError(err).message);
+        const msg = err instanceof Error ? err.message : "Something went wrong.";
+        setError(msg);
       } finally {
         setReady(true);
       }
@@ -121,7 +131,7 @@ export function PharmacyStoreProvider({ children }: { children: ReactNode }) {
     const load = async (attempt = 0) => {
       if (cancelled) return;
       try {
-        const result = await getPharmacySnapshotAction(session.pharmacyOperatorId!);
+        const result = await loadPharmacySnapshot(session.pharmacyOperatorId!);
         if (cancelled) return;
         if (result.ok) {
           setState(result.data);
@@ -137,7 +147,8 @@ export function PharmacyStoreProvider({ children }: { children: ReactNode }) {
           await load(attempt + 1);
           return;
         }
-        setError(parseActionError(err).message);
+        const msg = err instanceof Error ? err.message : "Something went wrong.";
+        setError(msg);
         setReady(true);
       }
     };
@@ -196,72 +207,74 @@ export function PharmacyStoreProvider({ children }: { children: ReactNode }) {
           data.prescriptions.filter((r) => !["dispensed", "cancelled", "rejected"].includes(r.status)),
         ),
       verifyPrescription: async (id, counselingNotes) => {
-        await verifyPrescriptionAction(opId(), id, counselingNotes);
+        await pharmacyMutate({ op: "verifyPrescription", operatorId: opId(), rxId: id, counselingNotes });
         await refresh({ silent: true });
       },
       rejectPrescription: async (id, reason) => {
-        await rejectPrescriptionAction(opId(), id, reason);
+        await pharmacyMutate({ op: "rejectPrescription", operatorId: opId(), rxId: id, reason });
         await refresh({ silent: true });
       },
       dispensePrescription: async (id, quantities, witnessName) => {
         try {
-          const result = await dispensePrescriptionAction(opId(), id, quantities, witnessName);
+          const res = await pharmacyMutate({ op: "dispensePrescription", operatorId: opId(), rxId: id, quantities, witnessName });
+          if (!res.ok) return { ok: false, error: res.error };
           await refresh({ silent: true });
-          return { ok: true, billId: result.billId };
+          return { ok: true, billId: res.data?.billId };
         } catch (err) {
-          return { ok: false, error: parseActionError(err).message };
+          const msg = err instanceof Error ? err.message : "Something went wrong.";
+          return { ok: false, error: msg };
         }
       },
       addDrug: async (drug) => {
-        await addDrugAction(opId(), drug);
+        await pharmacyMutate({ op: "addDrug", operatorId: opId(), drug });
         await refresh({ silent: true });
       },
       updateDrug: async (id, patch) => {
-        await updateDrugAction(opId(), id, patch);
+        await pharmacyMutate({ op: "updateDrug", operatorId: opId(), id, patch });
         await refresh({ silent: true });
       },
       addSupplier: async (s) => {
-        await addSupplierAction(opId(), s);
+        await pharmacyMutate({ op: "addSupplier", operatorId: opId(), supplier: s });
         await refresh({ silent: true });
       },
       updateSupplier: async (id, patch) => {
-        await updateSupplierAction(opId(), id, patch);
+        await pharmacyMutate({ op: "updateSupplier", operatorId: opId(), id, patch });
         await refresh({ silent: true });
       },
       createPO: async (supplierId, lines, notes) => {
-        await createPOAction(opId(), supplierId, lines, notes);
+        await pharmacyMutate({ op: "createPO", operatorId: opId(), supplierId, lines, notes });
         await refresh({ silent: true });
       },
       updatePOStatus: async (id, status) => {
-        await updatePOStatusAction(opId(), id, status);
+        await pharmacyMutate({ op: "updatePOStatus", operatorId: opId(), id, status });
         await refresh({ silent: true });
       },
       receivePO: async (poId, received) => {
-        await receivePOAction(opId(), poId, received);
+        await pharmacyMutate({ op: "receivePO", operatorId: opId(), poId, received });
         await refresh({ silent: true });
       },
       adjustStock: async (batchId, delta, reason) => {
-        await adjustStockAction(opId(), batchId, delta, reason);
+        await pharmacyMutate({ op: "adjustStock", operatorId: opId(), batchId, delta, reason });
         await refresh({ silent: true });
       },
       quarantineBatch: async (batchId, quarantined) => {
-        await quarantineBatchAction(opId(), batchId, quarantined);
+        await pharmacyMutate({ op: "quarantineBatch", operatorId: opId(), batchId, quarantined });
         await refresh({ silent: true });
       },
       markBillPaid: async (id, mode) => {
-        await markBillPaidAction(opId(), id, mode);
+        await pharmacyMutate({ op: "markBillPaid", operatorId: opId(), billId: id, mode });
         await refresh({ silent: true });
       },
       approveReturn: async (id) => {
-        await approveReturnAction(opId(), id);
+        await pharmacyMutate({ op: "approveReturn", operatorId: opId(), id });
         await refresh({ silent: true });
       },
       restockReturn: async (id) => {
-        await restockReturnAction(opId(), id);
+        await pharmacyMutate({ op: "restockReturn", operatorId: opId(), id });
         await refresh({ silent: true });
       },
       fulfillIndent: async (id, qty) => {
-        await fulfillIndentAction(opId(), id, qty);
+        await pharmacyMutate({ op: "fulfillIndent", operatorId: opId(), id, qty });
         await refresh({ silent: true });
       },
     };

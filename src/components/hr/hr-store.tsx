@@ -9,28 +9,8 @@ import {
   type HrShiftSlot,
 } from "@/design-system/hr-data";
 import { computeHrKpis } from "@/lib/hr-platform";
-import { parseActionError } from "@/lib/action-errors";
 import { isTransientSessionError, sleep } from "@/lib/session-retry";
-import {
-  addEmployee as addEmployeeAction,
-  addLeaveRequest as addLeaveRequestAction,
-  addShift as addShiftAction,
-  approveLeave as approveLeaveAction,
-  cancelLeaveRequest as cancelLeaveRequestAction,
-  checkoutAttendance as checkoutAttendanceAction,
-  generatePayrollRun as generatePayrollRunAction,
-  getHrSnapshot,
-  markAttendance as markAttendanceAction,
-  markPayrollPaid as markPayrollPaidAction,
-  processPayroll as processPayrollAction,
-  removeShift as removeShiftAction,
-  copyShiftsFromPreviousWeek as copyShiftsFromPreviousWeekAction,
-  setEmployeePasswordAction,
-  updateEmployee as updateEmployeeAction,
-  updateHrSettings as updateHrSettingsAction,
-  updateShift as updateShiftAction,
-  type HrSnapshot,
-} from "@/server/hr/actions";
+import type { HrSnapshot, HrSettings } from "@/server/hr/index";
 import { useSession } from "@/components/candela/session-provider";
 import {
   createContext,
@@ -72,6 +52,35 @@ type HrStoreValue = Omit<HrSnapshot, "isManager"> & {
 
 const HrContext = createContext<HrStoreValue | null>(null);
 
+type HrSnapshotResult = { ok: true; data: HrSnapshot } | { ok: false; code: string; error: string };
+
+async function loadHrSnapshot(): Promise<HrSnapshotResult> {
+  try {
+    const res = await fetch("/api/hr/snapshot", { cache: "no-store" });
+    if (res.ok) {
+      return (await res.json()) as HrSnapshotResult;
+    }
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    return { ok: false, code: "INTERNAL_ERROR", error: body?.error ?? "Failed to load HR workspace." };
+  } catch {
+    return { ok: false, code: "INTERNAL_ERROR", error: "Failed to load HR workspace." };
+  }
+}
+
+async function hrMutate(body: Record<string, unknown>): Promise<{ ok: boolean; data?: any; error?: string }> {
+  try {
+    const res = await fetch("/api/hr/mutate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return await res.json();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Something went wrong.";
+    return { ok: false, error: msg };
+  }
+}
+
 export function HrStoreProvider({ children }: { children: ReactNode }) {
   const { authReady, session } = useSession();
   const [state, setState] = useState<HrSnapshot | null>(null);
@@ -82,7 +91,7 @@ export function HrStoreProvider({ children }: { children: ReactNode }) {
     const silent = opts?.silent ?? false;
     if (!silent) setReady(false);
     try {
-      const result = await getHrSnapshot();
+      const result = await loadHrSnapshot();
       if (result.ok) {
         setState(result.data);
         setError(null);
@@ -90,7 +99,8 @@ export function HrStoreProvider({ children }: { children: ReactNode }) {
         setError(result.error);
       }
     } catch (err) {
-      setError(parseActionError(err).message);
+      const msg = err instanceof Error ? err.message : "Something went wrong.";
+      setError(msg);
     } finally {
       setReady(true);
     }
@@ -103,7 +113,7 @@ export function HrStoreProvider({ children }: { children: ReactNode }) {
     const load = async (attempt = 0) => {
       if (cancelled) return;
       try {
-        const result = await getHrSnapshot();
+        const result = await loadHrSnapshot();
         if (cancelled) return;
         if (result.ok) {
           setState(result.data);
@@ -119,7 +129,8 @@ export function HrStoreProvider({ children }: { children: ReactNode }) {
           await load(attempt + 1);
           return;
         }
-        setError(parseActionError(err).message);
+        const msg = err instanceof Error ? err.message : "Something went wrong.";
+        setError(msg);
         setReady(true);
       }
     };
@@ -155,16 +166,19 @@ export function HrStoreProvider({ children }: { children: ReactNode }) {
     const getEmployee = (id: string) => data.employees.find((e) => e.id === id);
     const operatorId = data.activeOperatorId;
 
-    const run = async (fn: () => Promise<HrSnapshot>) => {
+    const run = async (fn: () => Promise<{ ok: boolean; data?: any; error?: string }>) => {
       try {
-        const next = await fn();
-        setState(next);
+        const res = await fn();
+        if (!res.ok) throw new Error(res.error);
+        if (res.data?.snapshot) setState(res.data.snapshot);
+        else await refresh({ silent: true });
         setError(null);
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("candela-hr-updated"));
         }
       } catch (err) {
-        setError(parseActionError(err).message);
+        const msg = err instanceof Error ? err.message : "Something went wrong.";
+        setError(msg);
         throw err;
       }
     };
@@ -180,52 +194,57 @@ export function HrStoreProvider({ children }: { children: ReactNode }) {
       getHrKpis: () =>
         computeHrKpis(data.employees, data.leaveRequests, data.attendance, data.payroll),
       addEmployee: async (e, password) => {
-        const result = await addEmployeeAction(e, operatorId, password);
-        setState(result.snapshot);
+        const res = await hrMutate({ op: "addEmployee", employee: e, password });
+        if (!res.ok) throw new Error(res.error);
+        if (res.data?.snapshot) setState(res.data.snapshot);
         setError(null);
-        return result.initialPassword;
+        return res.data?.initialPassword;
       },
       setEmployeePassword: (employeeId, password) =>
-        run(() => setEmployeePasswordAction(employeeId, password, operatorId)),
-      updateEmployee: (id, patch) => run(() => updateEmployeeAction(id, patch, operatorId)),
-      addLeaveRequest: (req) => run(() => addLeaveRequestAction(req, operatorId)),
-      cancelLeaveRequest: (id) => run(() => cancelLeaveRequestAction(id, operatorId)),
+        run(() => hrMutate({ op: "setEmployeePassword", employeeId, password })),
+      updateEmployee: (id, patch) => run(() => hrMutate({ op: "updateEmployee", id, patch })),
+      addLeaveRequest: (req) => run(() => hrMutate({ op: "addLeaveRequest", leaveReq: req })),
+      cancelLeaveRequest: (id) => run(() => hrMutate({ op: "cancelLeaveRequest", id })),
       approveLeave: async (id, approved) => {
         try {
-          const { snapshot, transferred } = await approveLeaveAction(id, approved, operatorId);
-          setState(snapshot);
+          const res = await hrMutate({ op: "approveLeave", id, approved });
+          if (!res.ok) throw new Error(res.error);
+          if (res.data?.snapshot) setState(res.data.snapshot);
           setError(null);
           if (typeof window !== "undefined") {
             window.dispatchEvent(new CustomEvent("candela-hr-updated"));
           }
-          return { transferred };
+          return { transferred: res.data?.transferred ?? 0 };
         } catch (err) {
-          setError(parseActionError(err).message);
+          const msg = err instanceof Error ? err.message : "Something went wrong.";
+          setError(msg);
           throw err;
         }
       },
-      addShift: (shift) => run(() => addShiftAction(shift, operatorId)),
-      updateShift: (id, patch) => run(() => updateShiftAction(id, patch, operatorId)),
-      removeShift: (id) => run(() => removeShiftAction(id, operatorId)),
+      addShift: (shift) => run(() => hrMutate({ op: "addShift", shift })),
+      updateShift: (id, patch) => run(() => hrMutate({ op: "updateShift", id, patch })),
+      removeShift: (id) => run(() => hrMutate({ op: "removeShift", id })),
       copyPreviousWeek: (targetDate) =>
-        run(() => copyShiftsFromPreviousWeekAction(targetDate, operatorId)),
-      markAttendance: (record) => run(() => markAttendanceAction(record, operatorId)),
+        run(() => hrMutate({ op: "copyShiftsFromPreviousWeek", targetDate })),
+      markAttendance: (record) => run(() => hrMutate({ op: "markAttendance", attendance: record })),
       checkoutAttendance: (employeeId, date) =>
-        run(() => checkoutAttendanceAction(employeeId, date, operatorId)),
-      processPayroll: (period) => run(() => processPayrollAction(period, operatorId)),
-      markPayrollPaid: (period) => run(() => markPayrollPaidAction(period, operatorId)),
+        run(() => hrMutate({ op: "checkoutAttendance", employeeId, date })),
+      processPayroll: (period) => run(() => hrMutate({ op: "processPayroll", period })),
+      markPayrollPaid: (period) => run(() => hrMutate({ op: "markPayrollPaid", period })),
       generatePayrollRun: async (period) => {
         try {
-          const { snapshot, created } = await generatePayrollRunAction(period, operatorId);
-          setState(snapshot);
+          const res = await hrMutate({ op: "generatePayrollRun", period });
+          if (!res.ok) throw new Error(res.error);
+          if (res.data?.snapshot) setState(res.data.snapshot);
           setError(null);
-          return created;
+          return res.data?.created ?? 0;
         } catch (err) {
-          setError(parseActionError(err).message);
+          const msg = err instanceof Error ? err.message : "Something went wrong.";
+          setError(msg);
           throw err;
         }
       },
-      updateSettings: (patch) => run(() => updateHrSettingsAction(patch, operatorId)),
+      updateSettings: (patch) => run(() => hrMutate({ op: "updateHrSettings", settingsPatch: patch })),
     };
   }, [state, ready, error, refresh, session?.hrOperatorId]);
 
