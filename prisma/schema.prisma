@@ -1469,6 +1469,7 @@ model CrmOperatorCredential {
   maxOpenLeads  Int      @default(20)
   backupAgentId String?
   leadWeightPct Int      @default(0)
+  defaultCommissionPercent Decimal @default(5)
   passwordHash  String
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

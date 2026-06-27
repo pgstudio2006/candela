@@ -7,10 +7,11 @@ import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatStageStatus } from "@/lib/frontdesk-workflow";
-import { ArrowLeft, CreditCard, ListOrdered, Pencil, Printer } from "lucide-react";
+import { ArrowLeft, CreditCard, ListOrdered, Pencil, Printer, UserCog } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { assignCounsellorToPatientAction } from "@/server/crm/online-counsellor-actions";
 
 export default function PatientRecordPage() {
   const params = useParams();
@@ -21,10 +22,40 @@ export default function PatientRecordPage() {
   const activeVisit = patientVisits.find((v) => !["completed", "with_doctor"].includes(v.stage));
   const { setActivePatientId } = useSession();
   const [reprintVisitId, setReprintVisitId] = useState<string | null>(null);
+  const [counsellors, setCounsellors] = useState<{ id: string; name: string }[]>([]);
+  const [selectedCounsellor, setSelectedCounsellor] = useState("");
+  const [reassigning, setReassigning] = useState(false);
+  const [reassignToast, setReassignToast] = useState<string | null>(null);
 
   useEffect(() => {
     if (patient) setActivePatientId(patient.id);
   }, [patient, setActivePatientId]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/crm/counsellors", { credentials: "include" });
+        const json = await res.json();
+        if (json.ok) setCounsellors(json.data);
+      } catch {}
+    })();
+  }, []);
+
+  const handleReassign = async () => {
+    if (!selectedCounsellor || !patient) return;
+    const counsellor = counsellors.find((c) => c.id === selectedCounsellor);
+    if (!counsellor) return;
+    setReassigning(true);
+    const result = await assignCounsellorToPatientAction(patient.id, counsellor.id, counsellor.name);
+    setReassigning(false);
+    if (result.ok) {
+      setReassignToast(`Counsellor reassigned to ${counsellor.name}.`);
+      setTimeout(() => setReassignToast(null), 4000);
+    } else {
+      setReassignToast(`Failed: ${result.error}`);
+      setTimeout(() => setReassignToast(null), 4000);
+    }
+  };
 
   if (!patient) {
     return (
@@ -81,6 +112,7 @@ export default function PatientRecordPage() {
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="visits">Visits</TabsTrigger>
           <TabsTrigger value="billing">Billing</TabsTrigger>
+          <TabsTrigger value="counsellor">Counsellor</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4">
@@ -179,6 +211,48 @@ export default function PatientRecordPage() {
                 )}
               </div>
             ))}
+          </Panel>
+        </TabsContent>
+
+        <TabsContent value="counsellor" className="mt-4">
+          <Panel title="Counsellor assignment">
+            {reassignToast && (
+              <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] text-emerald-900">
+                {reassignToast}
+              </div>
+            )}
+            <div className="space-y-3">
+              <div>
+                <p className="text-[12px] text-[var(--attio-text-tertiary)]">Current counsellor</p>
+                <p className="mt-1 text-[14px] font-medium">
+                  {(patient as any).assignedCounsellorName ?? "—"}
+                </p>
+              </div>
+              <div>
+                <label className="block text-[12px]">
+                  <span className="mb-1 block text-[var(--attio-text-tertiary)]">Reassign to</span>
+                  <select
+                    value={selectedCounsellor}
+                    onChange={(e) => setSelectedCounsellor(e.target.value)}
+                    className="h-9 w-full rounded-lg border border-[var(--attio-border)] px-3 text-[13px]"
+                  >
+                    <option value="">Select counsellor…</option>
+                    {counsellors.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <AttioButton
+                variant="primary"
+                disabled={!selectedCounsellor || reassigning}
+                onClick={() => void handleReassign()}
+                className="gap-1.5"
+              >
+                <UserCog className="size-3.5" />
+                {reassigning ? "Reassigning…" : "Reassign counsellor"}
+              </AttioButton>
+            </div>
           </Panel>
         </TabsContent>
       </Tabs>

@@ -10,6 +10,7 @@ import {
   Workflow,
   Calendar,
   IndianRupee,
+  FileText,
   type LucideIcon,
 } from "lucide-react";
 
@@ -27,9 +28,12 @@ export const CRM_NAV: CrmNavItem[] = [
   { id: "inbox", label: "Lead inbox", href: "/app/crm/inbox", icon: Inbox, group: "workspace" },
   { id: "leads", label: "Pipeline", href: "/app/crm/leads", icon: Kanban, group: "pipeline" },
   { id: "follow-ups", label: "Follow-ups", href: "/app/crm/follow-ups", icon: Calendar, group: "pipeline" },
+  { id: "patients", label: "Patients", href: "/app/crm/patients", icon: FileText, group: "pipeline" },
+  { id: "appointments", label: "Appointments", href: "/app/crm/appointments", icon: Calendar, group: "pipeline" },
   { id: "integrations", label: "Integrations", href: "/app/crm/integrations", icon: Plug, group: "ops", managerOnly: true },
   { id: "team", label: "Team & routing", href: "/app/crm/team", icon: Users, group: "ops", managerOnly: true },
   { id: "workflows", label: "Workflows", href: "/app/crm/workflows", icon: Workflow, group: "ops", managerOnly: true },
+  { id: "commission", label: "Commission Slabs", href: "/app/crm/commission", icon: IndianRupee, group: "ops", managerOnly: true },
   { id: "analytics", label: "Team KPIs", href: "/app/crm/analytics", icon: BarChart3, group: "insights", managerOnly: true },
   { id: "finance", label: "Finance", href: "/app/crm/finance", icon: IndianRupee, group: "insights", managerOnly: true },
   { id: "audit", label: "Audit", href: "/app/crm/audit", icon: ClipboardList, group: "insights", managerOnly: true },

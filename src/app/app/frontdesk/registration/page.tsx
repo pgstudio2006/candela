@@ -37,9 +37,17 @@ export default function RegistrationPage() {
   const [leadDetection, setLeadDetection] = useState<LeadDetection | null>(null);
   const [assignCounsellor, setAssignCounsellor] = useState(false);
   const [counsellorName, setCounsellorName] = useState("");
+  const [counsellors, setCounsellors] = useState<{ id: string; name: string }[]>([]);
 
   useEffect(() => {
     void canOverrideDuplicateAction().then(setCanOverrideDuplicate);
+    void (async () => {
+      try {
+        const res = await fetch("/api/crm/counsellors", { credentials: "include" });
+        const json = await res.json();
+        if (json.ok) setCounsellors(json.data);
+      } catch {}
+    })();
   }, []);
 
   const checkPhone = useCallback(async (phone: string) => {
@@ -228,12 +236,16 @@ export default function RegistrationPage() {
               <span>Assign online counsellor to this patient</span>
             </label>
             {assignCounsellor && (
-              <input
+              <select
                 value={counsellorName}
                 onChange={(e) => setCounsellorName(e.target.value)}
-                placeholder="Counsellor name"
                 className="mt-2 h-9 w-full rounded-lg border border-[var(--attio-border)] px-3 text-[12px]"
-              />
+              >
+                <option value="">Select counsellor…</option>
+                {counsellors.map((c) => (
+                  <option key={c.id} value={c.name}>{c.name}</option>
+                ))}
+              </select>
             )}
             <p className="mt-2 text-[11px] text-[var(--attio-text-tertiary)]">
               {assignCounsellor
