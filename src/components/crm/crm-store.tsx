@@ -19,7 +19,6 @@ import {
   clearAgentUnavailableAction,
   completeFollowUpAction,
   createLeadAction,
-  getCrmSnapshotAction,
   ingestFromIntegrationAction,
   logActivityAction,
   markAgentUnavailableAction,
@@ -39,6 +38,22 @@ import {
   updateStagesAction,
 } from "@/server/crm/actions";
 import type { CrmSnapshot } from "@/server/crm/index";
+
+async function fetchCrmSnapshot(operatorId: string): Promise<{ ok: true; data: CrmSnapshot } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`/api/crm/snapshot?operatorId=${encodeURIComponent(operatorId)}`, {
+      cache: "no-store",
+      credentials: "include",
+    });
+    const json = await res.json();
+    if (res.ok && json.ok) {
+      return { ok: true, data: json.data as CrmSnapshot };
+    }
+    return { ok: false, error: json.error || "Failed to load CRM workspace." };
+  } catch {
+    return { ok: false, error: "Failed to connect to CRM workspace. Please refresh the page." };
+  }
+}
 import { useSession } from "@/components/candela/session-provider";
 import { CRM_MANAGER_ID } from "@/lib/crm-auth";
 import {
@@ -131,7 +146,7 @@ export function CrmStoreProvider({ children }: { children: ReactNode }) {
       const silent = opts?.silent ?? false;
       if (!silent) setReady(false);
       try {
-        const result = await getCrmSnapshotAction(operatorId);
+        const result = await fetchCrmSnapshot(operatorId);
         if (result.ok) {
           setState(result.data);
           setError(null);
@@ -154,7 +169,7 @@ export function CrmStoreProvider({ children }: { children: ReactNode }) {
     const load = async (attempt = 0) => {
       if (cancelled) return;
       try {
-        const result = await getCrmSnapshotAction(session.crmOperatorId!);
+        const result = await fetchCrmSnapshot(session.crmOperatorId!);
         if (cancelled) return;
         if (result.ok) {
           setState(result.data);
