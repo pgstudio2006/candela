@@ -129,6 +129,52 @@ export async function addStaffWithLogin(
     }
   }
 
+  // Create module-specific operator credentials for CRM, Counsellor, Pharmacy
+  if (roleKey && email) {
+    const passwordHashForOperator = await hashPassword(initialPassword);
+    if (roleKey === "crm") {
+      await prisma.crmOperatorCredential.upsert({
+        where: { email },
+        update: { name: staffPayload.name, active: true, passwordHash: passwordHashForOperator },
+        create: {
+          id: staffId,
+          name: staffPayload.name,
+          email,
+          role: "executive",
+          active: true,
+          specialtyTags: [],
+          passwordHash: passwordHashForOperator,
+        },
+      });
+    } else if (roleKey === "counsellor") {
+      await prisma.counsellorOperatorCredential.upsert({
+        where: { email },
+        update: { name: staffPayload.name, active: true, passwordHash: passwordHashForOperator },
+        create: {
+          id: staffId,
+          name: staffPayload.name,
+          email,
+          role: "executive",
+          active: true,
+          passwordHash: passwordHashForOperator,
+        },
+      });
+    } else if (roleKey === "pharmacy") {
+      await prisma.pharmacyOperatorCredential.upsert({
+        where: { email },
+        update: { name: staffPayload.name, active: true, passwordHash: passwordHashForOperator },
+        create: {
+          id: staffId,
+          name: staffPayload.name,
+          email,
+          role: "pharmacist",
+          active: true,
+          passwordHash: passwordHashForOperator,
+        },
+      });
+    }
+  }
+
   await writePlatformAudit({
     ctx,
     module: "admin",
@@ -224,6 +270,49 @@ export async function resetStaffLoginPassword(
         });
       }
     }
+  }
+
+  // Update module-specific operator credentials for CRM, Counsellor, Pharmacy
+  if (roleKey === "crm") {
+    await prisma.crmOperatorCredential.upsert({
+      where: { email },
+      update: { name: staff.name, active: true, passwordHash },
+      create: {
+        id: staffId,
+        name: staff.name,
+        email,
+        role: "executive",
+        active: true,
+        specialtyTags: [],
+        passwordHash,
+      },
+    });
+  } else if (roleKey === "counsellor") {
+    await prisma.counsellorOperatorCredential.upsert({
+      where: { email },
+      update: { name: staff.name, active: true, passwordHash },
+      create: {
+        id: staffId,
+        name: staff.name,
+        email,
+        role: "executive",
+        active: true,
+        passwordHash,
+      },
+    });
+  } else if (roleKey === "pharmacy") {
+    await prisma.pharmacyOperatorCredential.upsert({
+      where: { email },
+      update: { name: staff.name, active: true, passwordHash },
+      create: {
+        id: staffId,
+        name: staff.name,
+        email,
+        role: "pharmacist",
+        active: true,
+        passwordHash,
+      },
+    });
   }
 
   await writePlatformAudit({
