@@ -19,7 +19,7 @@ import { usePublishedFormSchema } from "@/hooks/use-published-form-schema";
 import { useToast } from "@/components/ui/toast-provider";
 import { cn } from "@/lib/utils";
 import { isRedFlagVisit } from "@/lib/frontdesk-workflow";
-import { ArrowLeft, MessageCircle, Printer, Send, Sparkles } from "lucide-react";
+import { ArrowLeft, MessageCircle, Plus, Printer, Send, Sparkles, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -59,6 +59,7 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
   const [tier, setTier] = useState<"good" | "better" | "best">("better");
   const [packageId, setPackageId] = useState(item?.packageId ?? "pkg_basic");
   const [addonIds, setAddonIds] = useState<string[]>([]);
+  const [customServices, setCustomServices] = useState<Array<{ id: string; label: string; amount: number; quantity: number; gstPercent: number }>>([]);
   const [discountPercent, setDiscountPercent] = useState(0);
   const [discountReason, setDiscountReason] = useState("");
   const [internalNotes, setInternalNotes] = useState("");
@@ -87,8 +88,8 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
   }, [item, visitId, claimSession, toast]);
 
   const quote = useMemo(
-    () => buildQuote(visitId, packageId, addonIds, discountPercent, discountReason, tier),
-    [visitId, packageId, addonIds, discountPercent, discountReason, tier, buildQuote],
+    () => buildQuote(visitId, packageId, addonIds, discountPercent, discountReason, tier, customServices.map(s => ({ id: s.id, label: s.label, amount: s.amount, quantity: s.quantity, gstPercent: s.gstPercent, type: "service" as const }))),
+    [visitId, packageId, addonIds, discountPercent, discountReason, tier, customServices, buildQuote],
   );
 
   const limit = maxDiscountPercent();
@@ -197,11 +198,15 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
         )}
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_400px]">
-        <div>
-          <HandoffPayloadView item={item} patient={patient} visit={visit} />
+      <div className="grid gap-6 xl:grid-cols-[320px_1fr_320px]">
+        {/* Left: Doctor context (read-only) */}
+        <div className="space-y-4">
+          <Panel title="Doctor handoff" className="sticky top-0">
+            <HandoffPayloadView item={item} patient={patient} visit={visit} />
+          </Panel>
         </div>
 
+        {/* Center: Estimate builder */}
         <div className="space-y-4">
           <Panel title="AI counsel assistant" action={<Sparkles className="size-4 text-[var(--attio-accent)]" />}>
             <div className="mb-2 flex flex-wrap gap-1">
@@ -263,6 +268,7 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
           <Panel title="Pricing & discount">
             <div className="space-y-3 text-[13px]">
               <div className="flex justify-between"><span className="text-[var(--attio-text-tertiary)]">Gross</span><span className="tabular-nums">₹{quote.grossAmount.toLocaleString("en-IN")}</span></div>
+              <div className="flex justify-between"><span className="text-[var(--attio-text-tertiary)]">GST (18%)</span><span className="tabular-nums">₹{quote.gstAmount.toLocaleString("en-IN")}</span></div>
               <label className="block">
                 <span className="text-[11px] text-[var(--attio-text-tertiary)]">Discount % (max {limit}% without approval)</span>
                 <input type="number" min={0} max={30} value={discountPercent} onChange={(e) => setDiscountPercent(Number(e.target.value))} className="mt-1 w-full rounded-md border border-[var(--attio-border)] px-2 py-1.5" />
@@ -277,6 +283,54 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
                 <span className="tabular-nums text-[var(--attio-accent)]">₹{quote.netAmount.toLocaleString("en-IN")}</span>
               </div>
             </div>
+          </Panel>
+
+          <Panel title="Add custom services">
+            <div className="mb-3 space-y-2">
+              {customServices.map((s, idx) => (
+                <div key={idx} className="flex items-center gap-2 text-[12px]">
+                  <input
+                    value={s.label}
+                    onChange={(e) => {
+                      const updated = [...customServices];
+                      updated[idx].label = e.target.value;
+                      setCustomServices(updated);
+                    }}
+                    placeholder="Service name"
+                    className="flex-1 rounded-md border border-[var(--attio-border)] px-2 py-1"
+                  />
+                  <input
+                    type="number"
+                    value={s.amount}
+                    onChange={(e) => {
+                      const updated = [...customServices];
+                      updated[idx].amount = Number(e.target.value);
+                      setCustomServices(updated);
+                    }}
+                    placeholder="₹"
+                    className="w-20 rounded-md border border-[var(--attio-border)] px-2 py-1"
+                  />
+                  <input
+                    type="number"
+                    value={s.quantity}
+                    onChange={(e) => {
+                      const updated = [...customServices];
+                      updated[idx].quantity = Math.max(1, Number(e.target.value));
+                      setCustomServices(updated);
+                    }}
+                    placeholder="Qty"
+                    className="w-16 rounded-md border border-[var(--attio-border)] px-2 py-1"
+                  />
+                  <AttioButton variant="ghost" className="!h-7 !px-1 text-red-600" onClick={() => setCustomServices(customServices.filter((_, i) => i !== idx))}>
+                    <Trash2 className="size-3" />
+                  </AttioButton>
+                </div>
+              ))}
+            </div>
+            <AttioButton variant="secondary" className="w-full gap-1.5" onClick={() => setCustomServices([...customServices, { id: `custom_${Date.now()}`, label: "", amount: 0, quantity: 1, gstPercent: 18 }])}>
+              <Plus className="size-3.5" />
+              Add service line
+            </AttioButton>
           </Panel>
 
           <Panel title="Counselling intake">
@@ -298,8 +352,11 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
               }}
             />
           </Panel>
+        </div>
 
-          <Panel title="Session wrap-up">
+        {/* Right: Outcomes */}
+        <div className="space-y-4">
+          <Panel title="Session wrap-up" className="sticky top-0">
             <div className="mb-3 flex flex-wrap gap-1">
               {OBJECTION_TAGS.map((tag) => (
                 <button key={tag} type="button" onClick={() => toggleObjection(tag)} className={cn("rounded-full border px-2 py-0.5 text-[10px]", objections.includes(tag) ? "border-[var(--attio-accent)] bg-[var(--attio-accent)]/10" : "border-[var(--attio-border)]")}>{tag}</button>

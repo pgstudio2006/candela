@@ -110,6 +110,8 @@ model Branch {
   staffAccesses  StaffAccess[]
   geoPins        GeoPin[]
   misAggregates  MisAggregate[]
+  serviceCharges ServiceCharge[]
+  counsellorCommissions CounsellorCommission[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -252,9 +254,13 @@ model Patient {
   leads           Lead[]
   invoices        Invoice[]
   billingHandoffs BillingHandoff[]
+  assignedCounsellorId String?
+  assignedCounsellorName String?
+  leadSourceId    String?
 
   @@unique([tenantId, uhid])
   @@index([branchId, fullName])
+  @@index([branchId, assignedCounsellorId])
 }
 
 model Appointment {
@@ -674,6 +680,40 @@ model StockMovement {
   @@index([branchId, movementType, movedAt])
 }
 
+model ServiceCharge {
+  id          String   @id @default(cuid())
+  tenantId    String
+  branchId    String
+  label       String
+  category    String
+  description String?
+  rate        Decimal
+  unit        String?
+  gstPercent  Decimal  @default(18)
+  hsnCode     String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  branch      Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  packageServices PackageService[]
+
+  @@index([tenantId, branchId, category])
+  @@index([tenantId, branchId, active])
+}
+
+model PackageService {
+  id         String   @id @default(cuid())
+  packageId  String
+  serviceId  String
+  quantity  Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  package    Package @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  service    ServiceCharge @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([packageId, serviceId])
+}
+
 model Package {
   id           String             @id
   tenantId     String
@@ -687,6 +727,7 @@ model Package {
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
   branch       Branch             @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  services     PackageService[]
   counsellorSessions CounsellorSession[]
   approvals    Approval[]
   billingHandoffs BillingHandoff[]
@@ -864,6 +905,11 @@ model Lead {
   convertedVisitId String?
   uhid             String?
   lostReason       String?
+  leadStatus       String    @default("fresh")
+  callOutcome      String?
+  formData         Json?
+  appointmentTime  String?
+  appointmentCentre String?
   createdAt        DateTime
   updatedAt        DateTime
   lastContactAt    DateTime?
@@ -875,9 +921,12 @@ model Lead {
   pipeline         Pipeline? @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
   followUps        FollowUp[]
   activities       Activity[]
+  commissions      CounsellorCommission[]
 
   @@index([branchId, stageId])
   @@index([branchId, assigneeId])
+  @@index([branchId, leadStatus])
+  @@index([branchId, source])
 }
 
 model Activity {
@@ -1742,4 +1791,28 @@ model AdminAuditLog {
   severity   String
   payload    Json?
   createdAt  DateTime @default(now())
+}
+
+model CounsellorCommission {
+  id              String   @id @default(cuid())
+  tenantId        String
+  branchId        String
+  leadId          String?
+  counsellorId    String
+  counsellorName  String
+  patientId       String?
+  patientName     String?
+  visitId         String?
+  billAmount      Decimal  @default(0)
+  commissionPercent Decimal @default(0)
+  commissionAmount Decimal @default(0)
+  status          String   @default("pending")
+  paidAt          DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  branch          Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  lead            Lead?    @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  @@index([branchId, counsellorId, status])
+  @@index([branchId, patientId])
 }

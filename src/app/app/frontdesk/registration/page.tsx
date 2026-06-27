@@ -7,13 +7,23 @@ import { useFrontdeskFormSchema } from "@/components/frontdesk/use-frontdesk-for
 import { AttioButton, Panel } from "@/components/frontdesk/ui";
 import { useToast } from "@/components/ui/toast-provider";
 import { canOverrideDuplicateAction, checkDuplicatePatientAction } from "@/app/actions/clinical-actions";
+import { detectLeadByMobileAction, assignCounsellorToPatientAction } from "@/server/crm/online-counsellor-actions";
 import { schemaFingerprint } from "@/lib/schema-field-utils";
-import { AlertTriangle, LogIn } from "lucide-react";
+import { AlertTriangle, LogIn, UserCheck } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 type DuplicateInfo = { id: string; uhid: string; name: string; phone: string };
+type LeadDetection = {
+  found: boolean;
+  leadId?: string;
+  leadName?: string;
+  leadStatus?: string;
+  assigneeName?: string;
+  patientId?: string;
+  uhid?: string;
+};
 
 export default function RegistrationPage() {
   const router = useRouter();
@@ -24,6 +34,9 @@ export default function RegistrationPage() {
   const [submitting, setSubmitting] = useState(false);
   const [phoneWarning, setPhoneWarning] = useState<DuplicateInfo | null>(null);
   const [canOverrideDuplicate, setCanOverrideDuplicate] = useState(false);
+  const [leadDetection, setLeadDetection] = useState<LeadDetection | null>(null);
+  const [assignCounsellor, setAssignCounsellor] = useState(false);
+  const [counsellorName, setCounsellorName] = useState("");
 
   useEffect(() => {
     void canOverrideDuplicateAction().then(setCanOverrideDuplicate);
@@ -32,10 +45,19 @@ export default function RegistrationPage() {
   const checkPhone = useCallback(async (phone: string) => {
     if (!phone || phone.replace(/\D/g, "").length < 10) {
       setPhoneWarning(null);
+      setLeadDetection(null);
       return;
     }
     const result = await checkDuplicatePatientAction(phone);
     setPhoneWarning(result.duplicate ? result.patient : null);
+    const leadResult = await detectLeadByMobileAction(phone);
+    if (leadResult.ok) {
+      setLeadDetection(leadResult.data);
+      if (leadResult.data.found && leadResult.data.assigneeName) {
+        setCounsellorName(leadResult.data.assigneeName);
+        setAssignCounsellor(true);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -76,6 +98,19 @@ export default function RegistrationPage() {
 
     await saveSubmission("registration", data, { patientId: result.patientId, visitId: result.visitId });
     setSavedUhid(result.uhid);
+
+    if (assignCounsellor && counsellorName.trim()) {
+      const leadId = leadDetection?.leadId ?? "";
+      const assignResult = await assignCounsellorToPatientAction(
+        result.patientId,
+        leadId || `counsellor_manual_${Date.now()}`,
+        counsellorName.trim(),
+      );
+      if (!assignResult.ok) {
+        toast(`Patient registered but counsellor assignment failed: ${assignResult.error}`, "error");
+      }
+    }
+
     toast(`Registered ${result.uhid}`, "success");
     router.push(`/app/frontdesk/check-in?visit=${result.visitId}&patient=${result.patientId}`);
   };
@@ -150,6 +185,63 @@ export default function RegistrationPage() {
               <p className="text-[12px] text-[var(--attio-text-tertiary)]">No duplicate phone detected</p>
             )}
           </Panel>
+
+          {leadDetection?.found && (
+            <Panel title="CRM lead detected">
+              <div className="flex gap-3 rounded-md border border-blue-200/80 bg-blue-50/50 p-3">
+                <UserCheck className="size-4 shrink-0 text-blue-600" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-medium text-blue-900">Existing lead found</p>
+                  <p className="mt-1 text-[12px] text-blue-800">
+                    {leadDetection.leadName} · Status: {leadDetection.leadStatus?.replace(/_/g, " ")}
+                  </p>
+                  {leadDetection.assigneeName && (
+                    <p className="mt-0.5 text-[11px] text-blue-700">
+                      Assigned to: {leadDetection.assigneeName}
+                    </p>
+                  )}
+                  {leadDetection.uhid && (
+                    <p className="mt-0.5 text-[11px] text-blue-700">
+                      Already converted — UHID: {leadDetection.uhid}
+                    </p>
+                  )}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Link href={`/app/crm/leads/${leadDetection.leadId}`}>
+                      <AttioButton variant="secondary" className="h-8 text-[11px]">
+                        Open lead
+                      </AttioButton>
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            </Panel>
+          )}
+
+          <Panel title="Counsellor assignment">
+            <label className="flex items-center gap-2 text-[12px]">
+              <input
+                type="checkbox"
+                checked={assignCounsellor}
+                onChange={(e) => setAssignCounsellor(e.target.checked)}
+                className="size-4 rounded border-[var(--attio-border)]"
+              />
+              <span>Assign online counsellor to this patient</span>
+            </label>
+            {assignCounsellor && (
+              <input
+                value={counsellorName}
+                onChange={(e) => setCounsellorName(e.target.value)}
+                placeholder="Counsellor name"
+                className="mt-2 h-9 w-full rounded-lg border border-[var(--attio-border)] px-3 text-[12px]"
+              />
+            )}
+            <p className="mt-2 text-[11px] text-[var(--attio-text-tertiary)]">
+              {assignCounsellor
+                ? "Counsellor will be linked to the patient record on save."
+                : "Enable to track this patient's journey from an online counsellor lead."}
+            </p>
+          </Panel>
+
           <Panel title="Preview">
             <p className="text-[12px] text-[var(--attio-text-tertiary)]">
               {savedUhid ? "UHID assigned on last save" : "UHID auto-generated on save"}

@@ -11,7 +11,9 @@ export type QuoteLineItem = {
   id: string;
   label: string;
   amount: number;
-  type: "package" | "addon" | "custom";
+  quantity: number;
+  gstPercent: number;
+  type: "package" | "addon" | "custom" | "service";
 };
 
 export type CounselQuote = {
@@ -22,6 +24,7 @@ export type CounselQuote = {
   tier: "good" | "better" | "best";
   lineItems: QuoteLineItem[];
   grossAmount: number;
+  gstAmount: number;
   discountPercent: number;
   discountAmount: number;
   netAmount: number;
@@ -144,22 +147,24 @@ export function computeQuote(
 ): Omit<CounselQuote, "visitId" | "patientId" | "approvalStatus" | "consentCaptured" | "whatsappSent"> {
   const pkg = packageById(packageId) ?? CARE_PACKAGES[0];
   const lineItems: QuoteLineItem[] = [
-    { id: "pkg", label: pkg.label, amount: pkg.amount, type: "package" },
+    { id: "pkg", label: pkg.label, amount: pkg.amount, quantity: 1, gstPercent: 18, type: "package" },
     ...addonIds
       .map((id) => PACKAGE_ADDONS.find((a) => a.id === id))
       .filter(Boolean)
-      .map((a) => ({ id: a!.id, label: a!.label, amount: a!.amount, type: "addon" as const })),
+      .map((a) => ({ id: a!.id, label: a!.label, amount: a!.amount, quantity: 1, gstPercent: 18, type: "addon" as const })),
     ...customLines,
   ];
   const grossAmount = lineItems.reduce((s, l) => s + l.amount, 0);
+  const gstAmount = Math.round((grossAmount * 18) / 100);
   const discountAmount = Math.round((grossAmount * discountPercent) / 100);
-  const netAmount = grossAmount - discountAmount;
+  const netAmount = grossAmount + gstAmount - discountAmount;
   return {
     packageId: pkg.id,
     packageLabel: pkg.label,
     tier: "better",
     lineItems,
     grossAmount,
+    gstAmount,
     discountPercent,
     discountAmount,
     netAmount,

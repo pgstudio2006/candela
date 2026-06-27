@@ -6,7 +6,8 @@ import { useCrmStore } from "@/components/crm/crm-store";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton } from "@/components/frontdesk/ui";
 import type { CrmLead } from "@/design-system/crm-data";
-import { Plus } from "lucide-react";
+import { ArrowRight, Plus } from "lucide-react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -33,10 +34,19 @@ export default function CrmLeadsPageClient() {
       title="Lead pipeline"
       meta="Add leads with full patient details · move through customizable stages"
       actions={
-        <AttioButton variant="primary" onClick={openAdd}>
-          <Plus className="size-3.5" />
-          Add lead
-        </AttioButton>
+        <>
+          <Link
+            href={selected ? `/app/crm/leads/${selected.id}` : "/app/crm/leads"}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--attio-border)] px-3 text-[12px] font-medium hover:bg-[var(--attio-surface)]"
+          >
+            <ArrowRight className="size-3.5" />
+            Open detail
+          </Link>
+          <AttioButton variant="primary" onClick={openAdd}>
+            <Plus className="size-3.5" />
+            Add lead
+          </AttioButton>
+        </>
       }
     >
       <LeadPipelineBoard

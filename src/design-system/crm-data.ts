@@ -67,6 +67,35 @@ export type CrmAgent = {
 
 export type CrmLeadGender = "male" | "female" | "other" | "prefer_not";
 
+export type CrmLeadStatus =
+  | "fresh"
+  | "call_picked"
+  | "call_not_picked"
+  | "lead_form_filled"
+  | "wants_visit"
+  | "appointment_booked"
+  | "visit_done"
+  | "converted"
+  | "lost";
+
+export type CrmCallOutcome = "picked" | "not_picked" | "callback" | "wrong_number";
+
+export type CrmCommission = {
+  id: string;
+  leadId?: string;
+  counsellorId: string;
+  counsellorName: string;
+  patientId?: string;
+  patientName?: string;
+  visitId?: string;
+  billAmount: number;
+  commissionPercent: number;
+  commissionAmount: number;
+  status: "pending" | "approved" | "paid";
+  paidAt?: string;
+  createdAt: string;
+};
+
 export type CrmLead = {
   id: string;
   fullName: string;
@@ -102,6 +131,9 @@ export type CrmLead = {
   patientId?: string;
   uhid?: string;
   lostReason?: string;
+  leadStatus?: CrmLeadStatus;
+  callOutcome?: CrmCallOutcome;
+  formData?: Record<string, string | number | boolean>;
 };
 
 /** Fields required when a team member manually captures a lead */

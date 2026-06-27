@@ -1,0 +1,469 @@
+import type { CrmCallOutcome, CrmCommission, CrmLead, CrmLeadStatus } from "@/design-system/crm-data";
+import { prisma } from "@/lib/prisma";
+import type { ServerContext } from "@/server/context";
+import { writePlatformAudit } from "@/server/platform-audit";
+import { branchScope } from "@/server/tenancy";
+import { ServerActionError } from "@/server/errors";
+
+export type LeadToPatientResult = {
+  patientId: string;
+  uhid: string;
+  leadId: string;
+};
+
+export type MobileDetectionResult = {
+  found: boolean;
+  leadId?: string;
+  leadName?: string;
+  leadStatus?: string;
+  assigneeName?: string;
+  patientId?: string;
+  uhid?: string;
+};
+
+async function getAgentName(agentId: string): Promise<string | null> {
+  const agent = await prisma.agent.findUnique({ where: { id: agentId } });
+  return agent?.name ?? null;
+}
+
+export async function updateLeadCallOutcome(
+  ctx: ServerContext,
+  leadId: string,
+  callOutcome: CrmCallOutcome,
+): Promise<void> {
+  const lead = await prisma.lead.findFirst({
+    where: { id: leadId, branchId: ctx.branchId },
+  });
+  if (!lead) throw new ServerActionError("NOT_FOUND", "Lead not found.");
+
+  const leadStatus: CrmLeadStatus =
+    callOutcome === "picked" ? "call_picked" : callOutcome === "not_picked" ? "call_not_picked" : "fresh";
+
+  await prisma.lead.update({
+    where: { id: leadId },
+    data: {
+      callOutcome,
+      leadStatus,
+      lastContactAt: new Date(),
+    },
+  });
+
+  await prisma.activity.create({
+    data: {
+      id: `act_${leadId}_${Date.now()}`,
+      tenantId: ctx.tenantId,
+      branchId: ctx.branchId,
+      leadId,
+      actor: "Online Counsellor",
+      type: "call",
+      summary: `Call outcome: ${callOutcome.replace(/_/g, " ")}`,
+      at: new Date(),
+    },
+  });
+
+  await writePlatformAudit({
+    ctx,
+    module: "crm",
+    action: "lead_call_outcome",
+    entityType: "lead",
+    entityId: leadId,
+    summary: `Call outcome set to ${callOutcome} for lead ${lead.fullName}`,
+  });
+}
+
+export async function updateLeadStatus(
+  ctx: ServerContext,
+  leadId: string,
+  status: CrmLeadStatus,
+  formData?: Record<string, string | number | boolean>,
+): Promise<void> {
+  const lead = await prisma.lead.findFirst({
+    where: { id: leadId, branchId: ctx.branchId },
+  });
+  if (!lead) throw new ServerActionError("NOT_FOUND", "Lead not found.");
+
+  await prisma.lead.update({
+    where: { id: leadId },
+    data: {
+      leadStatus: status,
+      ...(formData ? { formData } : {}),
+      lastContactAt: new Date(),
+    },
+  });
+
+  await prisma.activity.create({
+    data: {
+      id: `act_${leadId}_${Date.now()}`,
+      tenantId: ctx.tenantId,
+      branchId: ctx.branchId,
+      leadId,
+      actor: "Online Counsellor",
+      type: "status_change",
+      summary: `Lead status changed to ${status.replace(/_/g, " ")}`,
+      at: new Date(),
+    },
+  });
+
+  await writePlatformAudit({
+    ctx,
+    module: "crm",
+    action: "lead_status_update",
+    entityType: "lead",
+    entityId: leadId,
+    summary: `Lead ${lead.fullName} → ${status}`,
+  });
+}
+
+export async function convertLeadToPatient(
+  ctx: ServerContext,
+  leadId: string,
+  options: {
+    bookAppointment?: boolean;
+    doctorId?: string;
+    doctorName?: string;
+    appointmentDate?: string;
+    appointmentTime?: string;
+  },
+): Promise<LeadToPatientResult> {
+  const lead = await prisma.lead.findFirst({
+    where: { id: leadId, branchId: ctx.branchId },
+  });
+  if (!lead) throw new ServerActionError("NOT_FOUND", "Lead not found.");
+
+  const existingPatient = await prisma.patient.findFirst({
+    where: { branchId: ctx.branchId, phone: lead.phone },
+  });
+
+  let patientId: string;
+  let uhid: string;
+
+  if (existingPatient) {
+    patientId = existingPatient.id;
+    uhid = existingPatient.uhid;
+    const agentName = lead.assigneeId ? await getAgentName(lead.assigneeId) : null;
+    await prisma.patient.update({
+      where: { id: patientId },
+      data: {
+        assignedCounsellorId: lead.assigneeId ?? null,
+        assignedCounsellorName: agentName,
+        leadSourceId: leadId,
+      },
+    });
+  } else {
+    const count = await prisma.patient.count({ where: { branchId: ctx.branchId } });
+    uhid = `NV-${new Date().getFullYear()}-${String(count + 1).padStart(4, "0")}`;
+    const agentName = lead.assigneeId ? await getAgentName(lead.assigneeId) : null;
+
+    const created = await prisma.patient.create({
+      data: {
+        id: `pat_${Date.now()}`,
+        tenantId: ctx.tenantId,
+        branchId: ctx.branchId,
+        uhid,
+        name: lead.fullName,
+        fullName: lead.fullName,
+        phone: lead.phone,
+        email: lead.email ?? null,
+        age: lead.age ?? null,
+        gender: lead.gender ?? null,
+        assignedCounsellorId: lead.assigneeId ?? null,
+        assignedCounsellorName: agentName,
+        leadSourceId: leadId,
+      },
+    });
+    patientId = created.id;
+  }
+
+  await prisma.lead.update({
+    where: { id: leadId },
+    data: {
+      patientId,
+      uhid,
+      leadStatus: "converted",
+    },
+  });
+
+  if (options.bookAppointment && options.doctorName) {
+    await prisma.appointment.create({
+      data: {
+        id: `apt_${Date.now()}`,
+        tenantId: ctx.tenantId,
+        branchId: ctx.branchId,
+        patientId,
+        doctorId: options.doctorId ?? null,
+        doctorName: options.doctorName,
+        date: options.appointmentDate ?? null,
+        time: options.appointmentTime ?? null,
+        status: "scheduled",
+        source: "online_counsellor",
+      },
+    });
+
+    await prisma.lead.update({
+      where: { id: leadId },
+      data: { leadStatus: "appointment_booked" },
+    });
+  }
+
+  await prisma.activity.create({
+    data: {
+      id: `act_${leadId}_${Date.now()}`,
+      tenantId: ctx.tenantId,
+      branchId: ctx.branchId,
+      leadId,
+      actor: "Online Counsellor",
+      type: "conversion",
+      summary: `Lead converted to patient — UHID: ${uhid}${options.bookAppointment ? " + appointment booked" : ""}`,
+      at: new Date(),
+    },
+  });
+
+  await writePlatformAudit({
+    ctx,
+    module: "crm",
+    action: "lead_to_patient",
+    entityType: "lead",
+    entityId: leadId,
+    summary: `Lead ${lead.fullName} converted to patient ${uhid}`,
+  });
+
+  return { patientId, uhid, leadId };
+}
+
+export async function detectLeadByMobile(
+  ctx: ServerContext,
+  phone: string,
+): Promise<MobileDetectionResult> {
+  const normalized = phone.replace(/\s+/g, "").replace(/-/g, "");
+  const lead = await prisma.lead.findFirst({
+    where: {
+      branchId: ctx.branchId,
+      OR: [
+        { phone: { contains: normalized } },
+        { phone: { contains: phone } },
+        { alternatePhone: { contains: normalized } },
+        { alternatePhone: { contains: phone } },
+      ],
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (!lead) return { found: false };
+
+  const agent = lead.assigneeId ? await prisma.agent.findUnique({ where: { id: lead.assigneeId } }) : null;
+
+  return {
+    found: true,
+    leadId: lead.id,
+    leadName: lead.fullName,
+    leadStatus: lead.leadStatus ?? "fresh",
+    assigneeName: agent?.name ?? undefined,
+    patientId: lead.patientId ?? undefined,
+    uhid: lead.uhid ?? undefined,
+  };
+}
+
+export async function assignCounsellorToPatient(
+  ctx: ServerContext,
+  patientId: string,
+  counsellorId: string,
+  counsellorName: string,
+): Promise<void> {
+  const patient = await prisma.patient.findFirst({
+    where: { id: patientId, branchId: ctx.branchId },
+  });
+  if (!patient) throw new ServerActionError("NOT_FOUND", "Patient not found.");
+
+  await prisma.patient.update({
+    where: { id: patientId },
+    data: {
+      assignedCounsellorId: counsellorId,
+      assignedCounsellorName: counsellorName,
+    },
+  });
+
+  await writePlatformAudit({
+    ctx,
+    module: "frontdesk",
+    action: "counsellor_assigned",
+    entityType: "patient",
+    entityId: patientId,
+    summary: `Counsellor ${counsellorName} assigned to patient ${patient.fullName || patient.name}`,
+  });
+}
+
+export async function getOnlineCounsellorLeads(ctx: ServerContext, counsellorId: string): Promise<CrmLead[]> {
+  const scope = branchScope(ctx);
+  const leads = await prisma.lead.findMany({
+    where: { ...scope, assigneeId: counsellorId },
+    orderBy: { createdAt: "desc" },
+    take: 200,
+  });
+
+  return leads.map((l) => ({
+    id: l.id,
+    fullName: l.fullName,
+    phone: l.phone,
+    alternatePhone: l.alternatePhone ?? undefined,
+    email: l.email ?? undefined,
+    age: l.age ?? undefined,
+    gender: l.gender as CrmLead["gender"] | undefined,
+    city: l.city ?? undefined,
+    state: l.state ?? undefined,
+    country: l.country ?? undefined,
+    doctorName: l.doctorName ?? undefined,
+    appointmentDate: l.appointmentDate?.toISOString() ?? undefined,
+    appointmentTime: l.appointmentTime ?? undefined,
+    appointmentCentre: l.appointmentCentre ?? undefined,
+    source: l.source as CrmLead["source"],
+    sourceDetail: l.sourceDetail ?? undefined,
+    stageId: l.stageId,
+    assigneeId: l.assigneeId ?? undefined,
+    specialty: l.specialty ?? undefined,
+    valueEstimate: Number(l.valueEstimate ?? 0),
+    priority: (l.priority ?? "medium") as CrmLead["priority"],
+    tags: l.tags,
+    notes: l.notes ?? "",
+    createdAt: l.createdAt.toISOString(),
+    updatedAt: l.updatedAt.toISOString(),
+    lastContactAt: l.lastContactAt?.toISOString(),
+    nextFollowUpAt: l.nextFollowUpAt?.toISOString(),
+    convertedVisitId: l.convertedVisitId ?? undefined,
+    patientId: l.patientId ?? undefined,
+    uhid: l.uhid ?? undefined,
+    lostReason: l.lostReason ?? undefined,
+    leadStatus: (l.leadStatus ?? "fresh") as CrmLeadStatus,
+    callOutcome: l.callOutcome as CrmCallOutcome | undefined,
+    formData: l.formData as Record<string, string | number | boolean> | undefined,
+  }));
+}
+
+export async function getCounsellorCommissions(
+  ctx: ServerContext,
+  counsellorId: string,
+): Promise<CrmCommission[]> {
+  const rows = await prisma.counsellorCommission.findMany({
+    where: { branchId: ctx.branchId, counsellorId },
+    orderBy: { createdAt: "desc" },
+    take: 100,
+  });
+
+  return rows.map((r) => ({
+    id: r.id,
+    leadId: r.leadId ?? undefined,
+    counsellorId: r.counsellorId,
+    counsellorName: r.counsellorName,
+    patientId: r.patientId ?? undefined,
+    patientName: r.patientName ?? undefined,
+    visitId: r.visitId ?? undefined,
+    billAmount: Number(r.billAmount),
+    commissionPercent: Number(r.commissionPercent),
+    commissionAmount: Number(r.commissionAmount),
+    status: r.status as "pending" | "approved" | "paid",
+    paidAt: r.paidAt?.toISOString(),
+    createdAt: r.createdAt.toISOString(),
+  }));
+}
+
+export async function getAllCommissions(ctx: ServerContext): Promise<CrmCommission[]> {
+  const scope = branchScope(ctx);
+  const rows = await prisma.counsellorCommission.findMany({
+    where: scope,
+    orderBy: { createdAt: "desc" },
+    take: 200,
+  });
+
+  return rows.map((r) => ({
+    id: r.id,
+    leadId: r.leadId ?? undefined,
+    counsellorId: r.counsellorId,
+    counsellorName: r.counsellorName,
+    patientId: r.patientId ?? undefined,
+    patientName: r.patientName ?? undefined,
+    visitId: r.visitId ?? undefined,
+    billAmount: Number(r.billAmount),
+    commissionPercent: Number(r.commissionPercent),
+    commissionAmount: Number(r.commissionAmount),
+    status: r.status as "pending" | "approved" | "paid",
+    paidAt: r.paidAt?.toISOString(),
+    createdAt: r.createdAt.toISOString(),
+  }));
+}
+
+export async function createCommission(
+  ctx: ServerContext,
+  input: {
+    leadId?: string;
+    counsellorId: string;
+    counsellorName: string;
+    patientId?: string;
+    patientName?: string;
+    visitId?: string;
+    billAmount: number;
+    commissionPercent: number;
+  },
+): Promise<CrmCommission> {
+  const commissionAmount = Math.round((input.billAmount * input.commissionPercent) / 100);
+
+  const row = await prisma.counsellorCommission.create({
+    data: {
+      id: `cm_${Date.now()}`,
+      tenantId: ctx.tenantId,
+      branchId: ctx.branchId,
+      leadId: input.leadId ?? null,
+      counsellorId: input.counsellorId,
+      counsellorName: input.counsellorName,
+      patientId: input.patientId ?? null,
+      patientName: input.patientName ?? null,
+      visitId: input.visitId ?? null,
+      billAmount: input.billAmount,
+      commissionPercent: input.commissionPercent,
+      commissionAmount,
+      status: "pending",
+    },
+  });
+
+  return {
+    id: row.id,
+    leadId: row.leadId ?? undefined,
+    counsellorId: row.counsellorId,
+    counsellorName: row.counsellorName,
+    patientId: row.patientId ?? undefined,
+    patientName: row.patientName ?? undefined,
+    visitId: row.visitId ?? undefined,
+    billAmount: Number(row.billAmount),
+    commissionPercent: Number(row.commissionPercent),
+    commissionAmount: Number(row.commissionAmount),
+    status: row.status as "pending" | "approved" | "paid",
+    paidAt: row.paidAt?.toISOString(),
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+export async function updateCommissionStatus(
+  ctx: ServerContext,
+  commissionId: string,
+  status: "pending" | "approved" | "paid",
+): Promise<void> {
+  const commission = await prisma.counsellorCommission.findFirst({
+    where: { id: commissionId, branchId: ctx.branchId },
+  });
+  if (!commission) throw new ServerActionError("NOT_FOUND", "Commission record not found.");
+
+  await prisma.counsellorCommission.update({
+    where: { id: commissionId },
+    data: {
+      status,
+      ...(status === "paid" ? { paidAt: new Date() } : {}),
+    },
+  });
+
+  await writePlatformAudit({
+    ctx,
+    module: "crm",
+    action: "commission_status_update",
+    entityType: "commission",
+    entityId: commissionId,
+    summary: `Commission ${commissionId} → ${status}`,
+  });
+}

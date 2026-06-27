@@ -33,6 +33,38 @@ function asRecord(value: unknown): Record<string, string | number | boolean> {
 }
 
 async function loadCarePackages() {
+  // Load from admin packages table first
+  const adminPackages = await prisma.package.findMany({
+    where: { active: true },
+    include: {
+      services: {
+        include: {
+          service: true,
+        },
+      },
+    },
+    orderBy: { amount: "asc" },
+  });
+
+  if (adminPackages.length > 0) {
+    // Transform admin packages to match CARE_PACKAGES structure
+    return adminPackages.map((pkg) => ({
+      id: pkg.id,
+      label: pkg.label,
+      amount: Number(pkg.amount),
+      sessions: pkg.sessions ?? 6,
+      dept: pkg.dept ?? "dept_general",
+      // Map services to line items
+      lineItems: pkg.services.map((ps) => ({
+        id: ps.service.id,
+        label: ps.service.label,
+        amount: Number(ps.service.rate),
+        quantity: ps.quantity,
+      })),
+    }));
+  }
+
+  // Fallback to seed data if no admin packages exist
   const depts = await prisma.adminDepartment.findMany({ where: { active: true } });
   const ids = new Set(depts.flatMap((d) => (Array.isArray(d.defaultPackageIds) ? d.defaultPackageIds : [])));
   const fromSeed = CARE_PACKAGES.filter((p) => ids.has(p.id) || ids.size === 0);
