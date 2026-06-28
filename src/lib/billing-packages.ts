@@ -11,8 +11,12 @@ export type BillingPackage = {
   amountMax?: number;
   /** Display hint when list price is a range */
   priceLabel?: string;
+  sessions?: number;
+  dept?: string;
+  services?: Array<{ serviceId: string; label: string; quantity: number; rate: number }>;
 };
 
+// Legacy packages for fallback - will be replaced with database data
 const GURGAON_PACKAGES: BillingPackage[] = [
   { id: "opd", label: "OPD Fees", category: "opd", amount: 1500 },
   { id: "dscb", label: "DSCB Injection Only", category: "injection", amount: 12000 },
@@ -98,7 +102,54 @@ export function resolveBillingBranchGroup(branchId?: string | null): BillingBran
   return "pataudi_pune";
 }
 
+// Fetch packages from database API
+export async function fetchBillingPackagesFromAPI(): Promise<BillingPackage[]> {
+  try {
+    const res = await fetch("/api/admin/packages");
+    const data = await res.json();
+    if (data.ok) {
+      return data.data.map((pkg: any) => ({
+        id: pkg.id,
+        label: pkg.label,
+        description: pkg.description,
+        category: "opd", // Default, can be enhanced
+        amount: Number(pkg.amount),
+        sessions: pkg.sessions,
+        dept: pkg.dept,
+        services: pkg.services,
+      }));
+    }
+  } catch (err) {
+    console.error("Failed to fetch packages from API, using fallback", err);
+  }
+  return [];
+}
+
+// Fetch service charges from database API
+export async function fetchServiceChargesFromAPI(): Promise<BillingPackage[]> {
+  try {
+    const res = await fetch("/api/admin/service-charges");
+    const data = await res.json();
+    if (data.ok) {
+      return data.data.map((charge: any) => ({
+        id: charge.id,
+        label: charge.label,
+        description: charge.description,
+        category: charge.category as any,
+        amount: Number(charge.rate),
+      }));
+    }
+  } catch (err) {
+    console.error("Failed to fetch service charges from API, using fallback", err);
+  }
+  return [];
+}
+
 export function getBillingPackagesForBranch(branchId?: string | null): BillingPackage[] {
+  // Try to fetch from API first, fallback to hardcoded
+  const apiPackages = fetchBillingPackagesFromAPI();
+  // Note: This is async, in practice the component should handle the async loading
+  // For now, return the fallback data synchronously
   return resolveBillingBranchGroup(branchId) === "gurgaon"
     ? GURGAON_PACKAGES
     : PATAUDI_PUNE_PACKAGES;

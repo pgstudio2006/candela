@@ -3,7 +3,7 @@
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { Input } from "@/components/ui/input";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 
 type ServiceCharge = {
@@ -31,28 +31,32 @@ const CATEGORIES = [
   "Other",
 ];
 
-const MOCK_CHARGES: ServiceCharge[] = [
-  { id: "1", label: "OPD Consult - Spine", category: "OPD Consult", rate: 800, unit: "per visit", gstPercent: 18, active: true },
-  { id: "2", label: "OPD Consult - Wellness", category: "OPD Consult", rate: 600, unit: "per visit", gstPercent: 18, active: true },
-  { id: "3", label: "IPD Bed - Private Room", category: "IPD Bed", rate: 3500, unit: "per day", gstPercent: 18, active: true },
-  { id: "4", label: "IPD Bed - Shared Ward", category: "IPD Bed", rate: 1800, unit: "per day", gstPercent: 18, active: true },
-  { id: "5", label: "ICU - Basic", category: "ICU", rate: 8500, unit: "per day", gstPercent: 18, active: true },
-  { id: "6", label: "ICU - Ventilator", category: "ICU", rate: 15000, unit: "per day", gstPercent: 18, active: true },
-  { id: "7", label: "Physiotherapy Session", category: "Physiotherapy", rate: 1200, unit: "per session", gstPercent: 18, active: true },
-  { id: "8", label: "Manual Therapy", category: "Physiotherapy", rate: 800, unit: "per session", gstPercent: 18, active: true },
-  { id: "9", label: "CBC Panel", category: "Laboratory", rate: 450, unit: "per test", gstPercent: 18, active: true },
-  { id: "10", label: "Metabolic Panel", category: "Laboratory", rate: 1200, unit: "per test", gstPercent: 18, active: true },
-  { id: "11", label: "MRI - Spine", category: "Radiology", rate: 8500, unit: "per scan", gstPercent: 18, active: true },
-  { id: "12", label: "X-Ray - Spine", category: "Radiology", rate: 800, unit: "per view", gstPercent: 18, active: true },
-];
-
 export default function AdminChargesPage() {
-  const [charges, setCharges] = useState<ServiceCharge[]>(MOCK_CHARGES);
+  const [charges, setCharges] = useState<ServiceCharge[]>([]);
+  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [showInactive, setShowInactive] = useState(false);
   const [editing, setEditing] = useState<ServiceCharge | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  useEffect(() => {
+    loadCharges();
+  }, []);
+
+  const loadCharges = async () => {
+    try {
+      const res = await fetch("/api/admin/service-charges");
+      const data = await res.json();
+      if (data.ok) {
+        setCharges(data.data);
+      }
+    } catch (err) {
+      console.error("Failed to load charges", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filtered = charges.filter((c) => {
     const matchesSearch = c.label.toLowerCase().includes(filter.toLowerCase()) || 
@@ -68,19 +72,42 @@ export default function AdminChargesPage() {
     return acc;
   }, {} as Record<string, ServiceCharge[]>);
 
-  const handleSave = (charge: ServiceCharge) => {
-    if (editing) {
-      setCharges(charges.map((c) => c.id === editing.id ? charge : c));
-    } else {
-      setCharges([...charges, { ...charge, id: String(charges.length + 1) }]);
+  const handleSave = async (charge: ServiceCharge) => {
+    try {
+      const url = editing ? `/api/admin/service-charges/${editing.id}` : "/api/admin/service-charges";
+      const method = editing ? "PUT" : "POST";
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(charge),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        await loadCharges();
+        setIsModalOpen(false);
+        setEditing(null);
+      } else {
+        alert(data.error || "Failed to save");
+      }
+    } catch (err) {
+      console.error("Failed to save charge", err);
+      alert("Failed to save");
     }
-    setIsModalOpen(false);
-    setEditing(null);
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm("Delete this service charge?")) {
-      setCharges(charges.filter((c) => c.id !== id));
+  const handleDelete = async (id: string) => {
+    if (!confirm("Delete this service charge?")) return;
+    try {
+      const res = await fetch(`/api/admin/service-charges/${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (data.ok) {
+        await loadCharges();
+      } else {
+        alert(data.error || "Failed to delete");
+      }
+    } catch (err) {
+      console.error("Failed to delete charge", err);
+      alert("Failed to delete");
     }
   };
 
@@ -88,6 +115,20 @@ export default function AdminChargesPage() {
     setEditing(charge || null);
     setIsModalOpen(true);
   };
+
+  if (loading) {
+    return (
+      <PageChrome
+        breadcrumbs={[{ label: "Admin", href: "/app/admin" }, { label: "Service charges" }]}
+        title="Service charges catalog"
+        meta="OPD, IPD, ICU, physiotherapy, laboratory rates"
+      >
+        <div className="flex items-center justify-center py-12">
+          <div className="text-[var(--attio-text-tertiary)]">Loading...</div>
+        </div>
+      </PageChrome>
+    );
+  }
 
   return (
     <PageChrome

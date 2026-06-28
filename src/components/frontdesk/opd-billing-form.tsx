@@ -7,8 +7,8 @@ import type { Patient, Visit } from "@/design-system/frontdesk-data";
 import type { PaymentScope } from "@/lib/billing-routing";
 import {
   formatPackagePrice,
-  getBillingPackagesForBranch,
-  resolveBillingBranchGroup,
+  fetchBillingPackagesFromAPI,
+  fetchServiceChargesFromAPI,
   type BillingPackage,
 } from "@/lib/billing-packages";
 import { computeGstInvoice } from "@/lib/gst-invoicing";
@@ -25,8 +25,8 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { Plus, Trash2, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Plus, Trash2, X, Search, Package as PackageIcon } from "lucide-react";
+import { useMemo, useState, useEffect } from "react";
 
 const PAYMENT_MODES = [
   { value: "upi", label: "UPI" },
@@ -71,8 +71,28 @@ export function OpdBillingForm({
   onSubmit,
   submitLabel = "Collect payment & release to queue",
 }: OpdBillingFormProps) {
-  const packages = useMemo(() => getBillingPackagesForBranch(branchId), [branchId]);
-  const branchGroup = resolveBillingBranchGroup(branchId);
+  const [packages, setPackages] = useState<BillingPackage[]>([]);
+  const [services, setServices] = useState<BillingPackage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [packageSearch, setPackageSearch] = useState("");
+  const [serviceSearch, setServiceSearch] = useState("");
+  const [tab, setTab] = useState<"packages" | "services">("packages");
+
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      const [pkgs, svcs] = await Promise.all([
+        fetchBillingPackagesFromAPI(),
+        fetchServiceChargesFromAPI(),
+      ]);
+      setPackages(pkgs);
+      setServices(svcs);
+      setLoading(false);
+    };
+    loadData();
+  }, []);
+
+  const branchGroup = branchId ? (branchId.toLowerCase().includes("gurgaon") || branchId.toLowerCase().includes("ggn") ? "gurgaon" : "pataudi_pune") : "pataudi_pune";
 
   const [lines, setLines] = useState<SelectedLine[]>([]);
   const [discountMode, setDiscountMode] = useState<"amount" | "percent">("amount");
@@ -228,25 +248,99 @@ export function OpdBillingForm({
 
           {!skipBilling && (
             <>
-              <Panel title="Add packages">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {packages.map((pkg) => (
-                    <button
-                      key={pkg.id}
-                      type="button"
-                      onClick={() => setLines((prev) => [...prev, lineFromPackage(pkg)])}
-                      className="rounded-lg border border-[var(--attio-border)] bg-white p-3 text-left hover:border-[var(--attio-text-tertiary)]"
-                    >
-                      <p className="text-[12px] font-medium leading-snug">{pkg.label}</p>
-                      {pkg.description && (
-                        <p className="mt-0.5 text-[11px] text-[var(--attio-text-tertiary)]">{pkg.description}</p>
-                      )}
-                      <p className="mt-1 text-[13px] font-semibold tabular-nums text-[var(--attio-accent)]">
-                        {formatPackagePrice(pkg)}
-                      </p>
-                    </button>
-                  ))}
-                </div>
+              <Panel title="Add packages or services">
+                {loading ? (
+                  <p className="text-[13px] text-[var(--attio-text-tertiary)]">Loading packages and services...</p>
+                ) : (
+                  <>
+                    <div className="mb-3 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setTab("packages")}
+                        className={cn(
+                          "h-8 rounded-md border px-4 text-[12px] font-medium",
+                          tab === "packages"
+                            ? "border-zinc-900 bg-zinc-900 text-white"
+                            : "border-[var(--attio-border)] bg-white",
+                        )}
+                      >
+                        Packages ({packages.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTab("services")}
+                        className={cn(
+                          "h-8 rounded-md border px-4 text-[12px] font-medium",
+                          tab === "services"
+                            ? "border-zinc-900 bg-zinc-900 text-white"
+                            : "border-[var(--attio-border)] bg-white",
+                        )}
+                      >
+                        Services ({services.length})
+                      </button>
+                    </div>
+
+                    <div className="mb-3">
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--attio-text-tertiary)]" />
+                        <Input
+                          type="text"
+                          placeholder={tab === "packages" ? "Search packages..." : "Search services..."}
+                          value={tab === "packages" ? packageSearch : serviceSearch}
+                          onChange={(e) => (tab === "packages" ? setPackageSearch(e.target.value) : setServiceSearch(e.target.value))}
+                          className="pl-9 h-9 text-[13px]"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {tab === "packages" &&
+                        packages
+                          .filter((pkg: BillingPackage) =>
+                            pkg.label.toLowerCase().includes(packageSearch.toLowerCase()) ||
+                            (pkg.description && pkg.description.toLowerCase().includes(packageSearch.toLowerCase()))
+                          )
+                          .map((pkg: BillingPackage) => (
+                            <button
+                              key={pkg.id}
+                              type="button"
+                              onClick={() => setLines((prev) => [...prev, lineFromPackage(pkg)])}
+                              className="rounded-lg border border-[var(--attio-border)] bg-white p-3 text-left hover:border-[var(--attio-text-tertiary)]"
+                            >
+                              <p className="text-[12px] font-medium leading-snug">{pkg.label}</p>
+                              {pkg.description && (
+                                <p className="mt-0.5 text-[11px] text-[var(--attio-text-tertiary)]">{pkg.description}</p>
+                              )}
+                              <p className="mt-1 text-[13px] font-semibold tabular-nums text-[var(--attio-accent)]">
+                                {formatPackagePrice(pkg)}
+                              </p>
+                            </button>
+                          ))}
+                      {tab === "services" &&
+                        services
+                          .filter((svc: BillingPackage) =>
+                            svc.label.toLowerCase().includes(serviceSearch.toLowerCase()) ||
+                            (svc.description && svc.description.toLowerCase().includes(serviceSearch.toLowerCase()))
+                          )
+                          .map((svc: BillingPackage) => (
+                            <button
+                              key={svc.id}
+                              type="button"
+                              onClick={() => setLines((prev) => [...prev, lineFromPackage(svc)])}
+                              className="rounded-lg border border-[var(--attio-border)] bg-white p-3 text-left hover:border-[var(--attio-text-tertiary)]"
+                            >
+                              <p className="text-[12px] font-medium leading-snug">{svc.label}</p>
+                              {svc.description && (
+                                <p className="mt-0.5 text-[11px] text-[var(--attio-text-tertiary)]">{svc.description}</p>
+                              )}
+                              <p className="mt-1 text-[13px] font-semibold tabular-nums text-[var(--attio-accent)]">
+                                {formatPackagePrice(svc)}
+                              </p>
+                            </button>
+                          ))}
+                    </div>
+                  </>
+                )}
               </Panel>
 
               {lines.length > 0 && (
@@ -339,11 +433,10 @@ export function OpdBillingForm({
                     <Input
                       type="number"
                       min={0}
-                      max={100}
                       step={0.5}
                       value={discountPercent}
                       onChange={(e) =>
-                        setDiscountPercent(Math.max(0, Math.min(100, Number(e.target.value) || 0)))
+                        setDiscountPercent(Math.max(0, Number(e.target.value) || 0))
                       }
                       className="h-9 text-[13px]"
                       placeholder="e.g. 10"

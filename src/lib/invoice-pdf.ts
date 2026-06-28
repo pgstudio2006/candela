@@ -1,5 +1,4 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
-import { formatGstPercent } from "@/lib/gst-invoicing";
 import type { OpdReceiptPayload } from "@/lib/opd-receipt";
 
 const TEMPLATE_URL = "/templates/navayu-invoice-template.pdf";
@@ -22,23 +21,23 @@ const FONT = {
 const LAYOUT = {
   marginLeft: 42,
   marginRight: 553,
-  infoTableTop: 586,
-  infoBaseRowHeight: 16,
-  infoHeaderHeight: 17,
+  infoTableTop: 660,
+  infoBaseRowHeight: 13,
+  infoHeaderHeight: 15,
   infoMidX: 298,
-  tableGap: 12,
+  tableGap: 8,
   tableLeft: 42,
   tableRight: 553,
-  minRowHeight: 17,
-  headerHeight: 18,
-  lineLeading: 11,
-  maxLineRows: 10,
-  footerMinY: 148,
-  /** # | Service | SAC | Qty | Taxable | GST | Amount */
-  colRight: [56, 272, 304, 326, 368, 408, 553],
+  minRowHeight: 15,
+  headerHeight: 15,
+  lineLeading: 12,
+  maxLineRows: 12,
+  footerMinY: 110,
+  /** # | Service | SAC | Qty | Amount */
+  colRight: [56, 300, 342, 374, 553],
 } as const;
 
-const TABLE_HEADERS = ["#", "Service", "SAC", "Qty", "Taxable", "GST", "Amount"] as const;
+const TABLE_HEADERS = ["#", "Service", "SAC", "Qty", "Amount"] as const;
 
 type TableLayout = {
   infoTop: number;
@@ -83,11 +82,6 @@ function formatInvoiceMeta(iso: string) {
       hour12: true,
     }),
   };
-}
-
-function lineTaxable(line: OpdReceiptPayload["lines"][number]): number {
-  if (line.taxableAmount != null) return line.taxableAmount;
-  return line.lineTotal - (line.cgst ?? 0) - (line.sgst ?? 0) - (line.igst ?? 0);
 }
 
 function serviceColWidth(): number {
@@ -188,9 +182,11 @@ function footerRows(receipt: OpdReceiptPayload): Array<{ label: string; value: s
   if (receipt.discount > 0) {
     rows.push({ label: discountLabel(receipt), value: `-${formatInrForPdf(receipt.discount)}` });
   }
-  if (receipt.cgstTotal > 0) rows.push({ label: "CGST", value: formatInrForPdf(receipt.cgstTotal) });
-  if (receipt.sgstTotal > 0) rows.push({ label: "SGST", value: formatInrForPdf(receipt.sgstTotal) });
-  if (receipt.igstTotal > 0) rows.push({ label: "IGST", value: formatInrForPdf(receipt.igstTotal) });
+  const gstTotal = receipt.cgstTotal + receipt.sgstTotal + receipt.igstTotal;
+  if (gstTotal > 0) {
+    const gstRate = receipt.lines[0]?.gstRatePercent ?? 0;
+    rows.push({ label: `GST (${gstRate}%)`, value: formatInrForPdf(gstTotal) });
+  }
   rows.push({ label: "Grand total", value: formatInrForPdf(receipt.total), emphasis: true });
   rows.push({ label: "Collected", value: formatInrForPdf(receipt.amountPaid) });
   if (receipt.balanceDue > 0) {
@@ -234,16 +230,6 @@ function drawLabelValue(
   drawWrappedLines(page, lines, x + labelWidth, rowTop, rowHeight, font, FONT.table);
 }
 
-function formatServicesCharged(receipt: OpdReceiptPayload): string {
-  if (!receipt.lines.length) return "OPD consultation & services";
-  return receipt.lines
-    .map((line, index) => {
-      const qty = line.quantity > 1 ? ` x${line.quantity}` : "";
-      return `${index + 1}. ${line.label}${qty}`;
-    })
-    .join(" | ");
-}
-
 function buildInfoRows(receipt: OpdReceiptPayload, meta: { date: string; time: string }): InfoRow[] {
   const rows: InfoRow[] = [
     {
@@ -265,30 +251,7 @@ function buildInfoRows(receipt: OpdReceiptPayload, meta: { date: string; time: s
         value: receipt.token != null ? `#${receipt.token}` : "Walk-in",
       },
     },
-    {
-      left: { label: "Service(s) charged", value: formatServicesCharged(receipt) },
-      right: { label: "Bill amount", value: formatInrForPdf(receipt.total) },
-    },
-    {
-      left: {
-        label: "Payment",
-        value: `${receipt.paymentMode.toUpperCase()} | ${receipt.billingStatus.toUpperCase()}${
-          receipt.paymentScope ? ` | ${receipt.paymentScope}` : ""
-        }`,
-      },
-      right: {
-        label: "Place of supply",
-        value: receipt.placeOfSupply || receipt.gst.placeOfSupply,
-      },
-    },
   ];
-
-  if (receipt.gst.gstin) {
-    rows.push({
-      left: { label: "GSTIN", value: receipt.gst.gstin },
-      right: { label: "SAC", value: receipt.gst.sacCode },
-    });
-  }
 
   return rows;
 }
@@ -339,15 +302,10 @@ function computeTableLayout(
     overflowRow +
     totalsCount * LAYOUT.minRowHeight;
 
-  let billingTop = infoBottom - LAYOUT.tableGap;
-  let billingBottom = billingTop - billingHeight;
+  const billingTop = infoBottom - LAYOUT.tableGap;
+  const billingBottom = billingTop - billingHeight;
 
-  if (billingBottom < LAYOUT.footerMinY) {
-    billingBottom = LAYOUT.footerMinY;
-    billingTop = billingBottom + billingHeight;
-  }
-
-  const notesY = billingBottom - 12;
+  const notesY = billingBottom - 10;
 
   return { infoTop, infoBottom, infoRowHeights, billingTop, billingBottom, billingLineHeights, notesY };
 }
@@ -456,10 +414,11 @@ function drawBillingTable(
 
   const headerY = cellBaseline(tableTop, LAYOUT.headerHeight);
   TABLE_HEADERS.forEach((label, i) => {
+    const x = i === 0 ? LAYOUT.tableLeft + 4 : LAYOUT.colRight[i - 1] + 4;
     if (label === "Amount") {
-      drawRightText(page, label, LAYOUT.colRight[6], headerY, bold, FONT.tableHead);
+      drawRightText(page, label, LAYOUT.colRight[4], headerY, bold, FONT.tableHead);
     } else {
-      drawText(page, label, (i === 0 ? LAYOUT.tableLeft : LAYOUT.colRight[i - 1]) + 4, headerY, bold, FONT.tableHead);
+      drawText(page, label, x, headerY, bold, FONT.tableHead);
     }
   });
 
@@ -469,16 +428,13 @@ function drawBillingTable(
     rowTop -= rowHeight;
     drawHLine(page, LAYOUT.tableLeft, LAYOUT.tableRight, rowTop);
     const y = cellBaseline(rowTop + rowHeight, rowHeight);
-    const taxable = lineTaxable(line);
     const serviceLines = wrapText(line.label, font, FONT.table, serviceColWidth());
 
     drawText(page, String(index + 1), LAYOUT.tableLeft + 4, y, font, FONT.table);
     drawWrappedLines(page, serviceLines, LAYOUT.colRight[0] + 4, rowTop + rowHeight, rowHeight, font, FONT.table);
     drawText(page, line.sacCode ?? receipt.gst.sacCode, LAYOUT.colRight[1] + 4, y, font, FONT.caption);
     drawText(page, String(line.quantity), LAYOUT.colRight[2] + 4, y, font, FONT.table);
-    drawRightText(page, formatInrForPdf(taxable), LAYOUT.colRight[4], y, font, FONT.table);
-    drawText(page, formatGstPercent(line.gstRatePercent ?? 0), LAYOUT.colRight[4] + 4, y, font, FONT.caption);
-    drawRightText(page, formatInrForPdf(line.lineTotal), LAYOUT.colRight[6], y, font, FONT.table);
+    drawRightText(page, formatInrForPdf(line.lineTotal), LAYOUT.colRight[4], y, font, FONT.table);
   });
 
   if (receipt.lines.length > LAYOUT.maxLineRows) {
@@ -506,7 +462,7 @@ function drawBillingTable(
     const rowFont = row.emphasis ? bold : font;
     const size = row.emphasis ? FONT.emphasis : FONT.table;
     drawText(page, row.label, LAYOUT.colRight[0] + 4, y, rowFont, size);
-    drawRightText(page, row.value, LAYOUT.colRight[6], y, rowFont, size);
+    drawRightText(page, row.value, LAYOUT.colRight[4], y, rowFont, size);
   });
 }
 
@@ -540,9 +496,9 @@ export async function generateInvoicePdf(receipt: OpdReceiptPayload): Promise<Ui
   const meta = formatInvoiceMeta(receipt.issuedAt);
   const layout = computeTableLayout(receipt, meta, font, bold);
 
+  drawPatientInfoTable(page, receipt, meta, font, bold, layout);
   drawBillingTable(page, receipt, font, bold, layout);
   drawNotes(page, receipt, font, layout);
-  drawPatientInfoTable(page, receipt, meta, font, bold, layout);
 
   return pdfDoc.save();
 }

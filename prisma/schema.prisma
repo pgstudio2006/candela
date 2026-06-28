@@ -722,6 +722,7 @@ model Package {
   amount       Decimal
   sessions     Int?
   dept         String?
+  description  String?
   addons       Json?
   active       Boolean            @default(true)
   createdAt    DateTime           @default(now())

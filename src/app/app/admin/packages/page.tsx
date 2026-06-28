@@ -3,7 +3,7 @@
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { Input } from "@/components/ui/input";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Plus, Pencil, Trash2, Package as PackageIcon } from "lucide-react";
 
 type PackageService = {
@@ -19,6 +19,7 @@ type CarePackage = {
   amount: number;
   sessions?: number;
   dept?: string;
+  description?: string;
   services: PackageService[];
   active: boolean;
 };
@@ -26,77 +27,38 @@ type CarePackage = {
 const DEPARTMENTS = [
   "dept_spine",
   "dept_wellness",
-  "dept_knee",
-  "dept_shoulder",
-  "dept_general",
-];
-
-const MOCK_SERVICES = [
-  { id: "1", label: "OPD Consult - Spine", rate: 800 },
-  { id: "2", label: "Physiotherapy Session", rate: 1200 },
-  { id: "3", label: "Manual Therapy", rate: 800 },
-  { id: "4", label: "MRI - Spine", rate: 8500 },
-  { id: "5", label: "X-Ray - Spine", rate: 800 },
-  { id: "6", label: "CBC Panel", rate: 450 },
-  { id: "7", label: "Metabolic Panel", rate: 1200 },
-  { id: "8", label: "IPD Bed - Private Room", rate: 3500 },
-  { id: "9", label: "ICU - Basic", rate: 8500 },
-];
-
-const MOCK_PACKAGES: CarePackage[] = [
-  {
-    id: "pkg_opd",
-    label: "Essential MSK Care",
-    amount: 15000,
-    sessions: 3,
-    dept: "dept_spine",
-    services: [
-      { serviceId: "1", label: "OPD Consult - Spine", quantity: 1, rate: 800 },
-      { serviceId: "2", label: "Physiotherapy Session", quantity: 3, rate: 1200 },
-      { serviceId: "3", label: "Manual Therapy", quantity: 2, rate: 800 },
-    ],
-    active: true,
-  },
-  {
-    id: "pkg_basic",
-    label: "Standard MSK Care",
-    amount: 32000,
-    sessions: 6,
-    dept: "dept_spine",
-    services: [
-      { serviceId: "1", label: "OPD Consult - Spine", quantity: 2, rate: 800 },
-      { serviceId: "2", label: "Physiotherapy Session", quantity: 6, rate: 1200 },
-      { serviceId: "3", label: "Manual Therapy", quantity: 4, rate: 800 },
-      { serviceId: "5", label: "X-Ray - Spine", quantity: 1, rate: 800 },
-      { serviceId: "6", label: "CBC Panel", quantity: 1, rate: 450 },
-    ],
-    active: true,
-  },
-  {
-    id: "pkg_regen",
-    label: "Premium Regenerative Care",
-    amount: 85000,
-    sessions: 12,
-    dept: "dept_spine",
-    services: [
-      { serviceId: "1", label: "OPD Consult - Spine", quantity: 4, rate: 800 },
-      { serviceId: "2", label: "Physiotherapy Session", quantity: 12, rate: 1200 },
-      { serviceId: "3", label: "Manual Therapy", quantity: 8, rate: 800 },
-      { serviceId: "4", label: "MRI - Spine", quantity: 1, rate: 8500 },
-      { serviceId: "5", label: "X-Ray - Spine", quantity: 2, rate: 800 },
-      { serviceId: "7", label: "Metabolic Panel", quantity: 1, rate: 1200 },
-    ],
-    active: true,
-  },
 ];
 
 export default function AdminPackagesPage() {
-  const [packages, setPackages] = useState<CarePackage[]>(MOCK_PACKAGES);
+  const [packages, setPackages] = useState<CarePackage[]>([]);
+  const [services, setServices] = useState<{ id: string; label: string; rate: number }[]>([]);
+  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
   const [deptFilter, setDeptFilter] = useState("all");
   const [showInactive, setShowInactive] = useState(false);
   const [editing, setEditing] = useState<CarePackage | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      const [pkgsRes, svcRes] = await Promise.all([
+        fetch("/api/admin/packages"),
+        fetch("/api/admin/service-charges"),
+      ]);
+      const pkgsData = await pkgsRes.json();
+      const svcData = await svcRes.json();
+      if (pkgsData.ok) setPackages(pkgsData.data);
+      if (svcData.ok) setServices(svcData.data);
+    } catch (err) {
+      console.error("Failed to load data", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filtered = packages.filter((p) => {
     const matchesSearch = p.label.toLowerCase().includes(filter.toLowerCase());
@@ -105,19 +67,42 @@ export default function AdminPackagesPage() {
     return matchesSearch && matchesDept && matchesActive;
   });
 
-  const handleSave = (pkg: CarePackage) => {
-    if (editing) {
-      setPackages(packages.map((p) => p.id === editing.id ? pkg : p));
-    } else {
-      setPackages([...packages, { ...pkg, id: `pkg_${Date.now()}` }]);
+  const handleSave = async (pkg: CarePackage) => {
+    try {
+      const url = editing ? `/api/admin/packages/${editing.id}` : "/api/admin/packages";
+      const method = editing ? "PUT" : "POST";
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(pkg),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        await loadData();
+        setIsModalOpen(false);
+        setEditing(null);
+      } else {
+        alert(data.error || "Failed to save");
+      }
+    } catch (err) {
+      console.error("Failed to save package", err);
+      alert("Failed to save");
     }
-    setIsModalOpen(false);
-    setEditing(null);
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm("Delete this package?")) {
-      setPackages(packages.filter((p) => p.id !== id));
+  const handleDelete = async (id: string) => {
+    if (!confirm("Delete this package?")) return;
+    try {
+      const res = await fetch(`/api/admin/packages/${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (data.ok) {
+        await loadData();
+      } else {
+        alert(data.error || "Failed to delete");
+      }
+    } catch (err) {
+      console.error("Failed to delete package", err);
+      alert("Failed to delete");
     }
   };
 
@@ -129,6 +114,20 @@ export default function AdminPackagesPage() {
   const calculateServiceTotal = (services: PackageService[]) => {
     return services.reduce((sum, s) => sum + (s.rate * s.quantity), 0);
   };
+
+  if (loading) {
+    return (
+      <PageChrome
+        breadcrumbs={[{ label: "Admin", href: "/app/admin" }, { label: "Care packages" }]}
+        title="Care packages builder"
+        meta="Named sets of services with editable quantities"
+      >
+        <div className="flex items-center justify-center py-12">
+          <div className="text-[var(--attio-text-tertiary)]">Loading...</div>
+        </div>
+      </PageChrome>
+    );
+  }
 
   return (
     <PageChrome
@@ -220,7 +219,7 @@ export default function AdminPackagesPage() {
         <PackageModal
           package={editing}
           departments={DEPARTMENTS}
-          availableServices={MOCK_SERVICES}
+          availableServices={services}
           onSave={handleSave}
           onClose={() => {
             setIsModalOpen(false);
@@ -251,6 +250,7 @@ function PackageModal({
       amount: 0,
       sessions: 6,
       dept: "dept_spine",
+      description: "",
       services: [],
       active: true,
     }
@@ -298,6 +298,7 @@ function PackageModal({
       amount: form.amount,
       sessions: form.sessions,
       dept: form.dept,
+      description: form.description,
       services: form.services || [],
       active: form.active ?? true,
     });
@@ -354,6 +355,15 @@ function PackageModal({
                 min={1}
               />
             </div>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-[12px] font-medium">Description / Notes</label>
+            <Input
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              placeholder="Package details, inclusions, notes..."
+            />
           </div>
 
           <div>

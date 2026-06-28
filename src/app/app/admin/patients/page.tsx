@@ -1,10 +1,10 @@
 "use client";
 
-import { searchAdminPatientsAction } from "@/server/admin/actions";
+import { searchAdminPatientsAction, deleteAdminPatientAction } from "@/server/admin/actions";
 import type { Patient } from "@/design-system/frontdesk-data";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, DataTable, StatusBadge } from "@/components/frontdesk/ui";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
@@ -114,6 +114,20 @@ export default function AdminPatientsPage() {
     setPage(1);
   }, [view, q]);
 
+  const handleDelete = async (patientId: string) => {
+    if (!confirm("Are you sure you want to delete this patient? This action cannot be undone.")) return;
+    try {
+      const result = await deleteAdminPatientAction(patientId);
+      if (result.ok) {
+        await load();
+      } else {
+        alert(result.error || "Failed to delete patient");
+      }
+    } catch (err) {
+      alert("Failed to delete patient");
+    }
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
@@ -162,6 +176,7 @@ export default function AdminPatientsPage() {
             { key: "dept", label: "Department" },
             { key: "balance", label: "Balance" },
             { key: "tags", label: "Tags" },
+            { key: "actions", label: "Actions" },
           ]}
           rows={patients.map((p) => ({
             name: <span className="font-medium text-[var(--attio-text)]">{p.name}</span>,
@@ -175,6 +190,18 @@ export default function AdminPatientsPage() {
                   <StatusBadge key={t} label={t} variant="neutral" />
                 ))}
               </div>
+            ),
+            actions: (
+              <AttioButton
+                variant="ghost"
+                className="!h-7 !px-2 text-red-600"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDelete(p.id);
+                }}
+              >
+                <Trash2 className="size-3" />
+              </AttioButton>
             ),
           }))}
           onRowClick={(i) => router.push(`/app/admin/patients/${patients[i].id}`)}

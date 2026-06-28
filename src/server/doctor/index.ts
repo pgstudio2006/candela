@@ -470,7 +470,7 @@ export async function completeConsultation(
   validateCompleteConsultation(consult, opts);
 
   const packageId = String(opts.handoff.packageId ?? "");
-  const pkg = CARE_PACKAGES.find((p) => p.id === packageId);
+  const pkg = await prisma.package.findUnique({ where: { id: packageId } });
   const completedAt = new Date().toISOString();
   const updatedConsult: ConsultationRecord = {
     ...consult,

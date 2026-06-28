@@ -10,8 +10,6 @@ import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import {
   OBJECTION_TAGS,
-  PACKAGE_ADDONS,
-  PACKAGE_TIERS,
   type CounselQuote,
 } from "@/design-system/counsellor-data";
 import { useCounsellorPoll } from "@/hooks/use-counsellor-poll";
@@ -19,7 +17,12 @@ import { usePublishedFormSchema } from "@/hooks/use-published-form-schema";
 import { useToast } from "@/components/ui/toast-provider";
 import { cn } from "@/lib/utils";
 import { isRedFlagVisit } from "@/lib/frontdesk-workflow";
-import { ArrowLeft, MessageCircle, Plus, Printer, Send, Sparkles, Trash2 } from "lucide-react";
+import {
+  fetchBillingPackagesFromAPI,
+  fetchServiceChargesFromAPI,
+  type BillingPackage,
+} from "@/lib/billing-packages";
+import { ArrowLeft, MessageCircle, Plus, Printer, Send, Sparkles, Trash2, Search } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -46,20 +49,25 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
     completeSession,
     maxDiscountPercent,
     discountPolicy,
-    packages,
+    packages: storePackages,
     activeCounsellorName,
     approvals,
     approvedDiscounts,
   } = useCounsellorStore();
 
+  const [apiPackages, setApiPackages] = useState<BillingPackage[]>([]);
+  const [apiServices, setApiServices] = useState<BillingPackage[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
+  const [packageSearch, setPackageSearch] = useState("");
+  const [serviceSearch, setServiceSearch] = useState("");
+  const [tab, setTab] = useState<"packages" | "services">("packages");
+
   const item = getQueueItem(visitId);
   const patient = item ? getPatient(item.patientId) : undefined;
   const visit = getVisit(visitId);
 
-  const [tier, setTier] = useState<"good" | "better" | "best">("better");
-  const [packageId, setPackageId] = useState(item?.packageId ?? "pkg_basic");
-  const [addonIds, setAddonIds] = useState<string[]>([]);
-  const [customServices, setCustomServices] = useState<Array<{ id: string; label: string; amount: number; quantity: number; gstPercent: number }>>([]);
+  const [packageId, setPackageId] = useState(item?.packageId ?? "");
+  const [selectedServices, setSelectedServices] = useState<Array<{ id: string; label: string; amount: number; quantity: number; gstPercent: number }>>([]);
   const [discountPercent, setDiscountPercent] = useState(0);
   const [discountReason, setDiscountReason] = useState("");
   const [internalNotes, setInternalNotes] = useState("");
@@ -75,8 +83,23 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
   const [paymentExpectation, setPaymentExpectation] = useState<"pay_now" | "desk" | "corporate">("desk");
   const [printOpen, setPrintOpen] = useState(false);
   const [claiming, setClaiming] = useState(false);
+  const [gstRatePercent, setGstRatePercent] = useState(18);
   const intakeSchema = usePublishedFormSchema("counsellor-intake");
   const packageSchema = usePublishedFormSchema("counsellor-package");
+
+  useEffect(() => {
+    const loadData = async () => {
+      setLoadingData(true);
+      const [pkgs, svcs] = await Promise.all([
+        fetchBillingPackagesFromAPI(),
+        fetchServiceChargesFromAPI(),
+      ]);
+      setApiPackages(pkgs);
+      setApiServices(svcs);
+      setLoadingData(false);
+    };
+    loadData();
+  }, []);
 
   useEffect(() => {
     if (!item) return;
@@ -84,12 +107,12 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
     void claimSession(visitId)
       .catch((err) => toast(String(err), "error"))
       .finally(() => setClaiming(false));
-    setPackageId(String(item.packageId ?? item.payload.handoff?.packageId ?? "pkg_basic"));
+    setPackageId(String(item.packageId ?? item.payload.handoff?.packageId ?? ""));
   }, [item, visitId, claimSession, toast]);
 
   const quote = useMemo(
-    () => buildQuote(visitId, packageId, addonIds, discountPercent, discountReason, tier, customServices.map(s => ({ id: s.id, label: s.label, amount: s.amount, quantity: s.quantity, gstPercent: s.gstPercent, type: "service" as const }))),
-    [visitId, packageId, addonIds, discountPercent, discountReason, tier, customServices, buildQuote],
+    () => buildQuote(visitId, packageId, [], discountPercent, discountReason, "better", selectedServices.map(s => ({ id: s.id, label: s.label, amount: s.amount, quantity: s.quantity, gstPercent: s.gstPercent, type: "service" as const }))),
+    [visitId, packageId, discountPercent, discountReason, selectedServices, buildQuote],
   );
 
   const limit = maxDiscountPercent();
@@ -108,18 +131,27 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
     );
   }
 
-  const applyTier = (t: typeof tier) => {
-    setTier(t);
-    const match = PACKAGE_TIERS.find((x) => x.id === t);
-    if (match) setPackageId(match.packageId);
-  };
-
-  const toggleAddon = (id: string) => {
-    setAddonIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  };
-
   const toggleObjection = (tag: string) => {
     setObjections((prev) => (prev.includes(tag) ? prev.filter((x) => x !== tag) : [...prev, tag]));
+  };
+
+  const addService = (service: BillingPackage) => {
+    if (selectedServices.some(s => s.id === service.id)) return;
+    setSelectedServices([...selectedServices, {
+      id: service.id,
+      label: service.label,
+      amount: service.amount,
+      quantity: 1,
+      gstPercent: 18,
+    }]);
+  };
+
+  const removeService = (id: string) => {
+    setSelectedServices(selectedServices.filter(s => s.id !== id));
+  };
+
+  const updateServiceQuantity = (id: string, quantity: number) => {
+    setSelectedServices(selectedServices.map(s => s.id === id ? { ...s, quantity: Math.max(1, quantity) } : s));
   };
 
   const generateAiScript = () => {
@@ -221,60 +253,152 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
             <textarea value={aiScript} onChange={(e) => setAiScript(e.target.value)} rows={4} placeholder="Patient-friendly explanation…" className="w-full resize-none rounded-lg border border-[var(--attio-border)] px-3 py-2 text-[12px]" />
           </Panel>
 
-          <Panel title="Package presentation">
-            <PublishedSchemaForm
-              schema={packageSchema}
-              hideSubmit
-              initialValues={{
-                packageTier: tier,
-                emiMonths,
-                discountRequested: discountPercent,
-              }}
-              onValuesChange={(data) => {
-                const nextTier = String(data.packageTier ?? tier) as typeof tier;
-                if (data.packageTier) applyTier(nextTier);
-                if (data.emiMonths !== undefined) setEmiMonths(Number(data.emiMonths) || 0);
-                if (data.discountRequested !== undefined) setDiscountPercent(Number(data.discountRequested) || 0);
-              }}
-            />
-            <div className="mt-4 mb-3 grid grid-cols-3 gap-2">
-              {PACKAGE_TIERS.map((t) => {
-                const pkg = packages.find((p) => p.id === t.packageId)!;
-                return (
-                  <button key={t.id} type="button" onClick={() => applyTier(t.id)} className={cn("rounded-lg border p-2 text-left text-[11px]", tier === t.id ? "border-[var(--attio-accent)] bg-[var(--attio-accent)]/5" : "border-[var(--attio-border)]")}>
-                    <p className="font-semibold">{t.label}</p>
-                    <p className="mt-1 tabular-nums">₹{pkg.amount.toLocaleString("en-IN")}</p>
-                    <p className="text-[var(--attio-text-tertiary)]">{pkg.sessions} sessions</p>
+          <Panel title="Package & Service Selection">
+            {loadingData ? (
+              <p className="text-[13px] text-[var(--attio-text-tertiary)]">Loading packages and services...</p>
+            ) : (
+              <>
+                <div className="mb-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTab("packages")}
+                    className={cn(
+                      "h-8 rounded-md border px-4 text-[12px] font-medium",
+                      tab === "packages"
+                        ? "border-zinc-900 bg-zinc-900 text-white"
+                        : "border-[var(--attio-border)] bg-white",
+                    )}
+                  >
+                    Packages ({apiPackages.length})
                   </button>
-                );
-              })}
-            </div>
-            <select value={packageId} onChange={(e) => setPackageId(e.target.value)} className="mb-3 w-full rounded-md border border-[var(--attio-border)] px-2 py-2 text-[13px]">
-              {packages.map((p) => (
-                <option key={p.id} value={p.id}>{p.label} — ₹{p.amount.toLocaleString("en-IN")}</option>
-              ))}
-            </select>
-            <div className="space-y-1">
-              {PACKAGE_ADDONS.map((a) => (
-                <label key={a.id} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-[12px] hover:bg-[var(--attio-surface)]">
-                  <input type="checkbox" checked={addonIds.includes(a.id)} onChange={() => toggleAddon(a.id)} />
-                  <span className="flex-1">{a.label}</span>
-                  <span className="tabular-nums text-[var(--attio-text-tertiary)]">+₹{a.amount.toLocaleString("en-IN")}</span>
-                </label>
-              ))}
-            </div>
+                  <button
+                    type="button"
+                    onClick={() => setTab("services")}
+                    className={cn(
+                      "h-8 rounded-md border px-4 text-[12px] font-medium",
+                      tab === "services"
+                        ? "border-zinc-900 bg-zinc-900 text-white"
+                        : "border-[var(--attio-border)] bg-white",
+                    )}
+                  >
+                    Services ({apiServices.length})
+                  </button>
+                </div>
+
+                <div className="mb-3">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--attio-text-tertiary)]" />
+                    <input
+                      type="text"
+                      placeholder={tab === "packages" ? "Search packages..." : "Search services..."}
+                      value={tab === "packages" ? packageSearch : serviceSearch}
+                      onChange={(e) => (tab === "packages" ? setPackageSearch(e.target.value) : setServiceSearch(e.target.value))}
+                      className="pl-9 w-full h-9 rounded-md border border-[var(--attio-border)] px-3 text-[13px]"
+                    />
+                  </div>
+                </div>
+
+                {tab === "packages" && (
+                  <div className="space-y-2">
+                    <select value={packageId} onChange={(e) => setPackageId(e.target.value)} className="w-full rounded-md border border-[var(--attio-border)] px-2 py-2 text-[13px]">
+                      <option value="">Select a package...</option>
+                      {apiPackages
+                        .filter((pkg) =>
+                          pkg.label.toLowerCase().includes(packageSearch.toLowerCase()) ||
+                          (pkg.description && pkg.description.toLowerCase().includes(packageSearch.toLowerCase()))
+                        )
+                        .map((pkg) => (
+                          <option key={pkg.id} value={pkg.id}>{pkg.label} — ₹{pkg.amount.toLocaleString("en-IN")}{pkg.sessions ? ` (${pkg.sessions} sessions)` : ""}</option>
+                        ))}
+                    </select>
+                    {packageId && (
+                      <div className="text-[12px] text-[var(--attio-text-tertiary)]">
+                        {apiPackages.find(p => p.id === packageId)?.description}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {tab === "services" && (
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {apiServices
+                      .filter((svc) =>
+                        svc.label.toLowerCase().includes(serviceSearch.toLowerCase()) ||
+                        (svc.description && svc.description.toLowerCase().includes(serviceSearch.toLowerCase()))
+                      )
+                      .map((svc) => (
+                        <div key={svc.id} className="flex items-center justify-between rounded-md border border-[var(--attio-border)] p-2">
+                          <div className="flex-1">
+                            <p className="text-[12px] font-medium">{svc.label}</p>
+                            {svc.description && <p className="text-[11px] text-[var(--attio-text-tertiary)]">{svc.description}</p>}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[12px] tabular-nums">₹{svc.amount.toLocaleString("en-IN")}</span>
+                            {selectedServices.some(s => s.id === svc.id) ? (
+                              <button type="button" onClick={() => removeService(svc.id)} className="text-red-600">
+                                <Trash2 className="size-4" />
+                              </button>
+                            ) : (
+                              <button type="button" onClick={() => addService(svc)} className="text-[var(--attio-accent)]">
+                                <Plus className="size-4" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </>
+            )}
           </Panel>
+
+          {selectedServices.length > 0 && (
+            <Panel title="Selected Services">
+              <div className="space-y-2">
+                {selectedServices.map((s) => (
+                  <div key={s.id} className="flex items-center gap-2 text-[12px]">
+                    <span className="flex-1">{s.label}</span>
+                    <input
+                      type="number"
+                      min={1}
+                      value={s.quantity}
+                      onChange={(e) => updateServiceQuantity(s.id, Number(e.target.value))}
+                      className="w-16 h-8 rounded-md border border-[var(--attio-border)] px-2 text-center"
+                    />
+                    <span className="tabular-nums">₹{(s.amount * s.quantity).toLocaleString("en-IN")}</span>
+                    <button type="button" onClick={() => removeService(s.id)} className="text-red-600">
+                      <Trash2 className="size-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          )}
 
           <Panel title="Pricing & discount">
             <div className="space-y-3 text-[13px]">
               <div className="flex justify-between"><span className="text-[var(--attio-text-tertiary)]">Gross</span><span className="tabular-nums">₹{quote.grossAmount.toLocaleString("en-IN")}</span></div>
-              <div className="flex justify-between"><span className="text-[var(--attio-text-tertiary)]">GST (18%)</span><span className="tabular-nums">₹{quote.gstAmount.toLocaleString("en-IN")}</span></div>
+              <div className="flex items-center justify-between">
+                <span className="text-[var(--attio-text-tertiary)]">GST %</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  value={gstRatePercent}
+                  onChange={(e) => setGstRatePercent(Number(e.target.value) || 0)}
+                  className="w-20 h-8 rounded-md border border-[var(--attio-border)] px-2 text-right text-[12px]"
+                />
+              </div>
+              {gstRatePercent > 0 && (
+                <div className="flex justify-between"><span className="text-[var(--attio-text-tertiary)]">GST ({gstRatePercent}%)</span><span className="tabular-nums">₹{quote.gstAmount.toLocaleString("en-IN")}</span></div>
+              )}
               <label className="block">
-                <span className="text-[11px] text-[var(--attio-text-tertiary)]">Discount % (max {limit}% without approval)</span>
-                <input type="number" min={0} max={30} value={discountPercent} onChange={(e) => setDiscountPercent(Number(e.target.value))} className="mt-1 w-full rounded-md border border-[var(--attio-border)] px-2 py-1.5" />
+                <span className="text-[11px] text-[var(--attio-text-tertiary)]">Discount %</span>
+                <input type="number" min={0} value={discountPercent} onChange={(e) => setDiscountPercent(Number(e.target.value))} className="mt-1 w-full rounded-md border border-[var(--attio-border)] px-2 py-1.5" />
               </label>
               {discountPercent > 0 && (
-                <input value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} placeholder="Discount reason (required above 3%)" className="w-full rounded-md border border-[var(--attio-border)] px-2 py-1.5 text-[12px]" />
+                <input value={discountReason} onChange={(e) => setDiscountReason(e.target.value)} placeholder="Discount reason" className="w-full rounded-md border border-[var(--attio-border)] px-2 py-1.5 text-[12px]" />
               )}
               {needsApproval && <StatusBadge label="Manager approval required" variant="warning" />}
               {hasApprovedDiscount && <StatusBadge label="Discount approved" variant="success" />}
@@ -285,53 +409,6 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
             </div>
           </Panel>
 
-          <Panel title="Add custom services">
-            <div className="mb-3 space-y-2">
-              {customServices.map((s, idx) => (
-                <div key={idx} className="flex items-center gap-2 text-[12px]">
-                  <input
-                    value={s.label}
-                    onChange={(e) => {
-                      const updated = [...customServices];
-                      updated[idx].label = e.target.value;
-                      setCustomServices(updated);
-                    }}
-                    placeholder="Service name"
-                    className="flex-1 rounded-md border border-[var(--attio-border)] px-2 py-1"
-                  />
-                  <input
-                    type="number"
-                    value={s.amount}
-                    onChange={(e) => {
-                      const updated = [...customServices];
-                      updated[idx].amount = Number(e.target.value);
-                      setCustomServices(updated);
-                    }}
-                    placeholder="₹"
-                    className="w-20 rounded-md border border-[var(--attio-border)] px-2 py-1"
-                  />
-                  <input
-                    type="number"
-                    value={s.quantity}
-                    onChange={(e) => {
-                      const updated = [...customServices];
-                      updated[idx].quantity = Math.max(1, Number(e.target.value));
-                      setCustomServices(updated);
-                    }}
-                    placeholder="Qty"
-                    className="w-16 rounded-md border border-[var(--attio-border)] px-2 py-1"
-                  />
-                  <AttioButton variant="ghost" className="!h-7 !px-1 text-red-600" onClick={() => setCustomServices(customServices.filter((_, i) => i !== idx))}>
-                    <Trash2 className="size-3" />
-                  </AttioButton>
-                </div>
-              ))}
-            </div>
-            <AttioButton variant="secondary" className="w-full gap-1.5" onClick={() => setCustomServices([...customServices, { id: `custom_${Date.now()}`, label: "", amount: 0, quantity: 1, gstPercent: 18 }])}>
-              <Plus className="size-3.5" />
-              Add service line
-            </AttioButton>
-          </Panel>
 
           <Panel title="Counselling intake">
             <PublishedSchemaForm

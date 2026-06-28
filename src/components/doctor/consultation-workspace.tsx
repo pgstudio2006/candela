@@ -3,8 +3,6 @@
 import { PublishedSchemaForm } from "@/components/candela/published-schema-form";
 import { AiScribePanel } from "@/components/doctor/ai-scribe-panel";
 import { useDoctorStore } from "@/components/doctor/doctor-store";
-import { PrintablePrescription } from "@/components/doctor/print/printable-prescription";
-import { PrintPreviewModal } from "@/components/doctor/print/print-preview-modal";
 import { PrescriptionEditor } from "@/components/doctor/prescription-editor";
 import { useDoctorFormSchema } from "@/components/doctor/use-doctor-form-schema";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
@@ -12,6 +10,12 @@ import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import type { TreatmentMode } from "@/design-system/doctor-data";
 import { useDoctorPoll } from "@/hooks/use-doctor-poll";
 import { isRedFlagVisit } from "@/lib/frontdesk-workflow";
+import {
+  fetchBillingPackagesFromAPI,
+  fetchServiceChargesFromAPI,
+  type BillingPackage,
+} from "@/lib/billing-packages";
+import { generatePrescriptionPdf, printPdfBytes } from "@/lib/prescription-pdf";
 import { cn } from "@/lib/utils";
 import { validateFormValues } from "@/lib/schema-registry";
 import { useToast } from "@/components/ui/toast-provider";
@@ -69,9 +73,12 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
     updateConsultation,
     completeConsultation,
     templates,
-    packages,
+    packages: storePackages,
   } = useDoctorStore();
 
+  const [apiPackages, setApiPackages] = useState<BillingPackage[]>([]);
+  const [apiServices, setApiServices] = useState<BillingPackage[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
   const [tab, setTab] = useState<TabId>("examination");
   const [scribeApplied, setScribeApplied] = useState(false);
   const [handoffValues, setHandoffValues] = useState<Record<string, string | number | boolean>>({});
@@ -93,6 +100,20 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
   const handoffSchema = useDoctorFormSchema("doctor-handoff");
 
   const startedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const loadData = async () => {
+      setLoadingData(true);
+      const [pkgs, svcs] = await Promise.all([
+        fetchBillingPackagesFromAPI(),
+        fetchServiceChargesFromAPI(),
+      ]);
+      setApiPackages(pkgs);
+      setApiServices(svcs);
+      setLoadingData(false);
+    };
+    loadData();
+  }, []);
 
   useEffect(() => {
     if (!visit) return;
@@ -165,6 +186,21 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
     setCompleted(true);
     toast("Consultation completed", "success");
     router.push("/app/doctor/queue");
+  };
+
+  const handlePrintPrescription = async () => {
+    if (!patient || !visit || !consult) return;
+    try {
+      const pdfBytes = await generatePrescriptionPdf({
+        patient,
+        visit,
+        consult,
+        doctorName: visit.doctorName,
+      });
+      printPdfBytes(pdfBytes, "Prescription");
+    } catch (error) {
+      toast("Could not generate prescription PDF", "error");
+    }
   };
 
   return (
@@ -403,24 +439,28 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
             />
           </Panel>
           <Panel title="Care packages">
-            <ul className="space-y-2">
-              {packages.map((pkg) => (
-                <button
-                  key={pkg.id}
-                  type="button"
-                  onClick={() => updateConsultation(visitId, { packageId: pkg.id })}
-                  className={cn(
-                    "w-full rounded-lg border px-3 py-2.5 text-left transition-colors hover:bg-[var(--attio-hover)]",
-                    consult?.packageId === pkg.id && "border-[var(--attio-accent)] bg-blue-50/50",
-                  )}
-                >
-                  <p className="text-[13px] font-medium">{pkg.label}</p>
-                  <p className="text-[12px] text-[var(--attio-text-tertiary)]">
-                    ₹{pkg.amount.toLocaleString("en-IN")} · {pkg.sessions} sessions
-                  </p>
-                </button>
-              ))}
-            </ul>
+            {loadingData ? (
+              <p className="text-[13px] text-[var(--attio-text-tertiary)]">Loading packages...</p>
+            ) : (
+              <ul className="space-y-2">
+                {apiPackages.map((pkg: BillingPackage) => (
+                  <button
+                    key={pkg.id}
+                    type="button"
+                    onClick={() => updateConsultation(visitId, { packageId: pkg.id })}
+                    className={cn(
+                      "w-full rounded-lg border px-3 py-2.5 text-left transition-colors hover:bg-[var(--attio-hover)]",
+                      consult?.packageId === pkg.id && "border-[var(--attio-accent)] bg-blue-50/50",
+                    )}
+                  >
+                    <p className="text-[13px] font-medium">{pkg.label}</p>
+                    <p className="text-[12px] text-[var(--attio-text-tertiary)]">
+                      ₹{pkg.amount.toLocaleString("en-IN")} · {pkg.sessions ?? "—"} sessions
+                    </p>
+                  </button>
+                ))}
+              </ul>
+            )}
           </Panel>
         </div>
       )}
@@ -428,9 +468,9 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
       {tab === "prescription" && consult && (
         <div className="space-y-4">
           <div className="flex justify-end">
-            <AttioButton variant="secondary" className="gap-1.5" onClick={() => setPrintOpen(true)}>
+            <AttioButton variant="secondary" className="gap-1.5" onClick={handlePrintPrescription}>
               <Printer className="size-3.5" />
-              Preview & print
+              Print prescription
             </AttioButton>
           </div>
           <Panel title="Prescription (e-Rx) — fully editable">
@@ -445,19 +485,6 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
               </p>
             )}
           </Panel>
-          <PrintPreviewModal
-            open={printOpen}
-            onClose={() => setPrintOpen(false)}
-            title="Prescription"
-            printId="consult-rx-print"
-          >
-            <PrintablePrescription
-              patient={patient}
-              visit={visit}
-              consult={consult}
-              doctorName={visit.doctorName}
-            />
-          </PrintPreviewModal>
         </div>
       )}
 
