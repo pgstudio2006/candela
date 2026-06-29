@@ -163,11 +163,7 @@ export const REGISTRATION_SCHEMA: FormSchema = {
           type: "select",
           label: "Department",
           required: true,
-          defaultValue: "dept_spine",
-          options: [
-            { value: "dept_spine", label: "Spine & Joint Care" },
-            { value: "dept_wellness", label: "Wellness & Metabolic" },
-          ],
+          options: [],
         },
         {
           id: "visitType",
@@ -278,11 +274,7 @@ export const APPOINTMENT_SCHEMA: FormSchema = {
           type: "select",
           label: "Department",
           required: true,
-          defaultValue: "dept_spine",
-          options: [
-            { value: "dept_spine", label: "Spine & Joint (20 min slots)" },
-            { value: "dept_wellness", label: "Wellness & Metabolic (30 min slots)" },
-          ],
+          options: [],
         },
         {
           id: "doctor",

@@ -6,6 +6,7 @@ import { AttioButton, DataTable, StatusBadge } from "@/components/frontdesk/ui";
 import { PharmacyDialog, PharmacyInput, PharmacyTextarea, FormRow } from "@/components/pharmacy/ui";
 import type { StockBatch } from "@/design-system/pharmacy-data";
 import { daysToExpiry } from "@/lib/pharmacy-platform";
+import Link from "next/link";
 import { useState } from "react";
 
 export default function PharmacyInventoryPage() {
@@ -43,6 +44,16 @@ export default function PharmacyInventoryPage() {
       breadcrumbs={[{ label: "Pharmacy", href: "/app/pharmacy" }, { label: "Inventory" }]}
       title="Batch inventory"
       meta="FEFO · reservations · rack locations · quarantine · stock adjustment"
+      actions={
+        <div className="flex gap-2">
+          <Link href="/app/pharmacy/suppliers">
+            <AttioButton variant="secondary">Suppliers</AttioButton>
+          </Link>
+          <Link href="/app/pharmacy/purchase-orders">
+            <AttioButton variant="primary">New purchase order</AttioButton>
+          </Link>
+        </div>
+      }
       tabs={[
         { id: "all", label: "All batches" },
         { id: "low", label: "Low stock" },

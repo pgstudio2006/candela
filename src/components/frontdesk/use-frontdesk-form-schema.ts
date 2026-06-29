@@ -20,8 +20,8 @@ function patchSchemaWithRoster(
   if (!roster) return base;
 
   const deptOptions = roster.departments.map((d) => ({ value: d.id, label: d.label }));
-  const deptDoctors = doctorsForDepartment(roster, departmentId ?? roster.departments[0]?.id ?? "");
-  const doctorOptions = deptDoctors.map((d) => ({ value: d.id, label: d.name }));
+  const deptValueSet = new Set(deptOptions.map((o) => o.value));
+  const fallbackDept = deptOptions[0]?.value ?? "";
 
   return {
     ...base,
@@ -29,12 +29,24 @@ function patchSchemaWithRoster(
       ...section,
       fields: section.fields.map((field) => {
         if (field.id === "department" && field.type === "select") {
-          return { ...field, options: deptOptions.length ? deptOptions : field.options };
+          const validDefault =
+            departmentId && deptValueSet.has(departmentId)
+              ? departmentId
+              : typeof field.defaultValue === "string" && deptValueSet.has(field.defaultValue)
+                ? field.defaultValue
+                : "";
+          const deptDoctors = doctorsForDepartment(roster, validDefault || fallbackDept);
+          const doctorOptions = deptDoctors.map((d) => ({ value: d.id, label: d.name }));
+          return {
+            ...field,
+            options: deptOptions.length ? deptOptions : field.options,
+            defaultValue: deptOptions.length ? validDefault : field.defaultValue,
+          };
         }
         if (field.id === "doctor" && field.type === "select") {
           return {
             ...field,
-            options: doctorOptions.length ? doctorOptions : field.options,
+            options: [],
           };
         }
         return field;
