@@ -163,8 +163,8 @@ function drawWrappedLines(
   font: PDFFont,
   size: number,
 ) {
-  const blockHeight = lines.length * LAYOUT.lineLeading;
-  const startY = topY - rowHeight + Math.max(5, (rowHeight - blockHeight) / 2 + 4);
+  const visualBlockHeight = (lines.length - 1) * LAYOUT.lineLeading + size;
+  const startY = topY - (rowHeight - visualBlockHeight) / 2 - size * 0.7;
   lines.forEach((line, index) => {
     drawText(page, line, x, startY - index * LAYOUT.lineLeading, font, size);
   });
@@ -225,9 +225,12 @@ function drawLabelValue(
   bold: PDFFont,
   maxWidth: number,
 ) {
-  const labelText = `${label}: `;
-  drawText(page, labelText, x, cellBaseline(rowTop, rowHeight), bold, FONT.table);
-  const labelWidth = bold.widthOfTextAtSize(pdfSafeText(labelText), FONT.table);
+  if (!label && !value) return;
+  const labelText = label ? `${label}: ` : "";
+  if (labelText) {
+    drawText(page, labelText, x, cellBaseline(rowTop, rowHeight), bold, FONT.table);
+  }
+  const labelWidth = labelText ? bold.widthOfTextAtSize(pdfSafeText(labelText), FONT.table) : 0;
   const lines = wrapText(value, font, FONT.table, maxWidth);
   drawWrappedLines(page, lines, x + labelWidth, rowTop, rowHeight, font, FONT.table);
 }
@@ -243,8 +246,8 @@ function buildInfoRows(receipt: OpdReceiptPayload, meta: { date: string; time: s
       right: { label: "Doctor", value: receipt.doctorName },
     },
     {
-      left: { label: "City", value: receipt.patientCity || "—" },
-      right: { label: "District", value: receipt.patientDistrict || "—" },
+      left: { label: "Patient city", value: receipt.patientCity || "—" },
+      right: { label: "Patient district", value: receipt.patientDistrict || "—" },
     },
     {
       left: { label: "Appointment center", value: receipt.appointmentCenter || "—" },
