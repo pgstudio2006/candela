@@ -82,15 +82,15 @@ export function OpdBillingForm({
     const loadData = async () => {
       setLoading(true);
       const [pkgs, svcs] = await Promise.all([
-        fetchBillingPackagesFromAPI(),
-        fetchServiceChargesFromAPI(),
+        fetchBillingPackagesFromAPI(branchId),
+        fetchServiceChargesFromAPI(branchId),
       ]);
       setPackages(pkgs);
       setServices(svcs);
       setLoading(false);
     };
     loadData();
-  }, []);
+  }, [branchId]);
 
   const [lines, setLines] = useState<SelectedLine[]>([]);
   const [discountMode, setDiscountMode] = useState<"amount" | "percent">("amount");

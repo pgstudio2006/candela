@@ -17,9 +17,10 @@ export type BillingPackage = {
 };
 
 // Fetch packages from database API
-export async function fetchBillingPackagesFromAPI(): Promise<BillingPackage[]> {
+export async function fetchBillingPackagesFromAPI(branchId?: string): Promise<BillingPackage[]> {
   try {
-    const res = await fetch("/api/admin/packages");
+    const query = branchId ? `?branchId=${encodeURIComponent(branchId)}` : "";
+    const res = await fetch(`/api/admin/packages${query}`);
     const data = await res.json();
     if (data.ok) {
       return data.data.map((pkg: any) => ({
@@ -40,9 +41,10 @@ export async function fetchBillingPackagesFromAPI(): Promise<BillingPackage[]> {
 }
 
 // Fetch service charges from database API
-export async function fetchServiceChargesFromAPI(): Promise<BillingPackage[]> {
+export async function fetchServiceChargesFromAPI(branchId?: string): Promise<BillingPackage[]> {
   try {
-    const res = await fetch("/api/admin/service-charges");
+    const query = branchId ? `?branchId=${encodeURIComponent(branchId)}` : "";
+    const res = await fetch(`/api/admin/service-charges${query}`);
     const data = await res.json();
     if (data.ok) {
       return data.data.map((charge: any) => ({

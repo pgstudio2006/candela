@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { requireModule } from "@/server/auth";
+import { requireAnyModule, requireModule } from "@/server/auth";
 import { serializeForClient } from "@/server/serialize";
 
 export async function GET(request: Request) {
@@ -11,9 +11,11 @@ export async function GET(request: Request) {
   }
 
   try {
-    const ctx = await requireModule("admin");
+    const ctx = await requireAnyModule("admin", "frontdesk");
+    const { searchParams } = new URL(request.url);
+    const branchId = searchParams.get("branchId") || ctx.branchId;
     const charges = await prisma.serviceCharge.findMany({
-      where: { tenantId: ctx.tenantId, branchId: ctx.branchId },
+      where: { tenantId: ctx.tenantId, branchId },
       orderBy: { category: "asc" },
     });
     return NextResponse.json({ ok: true, data: serializeForClient(charges) });
