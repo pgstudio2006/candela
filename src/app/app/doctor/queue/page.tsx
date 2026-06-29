@@ -55,7 +55,7 @@ export default function DoctorQueuePage() {
         <ul className="divide-y divide-[var(--attio-border-subtle)]">
           {queue.length === 0 && (
             <li className="py-8 text-center text-[13px] text-[var(--attio-text-tertiary)]">
-              Queue clear — patients appear after junior exam handoff
+              Queue clear — patients appear after frontdesk check-in
             </li>
           )}
           {queue.map((v) => {
@@ -80,7 +80,7 @@ export default function DoctorQueuePage() {
                   <p className="font-mono text-[11px] text-[var(--attio-text-tertiary)]">{p.uhid}</p>
                   <div className="mt-2 flex flex-wrap gap-1">
                     <StatusBadge label={v.billing} variant={v.billing === "paid" ? "success" : "warning"} />
-                    <StatusBadge label={`Exam ${v.exam}`} variant="success" />
+                    {v.exam === "done" && <StatusBadge label="Exam done" variant="success" />}
                     {handoffReady && !consultStarted && (
                       <StatusBadge label="Junior exam complete" variant="info" />
                     )}

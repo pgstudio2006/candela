@@ -1,5 +1,5 @@
 import type { Visit } from "@/design-system/frontdesk-data";
-import { isRedFlagVisit } from "@/lib/frontdesk-workflow";
+import { isInReceptionQueue, isRedFlagVisit } from "@/lib/frontdesk-workflow";
 
 /** Red-flag and appointment patients first, then FIFO by token. */
 export function sortDoctorOpdQueue(visits: Visit[]): Visit[] {
@@ -26,6 +26,17 @@ export function visitAssignedToDoctor(
   return false;
 }
 
+/** Whether a visit is in the doctor's active queue (reception queue + assigned to doctor). */
+export function isVisitInDoctorQueue(
+  visit: Visit,
+  doctorId: string,
+  doctorName: string,
+  departmentIds: readonly string[],
+): boolean {
+  if (!isInReceptionQueue(visit)) return false;
+  return visitAssignedToDoctor(visit, doctorId, doctorName, departmentIds);
+}
+
 /** Whether a visit belongs in this doctor's workspace snapshot. */
 export function visitVisibleInDoctorWorkspace(
   visit: Visit,
@@ -35,8 +46,7 @@ export function visitVisibleInDoctorWorkspace(
   doctorName = "",
 ): boolean {
   if (consultVisitIds.has(visit.id)) return true;
-  if (visit.stage !== "with_doctor") return false;
-  return visitAssignedToDoctor(visit, doctorId, doctorName, departmentIds);
+  return isVisitInDoctorQueue(visit, doctorId, doctorName, departmentIds);
 }
 
 export function filterDoctorOpdQueue(
@@ -47,7 +57,7 @@ export function filterDoctorOpdQueue(
   doctorName = "",
 ): Visit[] {
   const filtered = visits.filter((v) => {
-    if (v.stage !== "with_doctor") return false;
+    if (!isInReceptionQueue(v)) return false;
     if (includeDept || !doctorId) return true;
     return visitAssignedToDoctor(v, doctorId, doctorName, departmentIds);
   });
@@ -55,5 +65,5 @@ export function filterDoctorOpdQueue(
 }
 
 export function isJuniorHandoffReady(visit: Visit): boolean {
-  return visit.stage === "with_doctor" && visit.exam === "done";
+  return (visit.stage === "with_doctor" || visit.stage === "junior_exam") && visit.exam === "done";
 }

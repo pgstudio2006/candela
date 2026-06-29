@@ -63,12 +63,22 @@ export default function FrontdeskIpdPage() {
     ];
   }, [snapshot]);
 
+  const [patientSearch, setPatientSearch] = useState("");
+
+  const filteredPatients = useMemo(() => {
+    if (!snapshot) return [];
+    const q = patientSearch.trim().toLowerCase();
+    if (!q) return snapshot.patients.slice(0, 50);
+    return snapshot.patients.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.uhid.toLowerCase().includes(q) ||
+        p.phone.includes(q),
+    );
+  }, [snapshot, patientSearch]);
+
   const handleAdmit = async (formData: FormData) => {
     const patientId = formData.get("patientId") as string;
-    const name = formData.get("name") as string;
-    const phone = formData.get("phone") as string;
-    const age = Number(formData.get("age") ?? 0);
-    const gender = formData.get("gender") as string;
     const doctorId = formData.get("doctorId") as string;
     const departmentId = formData.get("departmentId") as string;
     const diagnosis = formData.get("diagnosis") as string;
@@ -79,8 +89,7 @@ export default function FrontdeskIpdPage() {
     const expectedDischarge = formData.get("expectedDischarge") as string;
 
     const result = await admitPatientAction({
-      patientId: patientId || undefined,
-      newPatient: patientId ? undefined : { name, phone, age, gender },
+      patientId,
       doctorId,
       departmentId,
       diagnosis,
@@ -94,6 +103,7 @@ export default function FrontdeskIpdPage() {
     if (result.ok) {
       toast("Patient admitted successfully", "success");
       setDialog(null);
+      setPatientSearch("");
       setRefreshKey((k) => k + 1);
     } else {
       toast(result.error ?? "Admission failed", "error");
@@ -304,43 +314,50 @@ export default function FrontdeskIpdPage() {
             >
               {dialog === "admit" ? (
                 <div className="space-y-3">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="block text-[12px]">
-                      <span className="mb-1 block text-[var(--attio-text-tertiary)]">Full name</span>
-                      <input
-                        name="name"
-                        type="text"
-                        required
-                        className="h-9 w-full rounded-lg border border-[var(--attio-border)] px-3"
-                      />
-                    </label>
-                    <label className="block text-[12px]">
-                      <span className="mb-1 block text-[var(--attio-text-tertiary)]">Phone</span>
-                      <input
-                        name="phone"
-                        type="tel"
-                        className="h-9 w-full rounded-lg border border-[var(--attio-border)] px-3"
-                      />
-                    </label>
-                    <label className="block text-[12px]">
-                      <span className="mb-1 block text-[var(--attio-text-tertiary)]">Age</span>
-                      <input
-                        name="age"
-                        type="number"
-                        min={0}
-                        max={120}
-                        className="h-9 w-full rounded-lg border border-[var(--attio-border)] px-3"
-                      />
-                    </label>
-                    <label className="block text-[12px]">
-                      <span className="mb-1 block text-[var(--attio-text-tertiary)]">Gender</span>
-                      <select name="gender" className="h-9 w-full rounded-lg border border-[var(--attio-border)] bg-white px-3">
-                        <option value="M">Male</option>
-                        <option value="F">Female</option>
-                        <option value="O">Other</option>
-                      </select>
-                    </label>
-                  </div>
+                  <label className="block text-[12px]">
+                    <span className="mb-1 block text-[var(--attio-text-tertiary)]">Patient</span>
+                    <input
+                      value={patientSearch}
+                      onChange={(e) => setPatientSearch(e.target.value)}
+                      placeholder="Search registered patient by name, UHID or phone"
+                      className="h-9 w-full rounded-lg border border-[var(--attio-border)] px-3"
+                    />
+                    <select
+                      name="patientId"
+                      required
+                      className="mt-1 h-9 w-full rounded-lg border border-[var(--attio-border)] bg-white px-3"
+                      defaultValue=""
+                    >
+                      <option value="">Select patient</option>
+                      {filteredPatients.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} · {p.uhid} · {p.phone}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-[12px]">
+                    <span className="mb-1 block text-[var(--attio-text-tertiary)]">Attending doctor</span>
+                    <select name="doctorId" required className="h-9 w-full rounded-lg border border-[var(--attio-border)] bg-white px-3" defaultValue="">
+                      <option value="">Select doctor</option>
+                      {snapshot?.doctors.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-[12px]">
+                    <span className="mb-1 block text-[var(--attio-text-tertiary)]">Department</span>
+                    <select name="departmentId" required className="h-9 w-full rounded-lg border border-[var(--attio-border)] bg-white px-3" defaultValue="">
+                      <option value="">Select department</option>
+                      {snapshot?.departments.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <label className="block text-[12px]">
                     <span className="mb-1 block text-[var(--attio-text-tertiary)]">Diagnosis</span>
                     <input
@@ -404,23 +421,6 @@ export default function FrontdeskIpdPage() {
                     <input
                       name="expectedDischarge"
                       type="date"
-                      className="h-9 w-full rounded-lg border border-[var(--attio-border)] px-3"
-                    />
-                  </label>
-                  <label className="block text-[12px]">
-                    <span className="mb-1 block text-[var(--attio-text-tertiary)]">Attending doctor ID</span>
-                    <input
-                      name="doctorId"
-                      type="text"
-                      required
-                      className="h-9 w-full rounded-lg border border-[var(--attio-border)] px-3"
-                    />
-                  </label>
-                  <label className="block text-[12px]">
-                    <span className="mb-1 block text-[var(--attio-text-tertiary)]">Department ID</span>
-                    <input
-                      name="departmentId"
-                      type="text"
                       className="h-9 w-full rounded-lg border border-[var(--attio-border)] px-3"
                     />
                   </label>

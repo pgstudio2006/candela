@@ -17,10 +17,10 @@ import { writePlatformAudit } from "@/server/platform-audit";
 import { ensureHospitalBootstrap } from "@/server/hospital-bootstrap";
 import { syncVisitFromOpdVisit } from "@/server/visit-sync";
 import { createId } from "@/lib/id";
-import { normalizeRegisterPatientInput, registerPatientSchema, validateFrontdeskInput } from "@/lib/frontdesk-validation";
-import { deptLabel, nextUhid, patientDisplayName } from "@/lib/frontdesk-workflow";
-import { buildPatientRegistrationPayload } from "@/lib/registration-meta";
+import { patientDisplayName } from "@/lib/frontdesk-workflow";
+import { resolveDoctorName } from "@/lib/clinical-roster";
 import { backfillBranchScope } from "@/server/branch-scope";
+import { loadClinicalRoster } from "@/server/clinical/roster";
 
 export type { IpdSnapshot } from "@/design-system/ipd-data";
 
@@ -94,11 +94,37 @@ export async function getIpdSnapshot(ctx: ServerContext): Promise<IpdSnapshot> {
   const totalBeds = wards.reduce((sum, w) => sum + w.beds.length, 0);
   const occupiedBeds = wards.reduce((sum, w) => sum + w.beds.filter((b) => b.occupied).length, 0);
 
+  const [registeredPatients, roster] = await Promise.all([
+    prisma.patient.findMany({
+      where: { tenantId: scope.tenantId, branchId: scope.branchId },
+      select: { id: true, name: true, fullName: true, uhid: true, phone: true },
+      orderBy: { createdAt: "desc" },
+    }),
+    loadClinicalRoster(ctx),
+  ]);
+
+  const patientOptions = registeredPatients.map((p) => ({
+    id: p.id,
+    name: patientDisplayName(p),
+    uhid: p.uhid,
+    phone: p.phone ?? "",
+  }));
+
+  const doctorOptions = roster.allDoctors.map((d) => ({ id: d.id, name: d.name }));
+
+  const departmentOptions = roster.departments.map((d) => ({
+    id: d.id,
+    label: d.label,
+  }));
+
   return {
     wards,
     totalBeds,
     occupiedBeds,
     freeBeds: totalBeds - occupiedBeds,
+    patients: patientOptions,
+    doctors: doctorOptions,
+    departments: departmentOptions,
   };
 }
 
@@ -141,6 +167,10 @@ export async function admitPatient(ctx: ServerContext, input: IpdAdmissionInput)
   if (!ward) throw new ServerActionError("VALIDATION", "Ward not found.");
   if (!ward.beds.includes(input.bed)) throw new ServerActionError("VALIDATION", "Bed is not in selected ward.");
 
+  if (!input.patientId?.trim()) throw new ServerActionError("VALIDATION", "Select a registered patient.");
+  if (!input.doctorId?.trim()) throw new ServerActionError("VALIDATION", "Select an attending doctor.");
+  if (!input.departmentId?.trim()) throw new ServerActionError("VALIDATION", "Select a department.");
+
   const existingOccupant = await prisma.ipdAdmission.findFirst({
     where: {
       tenantId: scope.tenantId,
@@ -154,61 +184,16 @@ export async function admitPatient(ctx: ServerContext, input: IpdAdmissionInput)
     throw new ServerActionError("CONFLICT", "Selected bed is already occupied.");
   }
 
-  let patientId = input.patientId;
-  let patientName = "";
-
-  if (!patientId && input.newPatient) {
-    const newPatient = input.newPatient;
-    const normalized = normalizeRegisterPatientInput({
-      fullName: newPatient.name,
-      phone: newPatient.phone ?? "",
-      age: newPatient.age ?? 0,
-      gender: newPatient.gender ?? "O",
-      department: input.departmentId ?? "dept_spine",
-    });
-    validateFrontdeskInput(registerPatientSchema, normalized);
-    const maxUhid = await prisma.patient.findMany({
-      where: { tenantId: scope.tenantId },
-      select: { uhid: true },
-    });
-    const uhidCounter = Math.max(0, ...maxUhid.map((p) => {
-      const suffix = p.uhid.split("-").pop() ?? "";
-      const parsed = Number(suffix);
-      return Number.isFinite(parsed) ? parsed : 0;
-    }));
-    const uhid = nextUhid(uhidCounter + 1);
-    const name = String(normalized.fullName ?? "").trim() || "New Patient";
-    patientName = name;
-
-    const registration = buildPatientRegistrationPayload(normalized);
-    patientId = createId("pat");
-    await prisma.patient.create({
-      data: {
-        id: patientId,
-        ...scope,
-        uhid,
-        name,
-        fullName: name,
-        phone: String(normalized.phone ?? ""),
-        age: Number(normalized.age ?? 0),
-        gender: String(normalized.gender ?? "O"),
-        department: deptLabel(String(normalized.department ?? "dept_spine")),
-        departmentId: String(normalized.department ?? "dept_spine"),
-        tags: registration.tags,
-        referrer: registration.referrer,
-        meta: registration.meta,
-      },
-    });
-  }
-
-  if (!patientId) throw new ServerActionError("VALIDATION", "Patient is required.");
-
   const patient = await prisma.patient.findFirst({
-    where: { id: patientId, tenantId: scope.tenantId, branchId: scope.branchId },
+    where: { id: input.patientId, tenantId: scope.tenantId, branchId: scope.branchId },
     select: { id: true, name: true, fullName: true },
   });
   if (!patient) throw new ServerActionError("NOT_FOUND", "Patient not found in this branch.");
-  patientName = patientDisplayName(patient) ?? patientId;
+  const patientName = patientDisplayName(patient) ?? input.patientId;
+
+  const roster = await loadClinicalRoster(ctx);
+  const doctorName = resolveDoctorName(input.doctorId, roster);
+  const departmentLabel = roster.departments.find((d) => d.id === input.departmentId)?.label ?? input.departmentId;
 
   const visitId = createId("vis");
   const ipdId = `ipd_${visitId}`;
@@ -220,11 +205,11 @@ export async function admitPatient(ctx: ServerContext, input: IpdAdmissionInput)
       data: {
         id: visitId,
         ...scope,
-        patientId,
+        patientId: input.patientId,
         stage: "ipd_admitted",
-        departmentId: input.departmentId ?? "dept_spine",
+        departmentId: input.departmentId,
         doctorId: input.doctorId,
-        doctorName: "",
+        doctorName,
         billing: "pending",
         exam: "not_started",
         appointment: false,
@@ -232,7 +217,7 @@ export async function admitPatient(ctx: ServerContext, input: IpdAdmissionInput)
         checkInAt: now,
         treatmentPath: "ipd",
         ipdAdmissionId: ipdId,
-        routingNote: "Direct IPD admission from front desk",
+        routingNote: `Direct IPD admission from front desk · ${departmentLabel}`,
       },
     });
 
@@ -241,7 +226,7 @@ export async function admitPatient(ctx: ServerContext, input: IpdAdmissionInput)
         id: ipdId,
         ...scope,
         visitId,
-        patientId,
+        patientId: input.patientId,
         ward: ward.label,
         bed: input.bed,
         category: ward.category,
@@ -274,7 +259,7 @@ export async function admitPatient(ctx: ServerContext, input: IpdAdmissionInput)
     },
   });
 
-  return { id: ipdId, visitId, patientId };
+  return { id: ipdId, visitId, patientId: input.patientId };
 }
 
 export async function updateIpdAdmission(

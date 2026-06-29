@@ -40,23 +40,37 @@ export type IpdBedSummary = {
   }>;
 };
 
+export type IpdPatientOption = {
+  id: string;
+  name: string;
+  uhid: string;
+  phone: string;
+};
+
+export type IpdDoctorOption = {
+  id: string;
+  name: string;
+};
+
+export type IpdDepartmentOption = {
+  id: string;
+  label: string;
+};
+
 export type IpdSnapshot = {
   wards: IpdBedSummary[];
   totalBeds: number;
   occupiedBeds: number;
   freeBeds: number;
+  patients: IpdPatientOption[];
+  doctors: IpdDoctorOption[];
+  departments: IpdDepartmentOption[];
 };
 
 export type IpdAdmissionInput = {
-  patientId?: string;
-  newPatient?: {
-    name: string;
-    phone?: string;
-    age?: number;
-    gender?: string;
-  };
+  patientId: string;
   doctorId: string;
-  departmentId?: string;
+  departmentId: string;
   diagnosis: string;
   wardId: string;
   bed: string;
