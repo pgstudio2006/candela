@@ -21,7 +21,9 @@ const FONT = {
 const LAYOUT = {
   marginLeft: 42,
   marginRight: 553,
-  infoTableTop: 660,
+  invoiceTitleTop: 695,
+  invoiceTitleSize: 16,
+  infoTableTop: 670,
   infoBaseRowHeight: 13,
   infoHeaderHeight: 15,
   infoMidX: 298,
@@ -241,15 +243,20 @@ function buildInfoRows(receipt: OpdReceiptPayload, meta: { date: string; time: s
       right: { label: "Doctor", value: receipt.doctorName },
     },
     {
+      left: { label: "City", value: receipt.patientCity || "—" },
+      right: { label: "District", value: receipt.patientDistrict || "—" },
+    },
+    {
+      left: { label: "Appointment center", value: receipt.appointmentCenter || "—" },
+      right: { label: "Invoice No", value: receipt.invoiceNumber },
+    },
+    {
       left: { label: "Date", value: meta.date },
       right: { label: "Time", value: meta.time },
     },
     {
-      left: { label: "Invoice No", value: receipt.invoiceNumber },
-      right: {
-        label: "Token",
-        value: receipt.token != null ? `#${receipt.token}` : "Walk-in",
-      },
+      left: { label: "Token", value: receipt.token != null ? `#${receipt.token}` : "Walk-in" },
+      right: { label: "", value: "" },
     },
   ];
 
@@ -466,6 +473,13 @@ function drawBillingTable(
   });
 }
 
+function drawInvoiceTitle(page: PDFPage, font: PDFFont, bold: PDFFont) {
+  const title = "Invoice";
+  const titleWidth = bold.widthOfTextAtSize(title, LAYOUT.invoiceTitleSize);
+  const centerX = (LAYOUT.tableLeft + LAYOUT.tableRight) / 2 - titleWidth / 2;
+  drawText(page, title, centerX, LAYOUT.invoiceTitleTop, bold, LAYOUT.invoiceTitleSize);
+}
+
 function drawNotes(page: PDFPage, receipt: OpdReceiptPayload, font: PDFFont, layout: TableLayout) {
   if (layout.notesY < LAYOUT.footerMinY - 20) return;
 
@@ -496,6 +510,7 @@ export async function generateInvoicePdf(receipt: OpdReceiptPayload): Promise<Ui
   const meta = formatInvoiceMeta(receipt.issuedAt);
   const layout = computeTableLayout(receipt, meta, font, bold);
 
+  drawInvoiceTitle(page, font, bold);
   drawPatientInfoTable(page, receipt, meta, font, bold, layout);
   drawBillingTable(page, receipt, font, bold, layout);
   drawNotes(page, receipt, font, layout);

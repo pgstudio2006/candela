@@ -4,6 +4,7 @@ import type { OpdReceiptPayload } from "@/lib/opd-receipt";
 import { receiptFromGstBreakdown } from "@/lib/opd-receipt";
 import { computeGstInvoice, parseBranchGstSettings, type GstSettings } from "@/lib/gst-invoicing";
 import { patientDisplayName } from "@/lib/frontdesk-workflow";
+import { parsePatientRegistrationMeta } from "@/lib/registration-meta";
 import type { ServerContext } from "@/server/context";
 import { branchScope } from "@/server/tenancy";
 import { ServerActionError } from "@/server/errors";
@@ -159,6 +160,8 @@ export async function getVisitReceipt(ctx: ServerContext, visitId: string): Prom
     throw new ServerActionError("NOT_FOUND", "Patient not found.");
   }
 
+  const reg = parsePatientRegistrationMeta(patient.meta);
+
   const branch = await prisma.branch.findUnique({ where: { id: ctx.branchId } });
   const branchGst = parseBranchGstSettings(branch?.meta);
 
@@ -180,6 +183,9 @@ export async function getVisitReceipt(ctx: ServerContext, visitId: string): Prom
     patientName: patientDisplayName(patient),
     patientUhid: patient.uhid,
     patientPhone: patient.phone,
+    patientCity: reg.city,
+    patientDistrict: reg.district,
+    appointmentCenter: reg.appointmentCentre || branch?.name || undefined,
     doctorName: visit.doctorName || "Consultant",
     token: visit.token ?? undefined,
     billingStatus: visit.billing ?? "pending",

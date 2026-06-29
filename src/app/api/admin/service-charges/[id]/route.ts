@@ -1,12 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { requireModule } from "@/server/auth";
 import { serializeForClient } from "@/server/serialize";
 
 export async function PUT(
-  request: Request,
-  { params }: { params: { id: string } }
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
   if (!session?.user) {
@@ -14,12 +14,13 @@ export async function PUT(
   }
 
   try {
+    const { id } = await params;
     const ctx = await requireModule("admin");
     const body = await request.json();
     const { label, category, description, rate, unit, gstPercent, hsnCode, active } = body;
 
     const charge = await prisma.serviceCharge.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         label,
         category,
@@ -40,8 +41,8 @@ export async function PUT(
 }
 
 export async function DELETE(
-  request: Request,
-  { params }: { params: { id: string } }
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
   if (!session?.user) {
@@ -49,9 +50,10 @@ export async function DELETE(
   }
 
   try {
+    const { id } = await params;
     await requireModule("admin");
     await prisma.serviceCharge.delete({
-      where: { id: params.id },
+      where: { id },
     });
 
     return NextResponse.json({ ok: true });

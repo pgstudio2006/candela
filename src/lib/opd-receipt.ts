@@ -20,6 +20,9 @@ export type OpdReceiptPayload = {
   patientName: string;
   patientUhid: string;
   patientPhone: string;
+  patientCity?: string;
+  patientDistrict?: string;
+  appointmentCenter?: string;
   doctorName: string;
   token?: number;
   billingStatus: string;

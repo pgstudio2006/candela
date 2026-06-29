@@ -1,12 +1,12 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { requireModule } from "@/server/auth";
 import { serializeForClient } from "@/server/serialize";
 
 export async function PUT(
-  request: Request,
-  { params }: { params: { id: string } }
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
   if (!session?.user) {
@@ -14,18 +14,19 @@ export async function PUT(
   }
 
   try {
+    const { id } = await params;
     const ctx = await requireModule("admin");
     const body = await request.json();
     const { label, amount, sessions, dept, description, services, active } = body;
 
     // Delete existing package services
     await prisma.packageService.deleteMany({
-      where: { packageId: params.id },
+      where: { packageId: id },
     });
 
     // @ts-ignore - description field added to schema
     const pkg: any = await prisma.package.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         label,
         amount: amount !== undefined ? amount : undefined,
@@ -40,7 +41,7 @@ export async function PUT(
     if (services && services.length > 0) {
       await prisma.packageService.createMany({
         data: services.map((s: any) => ({
-          packageId: params.id,
+          packageId: id,
           serviceId: s.serviceId,
           quantity: s.quantity || 1,
         })),
@@ -49,7 +50,7 @@ export async function PUT(
 
     // Fetch with relations
     const pkgWithServices: any = await prisma.package.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         services: {
           include: {
@@ -77,8 +78,8 @@ export async function PUT(
 }
 
 export async function DELETE(
-  request: Request,
-  { params }: { params: { id: string } }
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
   if (!session?.user) {
@@ -86,9 +87,10 @@ export async function DELETE(
   }
 
   try {
+    const { id } = await params;
     await requireModule("admin");
     await prisma.package.delete({
-      where: { id: params.id },
+      where: { id },
     });
 
     return NextResponse.json({ ok: true });
