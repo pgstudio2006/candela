@@ -21,17 +21,13 @@ export async function resolveDoctorProfile(ctx: ServerContext): Promise<DoctorPr
   }
 
   const departments = await prisma.adminDepartment.findMany({
-    where: { active: true },
+    where: { tenantId: ctx.tenantId, branchId: ctx.branchId, active: true },
     orderBy: { label: "asc" },
   });
 
-  const staff =
-    (await prisma.adminStaff.findFirst({
-      where: { email, role: "doctor", branchId: ctx.branchId },
-    })) ??
-    (await prisma.adminStaff.findFirst({
-      where: { email, role: "doctor" },
-    }));
+  const staff = await prisma.adminStaff.findFirst({
+    where: { email, role: "doctor", branchId: ctx.branchId },
+  });
 
   if (!staff) {
     throw new ServerActionError(
@@ -61,10 +57,10 @@ export async function resolveDoctorIdForContext(ctx: ServerContext): Promise<str
   return profile.doctorId;
 }
 
-export async function loadClinicalRoster(_ctx: ServerContext): Promise<ClinicalRoster> {
+export async function loadClinicalRoster(ctx: ServerContext): Promise<ClinicalRoster> {
   const [departments, staff] = await Promise.all([
-    prisma.adminDepartment.findMany({ where: { active: true }, orderBy: { label: "asc" } }),
-    prisma.adminStaff.findMany({ where: { role: "doctor" }, orderBy: { name: "asc" } }),
+    prisma.adminDepartment.findMany({ where: { tenantId: ctx.tenantId, branchId: ctx.branchId, active: true }, orderBy: { label: "asc" } }),
+    prisma.adminStaff.findMany({ where: { branchId: ctx.branchId, role: "doctor" }, orderBy: { name: "asc" } }),
   ]);
 
   return buildClinicalRoster(

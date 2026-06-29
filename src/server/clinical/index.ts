@@ -102,6 +102,14 @@ function parseUhidCounter(uhid: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+async function maxUhidCounterInTenant(ctx: ServerContext): Promise<number> {
+  const patients = await prisma.patient.findMany({
+    where: { tenantId: ctx.tenantId },
+    select: { uhid: true },
+  });
+  return Math.max(0, ...patients.map((p) => parseUhidCounter(p.uhid)));
+}
+
 function mapVisit(row: {
   id: string;
   patientId: string;
@@ -321,7 +329,6 @@ async function assertNoDuplicatePatient(
   const existing = await prisma.patient.findFirst({
     where: {
       tenantId: scope.tenantId,
-      branchId: scope.branchId,
       uhid,
       ...(excludeId ? { NOT: { id: excludeId } } : {}),
     },
@@ -348,7 +355,6 @@ export async function checkDuplicatePatient(
   const existing = await prisma.patient.findFirst({
     where: {
       tenantId: scope.tenantId,
-      branchId: scope.branchId,
       ...(excludeId ? { NOT: { id: excludeId } } : {}),
       OR: [
         ...(uhid ? [{ uhid }] : []),
@@ -372,13 +378,17 @@ export function canOverrideDuplicate(role: string) {
   return DUPLICATE_OVERRIDE_ROLES.has(role);
 }
 
-function buildCounters(patients: Patient[], visits: Visit[], appointments: Appointment[]): FrontdeskCounters {
-  const patientCounter = Math.max(0, ...patients.map((p) => parseUhidCounter(p.uhid)));
+function buildCounters(
+  patients: Patient[],
+  visits: Visit[],
+  appointments: Appointment[],
+  tenantPatientCounter: number,
+): FrontdeskCounters {
   const visitCounter = Math.max(0, ...visits.map((v) => parseCounterFromId("v", v.id)));
   const tokenCounter = Math.max(0, ...visits.map((v) => v.token ?? 0));
   const appointmentCounter = Math.max(0, ...appointments.map((a) => parseCounterFromId("ap", a.id)));
   return {
-    patient: patientCounter,
+    patient: tenantPatientCounter,
     visit: visitCounter,
     token: tokenCounter,
     appointment: appointmentCounter,
@@ -392,7 +402,7 @@ export async function getClinicalSnapshot(ctx: ServerContext): Promise<ClinicalS
   await backfillBranchScope(ctx);
   const clinicalWhere = branchClinicalWhere(ctx);
 
-  const [patientsRows, visitsRows, appointmentRows, handoffRows, roster] = await Promise.all([
+  const [patientsRows, visitsRows, appointmentRows, handoffRows, roster, tenantPatientCounter] = await Promise.all([
     prisma.patient.findMany({ where: clinicalWhere, orderBy: { createdAt: "asc" } }),
     prisma.opdVisit.findMany({ where: clinicalWhere, orderBy: { createdAt: "asc" } }),
     prisma.appointment.findMany({
@@ -401,6 +411,7 @@ export async function getClinicalSnapshot(ctx: ServerContext): Promise<ClinicalS
     }),
     prisma.billingHandoff.findMany({ where: { branchId: ctx.branchId }, orderBy: { createdAt: "asc" } }),
     loadClinicalRoster(ctx),
+    maxUhidCounterInTenant(ctx),
   ]);
 
   const patients: Patient[] = patientsRows.map(mapPrismaPatientRow);
@@ -471,7 +482,7 @@ export async function getClinicalSnapshot(ctx: ServerContext): Promise<ClinicalS
     visits,
     appointments,
     submissions,
-    counters: buildCounters(patients, visits, appointments),
+    counters: buildCounters(patients, visits, appointments, tenantPatientCounter),
     billingHandoffs,
     roster,
   };
@@ -527,8 +538,8 @@ export async function registerPatient(
       "Supervisor approval required to register a duplicate patient.",
     );
   }
-  const current = await getClinicalSnapshot(ctx);
-  const uhid = data.uhid ? String(data.uhid) : nextUhid(current.counters.patient + 1);
+  const tenantPatientCounter = await maxUhidCounterInTenant(ctx);
+  const uhid = data.uhid ? String(data.uhid) : nextUhid(tenantPatientCounter + 1);
   const deptId = String(data.department ?? "dept_spine");
   const first = String(data.firstName ?? "").trim();
   const last = String(data.lastName ?? "").trim();

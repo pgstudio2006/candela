@@ -542,3 +542,57 @@ export async function createManualPrescription(
 
   return rx.id;
 }
+
+export async function createNursePharmacyOrder(
+  ctx: ServerContext,
+  input: {
+    visitId: string;
+    patientName: string;
+    uhid: string;
+    nurseName: string;
+    lines: Array<{ drug: string; dose: string; frequency: string; duration: string; instructions?: string }>;
+    priority?: Prescription["priority"];
+  },
+) {
+  const state = await readState(ctx);
+  const rx = buildPrescriptionFromLines({
+    visitId: input.visitId,
+    patientName: input.patientName,
+    uhid: input.uhid,
+    doctorName: input.nurseName,
+    source: "ipd",
+    priority: input.priority,
+    lines: input.lines,
+  });
+  if (!rx) return null;
+
+  const next: PharmacyStateShape = {
+    ...state,
+    prescriptions: [rx, ...state.prescriptions],
+    activities: [
+      {
+        id: `act_${rx.id}`,
+        at: new Date().toISOString(),
+        actor: input.nurseName,
+        type: "rx_ipd_nurse",
+        summary: `IPD order from nursing for ${input.patientName} — ${input.lines.length} item(s)`,
+        refId: rx.id,
+      },
+      ...state.activities,
+    ].slice(0, 200),
+  };
+
+  await persistState(ctx, next);
+
+  await writePlatformAudit({
+    ctx,
+    module: "pharmacy",
+    action: "prescription_ipd_nurse",
+    entityType: "prescription",
+    entityId: rx.id,
+    summary: `IPD pharmacy order from nurse ${input.nurseName} for ${input.patientName}`,
+    payload: { visitId: input.visitId, lineCount: input.lines.length, priority: rx.priority },
+  });
+
+  return rx.id;
+}

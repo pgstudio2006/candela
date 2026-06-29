@@ -8,16 +8,20 @@ import {
   claimEpisode,
   completeEpisode,
   completeSession,
+  createNursePharmacyOrder,
+  createNurseTask,
   declineConsent,
   presentConsent,
+  saveDischargeSummary,
   saveVitals,
   signConsent,
   startSession,
   updateEpisodeNotes,
+  updateNurseTaskStatus,
   uploadConsent,
   verifyConsent,
 } from "@/server/nurse";
-import type { ConsentRecord, VitalsRecord } from "@/design-system/nurse-data";
+import type { ConsentRecord, DischargeSummary, VitalsRecord } from "@/design-system/nurse-data";
 
 type ActionBody = {
   op: string;
@@ -35,6 +39,15 @@ type ActionBody = {
   bay?: string;
   sessionId?: string;
   notes?: string;
+  title?: string;
+  assignedBy?: string;
+  taskId?: string;
+  status?: "pending" | "in_progress" | "completed";
+  summary?: Omit<DischargeSummary, "preparedBy" | "preparedAt">;
+  patientName?: string;
+  uhid?: string;
+  lines?: Array<{ drug: string; dose: string; frequency: string; duration: string; instructions?: string }>;
+  priority?: "routine" | "urgent" | "stat";
 };
 
 export async function POST(request: Request) {
@@ -88,6 +101,23 @@ export async function POST(request: Request) {
         break;
       case "updateEpisodeNotes":
         result = await updateEpisodeNotes(ctx, body.visitId!, body.notes!);
+        break;
+      case "createNurseTask":
+        result = await createNurseTask(ctx, body.visitId!, { title: body.title!, assignedBy: body.assignedBy });
+        break;
+      case "updateNurseTaskStatus":
+        result = await updateNurseTaskStatus(ctx, body.visitId!, body.taskId!, body.status!, body.notes);
+        break;
+      case "saveDischargeSummary":
+        result = await saveDischargeSummary(ctx, body.visitId!, body.summary!);
+        break;
+      case "createNursePharmacyOrder":
+        result = await createNursePharmacyOrder(ctx, body.visitId!, {
+          patientName: body.patientName!,
+          uhid: body.uhid!,
+          lines: body.lines!,
+          priority: body.priority,
+        });
         break;
       default:
         return NextResponse.json({ ok: false, error: `Unknown operation: ${op}` }, { status: 400 });

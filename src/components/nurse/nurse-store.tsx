@@ -7,6 +7,7 @@ import {
   queueWaitMinutes,
   requiredConsentsComplete,
   type ConsentRecord,
+  type DischargeSummary,
   type NursingEpisode,
   type NursingHandoffPayload,
   type VitalsRecord,
@@ -84,6 +85,26 @@ type NurseStoreValue = {
   ) => Promise<{ ok: boolean; error?: string; nextSessionNumber?: number }>;
   completeEpisode: (visitId: string) => Promise<{ ok: boolean; error?: string }>;
   updateEpisodeNotes: (visitId: string, notes: string) => Promise<void>;
+  createTask: (visitId: string, title: string, assignedBy?: string) => Promise<{ ok: boolean; error?: string }>;
+  updateTaskStatus: (
+    visitId: string,
+    taskId: string,
+    status: "pending" | "in_progress" | "completed",
+    notes?: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  saveDischargeSummary: (
+    visitId: string,
+    summary: Omit<DischargeSummary, "preparedBy" | "preparedAt">,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  createPharmacyOrder: (
+    visitId: string,
+    input: {
+      patientName: string;
+      uhid: string;
+      lines: Array<{ drug: string; dose: string; frequency: string; duration: string; instructions?: string }>;
+      priority?: "routine" | "urgent" | "stat";
+    },
+  ) => Promise<{ ok: boolean; error?: string; rxId?: string }>;
   getDashboardKpis: () => { label: string; value: string; delta: string; trend: "up" | "down" | "neutral" }[];
   getAnalytics: () => {
     consentRate: number;
@@ -326,6 +347,50 @@ export function NurseStoreProvider({ children }: { children: ReactNode }) {
       updateEpisodeNotes: async (visitId, notes) => {
         await nurseMutate({ op: "updateEpisodeNotes", visitId, notes });
         await refresh({ silent: true });
+      },
+      createTask: async (visitId, title, assignedBy) => {
+        try {
+          const res = await nurseMutate({ op: "createNurseTask", visitId, title, assignedBy });
+          if (!res.ok) return { ok: false, error: res.error };
+          await refresh({ silent: true });
+          return { ok: true };
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Something went wrong.";
+          return { ok: false, error: msg };
+        }
+      },
+      updateTaskStatus: async (visitId, taskId, status, notes) => {
+        try {
+          const res = await nurseMutate({ op: "updateNurseTaskStatus", visitId, taskId, status, notes });
+          if (!res.ok) return { ok: false, error: res.error };
+          await refresh({ silent: true });
+          return { ok: true };
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Something went wrong.";
+          return { ok: false, error: msg };
+        }
+      },
+      saveDischargeSummary: async (visitId, summary) => {
+        try {
+          const res = await nurseMutate({ op: "saveDischargeSummary", visitId, summary });
+          if (!res.ok) return { ok: false, error: res.error };
+          await refresh({ silent: true });
+          return { ok: true };
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Something went wrong.";
+          return { ok: false, error: msg };
+        }
+      },
+      createPharmacyOrder: async (visitId, input) => {
+        try {
+          const res = await nurseMutate({ op: "createNursePharmacyOrder", visitId, ...input });
+          if (!res.ok) return { ok: false, error: res.error };
+          await refresh({ silent: true });
+          return { ok: true, rxId: res.data?.rxId };
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Something went wrong.";
+          return { ok: false, error: msg };
+        }
       },
       getDashboardKpis: () => {
         const queue = getFilteredQueue();

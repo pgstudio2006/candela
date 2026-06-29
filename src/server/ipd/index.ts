@@ -167,8 +167,16 @@ export async function admitPatient(ctx: ServerContext, input: IpdAdmissionInput)
       department: input.departmentId ?? "dept_spine",
     });
     validateFrontdeskInput(registerPatientSchema, normalized);
-    const currentSnapshot = await prisma.patient.count({ where: { tenantId: scope.tenantId, branchId: scope.branchId } });
-    const uhid = nextUhid(currentSnapshot + 1);
+    const maxUhid = await prisma.patient.findMany({
+      where: { tenantId: scope.tenantId },
+      select: { uhid: true },
+    });
+    const uhidCounter = Math.max(0, ...maxUhid.map((p) => {
+      const suffix = p.uhid.split("-").pop() ?? "";
+      const parsed = Number(suffix);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }));
+    const uhid = nextUhid(uhidCounter + 1);
     const name = String(normalized.fullName ?? "").trim() || "New Patient";
     patientName = name;
 

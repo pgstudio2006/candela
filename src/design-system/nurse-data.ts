@@ -82,6 +82,31 @@ export type TreatmentSession = {
   notes?: string;
 };
 
+export type NurseTaskStatus = "pending" | "in_progress" | "completed";
+
+export type NurseTask = {
+  id: string;
+  visitId: string;
+  title: string;
+  status: NurseTaskStatus;
+  assignedBy: string;
+  assignedAt: string;
+  completedAt?: string;
+  notes?: string;
+};
+
+export type DischargeSummary = {
+  admissionDate: string;
+  dischargeDate: string;
+  diagnosis: string;
+  procedures: string;
+  medications: string;
+  followUp: string;
+  notes: string;
+  preparedBy: string;
+  preparedAt: string;
+};
+
 export type NursingEpisode = {
   id: string;
   visitId: string;
@@ -103,6 +128,8 @@ export type NursingEpisode = {
   consents: ConsentRecord[];
   sessions: TreatmentSession[];
   internalNotes: string;
+  tasks: NurseTask[];
+  dischargeSummary?: DischargeSummary;
   completedAt?: string;
 };
 

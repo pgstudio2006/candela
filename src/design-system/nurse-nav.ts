@@ -1,10 +1,13 @@
 import {
   Activity,
   FileCheck,
+  FileText,
   LayoutDashboard,
   ListOrdered,
+  Pill,
   ScrollText,
   Settings,
+  StickyNote,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -19,7 +22,10 @@ export type NurseNavItem = {
 export const NURSE_NAV: NurseNavItem[] = [
   { id: "dashboard", label: "Dashboard", href: "/app/nurse", icon: LayoutDashboard },
   { id: "queue", label: "Execution queue", href: "/app/nurse/queue", icon: ListOrdered },
-  { id: "patients", label: "Patients", href: "/app/nurse/patients", icon: Users },
+  { id: "patients", label: "My patients", href: "/app/nurse/patients", icon: Users },
+  { id: "tasks", label: "Doctor tasks", href: "/app/nurse/tasks", icon: StickyNote },
+  { id: "pharmacy", label: "Pharmacy orders", href: "/app/nurse/pharmacy", icon: Pill },
+  { id: "discharge", label: "Discharge summary", href: "/app/nurse/discharge", icon: FileText },
   { id: "consent", label: "Consent registry", href: "/app/nurse/consent", icon: FileCheck },
   { id: "analytics", label: "Analytics", href: "/app/nurse/analytics", icon: Activity },
   { id: "audit", label: "Audit log", href: "/app/nurse/audit", icon: ScrollText },

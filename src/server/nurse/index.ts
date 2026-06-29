@@ -1,5 +1,7 @@
 import type {
   ConsentRecord,
+  DischargeSummary,
+  NurseTask,
   NursingEpisode,
   NursingHandoffPayload,
   TreatmentSession,
@@ -20,6 +22,7 @@ import {
 } from "@/lib/nurse-validation";
 import { prisma } from "@/lib/prisma";
 import { getClinicalSnapshot } from "@/server/clinical";
+import { createNursePharmacyOrder as createNursePharmacyOrderInPharmacy } from "@/server/pharmacy";
 import type { ServerContext } from "@/server/context";
 import { ServerActionError } from "@/server/errors";
 import { resolveNurseOperator } from "@/server/module-operator";
@@ -103,6 +106,8 @@ function asEpisode(row: {
   consents: unknown;
   sessions: unknown;
   internalNotes: string;
+  tasks: unknown;
+  dischargeSummary: unknown;
   completedAt: string | null;
 }): NursingEpisode {
   return {
@@ -126,6 +131,8 @@ function asEpisode(row: {
     consents: (Array.isArray(row.consents) ? row.consents : []) as ConsentRecord[],
     sessions: (Array.isArray(row.sessions) ? row.sessions : []) as TreatmentSession[],
     internalNotes: row.internalNotes,
+    tasks: (Array.isArray(row.tasks) ? row.tasks : []) as NurseTask[],
+    dischargeSummary: row.dischargeSummary ? (row.dischargeSummary as DischargeSummary) : undefined,
     completedAt: row.completedAt ?? undefined,
   };
 }
@@ -257,6 +264,8 @@ export async function claimEpisode(ctx: ServerContext, visitId: string): Promise
       consents: buildConsents(handoff),
       sessions: buildInitialSessions(handoff),
       internalNotes: "",
+      tasks: [],
+      dischargeSummary: undefined,
     },
   });
 
@@ -660,6 +669,140 @@ export async function updateEpisodeNotes(ctx: ServerContext, visitId: string, no
     where: { visitId },
     data: { internalNotes: notes.slice(0, 4000) },
   });
+}
+
+export async function createNursePharmacyOrder(
+  ctx: ServerContext,
+  visitId: string,
+  input: {
+    patientName: string;
+    uhid: string;
+    lines: Array<{ drug: string; dose: string; frequency: string; duration: string; instructions?: string }>;
+    priority?: "routine" | "urgent" | "stat";
+  },
+) {
+  const { operatorId, operatorName } = await resolveNurseOperator(ctx);
+  const episodeRow = await assertNurseOwnsEpisode(ctx, visitId, operatorId);
+  const episode = asEpisode(episodeRow);
+  if (!input.lines.length) {
+    throw new ServerActionError("VALIDATION", "Add at least one medicine line.");
+  }
+  const rxId = await createNursePharmacyOrderInPharmacy(ctx, {
+    visitId,
+    patientName: input.patientName,
+    uhid: input.uhid,
+    nurseName: operatorName,
+    lines: input.lines,
+    priority: input.priority,
+  });
+  await writePlatformAudit({
+    ctx,
+    module: "nurse",
+    action: "pharmacy_order_created",
+    entityType: "visit",
+    entityId: visitId,
+    summary: `IPD pharmacy order created by ${operatorName} for ${input.patientName}`,
+    payload: { rxId, lineCount: input.lines.length },
+  });
+  return { rxId, episodeId: episode.id };
+}
+
+export async function createNurseTask(
+  ctx: ServerContext,
+  visitId: string,
+  input: { title: string; assignedBy?: string },
+): Promise<NurseTask> {
+  const { operatorId, operatorName } = await resolveNurseOperator(ctx);
+  const episodeRow = await assertNurseOwnsEpisode(ctx, visitId, operatorId);
+  const episode = asEpisode(episodeRow);
+  const task: NurseTask = {
+    id: `nt_${visitId}_${Date.now()}`,
+    visitId,
+    title: input.title.trim().slice(0, 200),
+    status: "pending",
+    assignedBy: input.assignedBy?.trim().slice(0, 120) || episode.doctorName || "Doctor",
+    assignedAt: new Date().toISOString(),
+  };
+  const tasks = [...episode.tasks, task];
+  await prisma.nursingEpisode.update({
+    where: { visitId },
+    data: { tasks },
+  });
+  await writePlatformAudit({
+    ctx,
+    module: "nurse",
+    action: "task_created",
+    entityType: "visit",
+    entityId: visitId,
+    summary: `Task added by ${operatorName}: ${task.title}`,
+    payload: { taskId: task.id },
+  });
+  return task;
+}
+
+export async function updateNurseTaskStatus(
+  ctx: ServerContext,
+  visitId: string,
+  taskId: string,
+  status: NurseTask["status"],
+  notes?: string,
+): Promise<NurseTask> {
+  const { operatorId, operatorName } = await resolveNurseOperator(ctx);
+  const episodeRow = await assertNurseOwnsEpisode(ctx, visitId, operatorId);
+  const episode = asEpisode(episodeRow);
+  const task = episode.tasks.find((t) => t.id === taskId);
+  if (!task) {
+    throw new ServerActionError("NOT_FOUND", "Task not found in this episode.");
+  }
+  const updated: NurseTask = {
+    ...task,
+    status,
+    completedAt: status === "completed" ? new Date().toISOString() : task.completedAt,
+    notes: notes?.trim().slice(0, 500) || task.notes,
+  };
+  const tasks = episode.tasks.map((t) => (t.id === taskId ? updated : t));
+  await prisma.nursingEpisode.update({
+    where: { visitId },
+    data: { tasks },
+  });
+  await writePlatformAudit({
+    ctx,
+    module: "nurse",
+    action: "task_updated",
+    entityType: "visit",
+    entityId: visitId,
+    summary: `Task ${status} by ${operatorName}: ${task.title}`,
+    payload: { taskId, status },
+  });
+  return updated;
+}
+
+export async function saveDischargeSummary(
+  ctx: ServerContext,
+  visitId: string,
+  summary: Omit<DischargeSummary, "preparedBy" | "preparedAt">,
+): Promise<DischargeSummary> {
+  const { operatorId, operatorName } = await resolveNurseOperator(ctx);
+  await assertNurseOwnsEpisode(ctx, visitId, operatorId);
+  const record: DischargeSummary = {
+    ...summary,
+    preparedBy: operatorName,
+    preparedAt: new Date().toISOString(),
+  };
+  await prisma.nursingEpisode.update({
+    where: { visitId },
+    data: { dischargeSummary: record },
+  });
+  await writePlatformAudit({
+    ctx,
+    module: "nurse",
+    action: "discharge_summary_saved",
+    entityType: "visit",
+    entityId: visitId,
+    summary: `Discharge summary prepared by ${operatorName}`,
+    payload: { dischargeDate: record.dischargeDate },
+  });
+  return record;
 }
 
 export async function listNurseAuditLogs(
