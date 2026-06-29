@@ -25,6 +25,7 @@ export default function AdminPatientDetailPage() {
   const [error, setError] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [warning, setWarning] = useState("");
   const [selectedForm, setSelectedForm] = useState<AdminPatientHistory["formSubmissions"][number] | null>(null);
 
   const load = useCallback(async () => {
@@ -34,13 +35,16 @@ export default function AdminPatientDetailPage() {
       const result = await getAdminPatientHistoryAction(patientId);
       if (result.ok) {
         setHistory(result.data);
+        setWarning(result.data.warning ?? "");
       } else {
         setError(result.error);
         setHistory(null);
+        setWarning("");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load patient record.");
       setHistory(null);
+      setWarning("");
     } finally {
       setLoading(false);
     }
@@ -111,6 +115,12 @@ export default function AdminPatientDetailPage() {
         <ArrowLeft className="size-4" />
         All patients
       </Link>
+
+      {warning && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900">
+          {warning} Some sections may be incomplete.
+        </div>
+      )}
 
       {confirmDelete && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3">

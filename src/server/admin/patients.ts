@@ -55,6 +55,7 @@ export type AdminPatientHistory = {
     status: string;
     doctorName: string | null;
   }[];
+  warning: string | null;
 };
 
 export async function searchAdminPatients(
@@ -137,36 +138,58 @@ export async function getAdminPatientHistory(
     throw new ServerActionError("NOT_FOUND", "Patient not found in this hospital.");
   }
 
+  const warnings: string[] = [];
+
+  async function safeQuery<T extends unknown[]>(label: string, fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (err) {
+      console.error(`[getAdminPatientHistory] ${label} failed for patient ${patientId}:`, err);
+      warnings.push(`Could not load ${label}.`);
+      return [] as unknown as T;
+    }
+  }
+
   const [visits, invoices, submissions, appointments] = await Promise.all([
-    prisma.opdVisit.findMany({
-      where: { patientId, ...tenantWhere },
-      orderBy: { createdAt: "desc" },
-      take: 100,
-    }),
-    prisma.invoice.findMany({
-      where: { patientId, tenantId: ctx.tenantId },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    }),
-    prisma.formSubmission.findMany({
-      where: { patientId },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    }),
-    prisma.appointment.findMany({
-      where: { patientId, ...tenantWhere },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    }),
+    safeQuery("visits", () =>
+      prisma.opdVisit.findMany({
+        where: { patientId, ...tenantWhere },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+      }),
+    ),
+    safeQuery("invoices", () =>
+      prisma.invoice.findMany({
+        where: { patientId, tenantId: ctx.tenantId },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      }),
+    ),
+    safeQuery("forms", () =>
+      prisma.formSubmission.findMany({
+        where: { patientId },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      }),
+    ),
+    safeQuery("appointments", () =>
+      prisma.appointment.findMany({
+        where: { patientId, ...tenantWhere },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      }),
+    ),
   ]);
 
   const visitIds = visits.map((v) => v.id);
   const consultations = visitIds.length
-    ? await prisma.consultNote.findMany({
-        where: { visitId: { in: visitIds } },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-      })
+    ? await safeQuery("consultations", () =>
+        prisma.consultNote.findMany({
+          where: { visitId: { in: visitIds } },
+          orderBy: { createdAt: "desc" },
+          take: 50,
+        }),
+      )
     : [];
 
   const patient = mapPrismaPatientRow(patientRow);
@@ -237,6 +260,7 @@ export async function getAdminPatientHistory(
       status: a.status,
       doctorName: a.doctorName,
     })),
+    warning: warnings.length ? warnings.join(" ") : null,
   };
 }
 
