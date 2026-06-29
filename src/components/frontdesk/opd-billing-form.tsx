@@ -92,8 +92,6 @@ export function OpdBillingForm({
     loadData();
   }, []);
 
-  const branchGroup = branchId ? (branchId.toLowerCase().includes("gurgaon") || branchId.toLowerCase().includes("ggn") ? "gurgaon" : "pataudi_pune") : "pataudi_pune";
-
   const [lines, setLines] = useState<SelectedLine[]>([]);
   const [discountMode, setDiscountMode] = useState<"amount" | "percent">("amount");
   const [discount, setDiscount] = useState(0);
@@ -228,9 +226,7 @@ export function OpdBillingForm({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-[12px] text-[var(--attio-text-tertiary)]">
               Price list:{" "}
-              <strong className="text-[var(--attio-text)]">
-                {branchGroup === "gurgaon" ? "Gurgaon Centre" : "Pataudi / Pune"}
-              </strong>
+              <strong className="text-[var(--attio-text)]">Admin defined</strong>
               {branchName ? ` · ${branchName}` : ""}
             </p>
             <label className="flex items-center gap-2 text-[12px]">

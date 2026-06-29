@@ -142,7 +142,7 @@ export function SessionWorkspace({ visitId }: SessionWorkspaceProps) {
       label: service.label,
       amount: service.amount,
       quantity: 1,
-      gstPercent: 18,
+      gstPercent: (service as any).gstPercent ?? 0,
     }]);
   };
 

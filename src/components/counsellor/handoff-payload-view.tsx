@@ -3,7 +3,6 @@
 import { Panel, StatusBadge } from "@/components/frontdesk/ui";
 import type { Patient, Visit } from "@/design-system/frontdesk-data";
 import type { CounsellorQueueItem } from "@/design-system/doctor-data";
-import { CARE_PACKAGES } from "@/design-system/counsellor-data";
 import { fieldEntries, humanizeFieldKey, scribeLanguageLabel } from "@/lib/doctor-records";
 import { ShieldCheck } from "lucide-react";
 
@@ -15,7 +14,7 @@ type HandoffPayloadViewProps = {
 
 export function HandoffPayloadView({ item, patient, visit }: HandoffPayloadViewProps) {
   const c = item.payload;
-  const recommendedPkg = CARE_PACKAGES.find((p) => p.id === (item.packageId || c.handoff?.packageId || c.packageId));
+  const recommendedPkgLabel = item.packageLabel || (c.handoff?.packageId ? String(c.handoff.packageId) : c.packageId ? String(c.packageId) : "—");
 
   return (
     <div className="space-y-4">
@@ -32,7 +31,7 @@ export function HandoffPayloadView({ item, patient, visit }: HandoffPayloadViewP
           <div><dt className="text-[var(--attio-text-tertiary)]">Billing</dt><dd><StatusBadge label={visit.billing} variant={visit.billing === "paid" ? "success" : "warning"} /></dd></div>
           {visit.deferredReason && <div className="sm:col-span-2 text-amber-800">Deferred: {visit.deferredReason}</div>}
           <div><dt className="text-[var(--attio-text-tertiary)]">Priority</dt><dd><StatusBadge label={item.priority} variant={item.priority === "high" ? "warning" : "neutral"} /></dd></div>
-          {recommendedPkg && <div className="sm:col-span-2"><dt className="text-[var(--attio-text-tertiary)]">Doctor recommended package</dt><dd className="font-medium text-[var(--attio-accent)]">{recommendedPkg.label} · ₹{recommendedPkg.amount.toLocaleString("en-IN")}</dd></div>}
+          {item.packageId && <div className="sm:col-span-2"><dt className="text-[var(--attio-text-tertiary)]">Doctor recommended package</dt><dd className="font-medium text-[var(--attio-accent)]">{recommendedPkgLabel}</dd></div>}
         </dl>
       </Panel>
 

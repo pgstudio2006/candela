@@ -43,12 +43,5 @@ export function validateCompleteConsultation(
     throw new ServerActionError("VALIDATION", "Treatment plan is required.");
   }
 
-  if (parsed.data.recommendCounsellor && !parsed.data.skipCounsellor) {
-    const pkg = String(parsed.data.handoff.packageId ?? "").trim();
-    if (!pkg) {
-      throw new ServerActionError("VALIDATION", "Select a package for counsellor handoff.");
-    }
-  }
-
   return parsed.data;
 }

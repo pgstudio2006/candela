@@ -7,7 +7,7 @@ import type {
   PrescriptionLine,
   TreatmentMode,
 } from "@/design-system/doctor-data";
-import { CARE_PACKAGES, DEMO_DOCTOR_ID } from "@/design-system/doctor-data";
+import { DEMO_DOCTOR_ID } from "@/design-system/doctor-data";
 import type { Patient, Visit } from "@/design-system/frontdesk-data";
 import type { DocumentTemplate } from "@/design-system/document-templates";
 import { validateCompleteConsultation } from "@/lib/doctor-validation";
@@ -107,16 +107,24 @@ export type DoctorSnapshot = {
   counsellorQueue: CounsellorQueueItem[];
   ipdPatients: IpdPatient[];
   templates: DoctorTemplate[];
-  packages: typeof CARE_PACKAGES;
+  packages: Array<{ id: string; label: string; amount: number; sessions: number; dept: string }>;
   documentTemplates: DocumentTemplate[];
   juniorSubmissions: JuniorExamSubmission[];
 };
 
 async function loadCarePackages() {
-  const depts = await prisma.adminDepartment.findMany({ where: { active: true } });
-  const ids = new Set(depts.flatMap((d) => (Array.isArray(d.defaultPackageIds) ? d.defaultPackageIds : [])));
-  const fromSeed = CARE_PACKAGES.filter((p) => ids.has(p.id) || ids.size === 0);
-  return fromSeed.length ? fromSeed : CARE_PACKAGES;
+  const adminPackages = await prisma.package.findMany({
+    where: { active: true },
+    include: { services: { include: { service: true } } },
+    orderBy: { amount: "asc" },
+  });
+  return adminPackages.map((pkg) => ({
+    id: pkg.id,
+    label: pkg.label,
+    amount: Number(pkg.amount),
+    sessions: pkg.sessions ?? 6,
+    dept: pkg.dept ?? "dept_general",
+  }));
 }
 
 export async function getDoctorSnapshot(

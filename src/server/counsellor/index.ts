@@ -7,7 +7,6 @@ import type {
 } from "@/design-system/counsellor-data";
 import { DEFAULT_DISCOUNT_POLICY } from "@/design-system/counsellor-data";
 import type { ConsultationRecord, CounsellorQueueItem, TreatmentMode } from "@/design-system/doctor-data";
-import { CARE_PACKAGES } from "@/design-system/doctor-data";
 import type { Patient, Visit } from "@/design-system/frontdesk-data";
 import { mapPrismaPatientRow } from "@/lib/frontdesk-workflow";
 import { validateCompleteCounselSession } from "@/lib/counsellor-validation";
@@ -64,11 +63,7 @@ async function loadCarePackages() {
     }));
   }
 
-  // Fallback to seed data if no admin packages exist
-  const depts = await prisma.adminDepartment.findMany({ where: { active: true } });
-  const ids = new Set(depts.flatMap((d) => (Array.isArray(d.defaultPackageIds) ? d.defaultPackageIds : [])));
-  const fromSeed = CARE_PACKAGES.filter((p) => ids.has(p.id) || ids.size === 0);
-  return fromSeed.length ? fromSeed : CARE_PACKAGES;
+  return [];
 }
 
 async function readPrefs(ctx: ServerContext): Promise<CounsellorPrefs> {
@@ -239,7 +234,7 @@ export type CounsellorSnapshot = {
   approvals: DiscountApproval[];
   approvedDiscounts: DiscountApproval[];
   billingHandoffs: BillingHandoffPayload[];
-  packages: typeof CARE_PACKAGES;
+  packages: Array<{ id: string; label: string; amount: number; sessions: number; dept: string; lineItems?: Array<{ id: string; label: string; amount: number; quantity: number }> }>;
   discountPolicy: DiscountPolicy;
   seniorMode: boolean;
   activeCounsellorId: string;

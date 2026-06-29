@@ -17,9 +17,15 @@ export async function getIcdOptionsAction() {
 export async function getCarePackagesAction() {
   const session = await auth();
   if (!session?.user) return [];
-  const { CARE_PACKAGES } = await import("@/design-system/doctor-data");
-  const depts = await prisma.adminDepartment.findMany({ where: { active: true } });
-  const ids = new Set(depts.flatMap((d) => (Array.isArray(d.defaultPackageIds) ? d.defaultPackageIds : [])));
-  const fromSeed = CARE_PACKAGES.filter((p) => ids.has(p.id) || ids.size === 0);
-  return fromSeed.length ? fromSeed : CARE_PACKAGES;
+  const packages = await prisma.package.findMany({
+    where: { active: true },
+    orderBy: { amount: "asc" },
+  });
+  return packages.map((pkg) => ({
+    id: pkg.id,
+    label: pkg.label,
+    amount: Number(pkg.amount),
+    sessions: pkg.sessions ?? 6,
+    dept: pkg.dept ?? "dept_general",
+  }));
 }

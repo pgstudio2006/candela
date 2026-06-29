@@ -88,10 +88,10 @@ export type DiscountPolicy = {
 };
 
 export const DEFAULT_DISCOUNT_POLICY: DiscountPolicy = {
-  counsellorMaxPercent: 5,
-  seniorMaxPercent: 10,
-  managerApprovalAbove: 10,
-  requireReasonAbove: 3,
+  counsellorMaxPercent: 100,
+  seniorMaxPercent: 100,
+  managerApprovalAbove: 100,
+  requireReasonAbove: 100,
 };
 
 export type PackageAddon = {
@@ -135,8 +135,8 @@ export const COUNSELLOR_BRANCHES = [
 export const DEMO_COUNSELLOR_ID = "counsellor_1";
 export const DEMO_COUNSELLOR_NAME = "Priya Sharma";
 
-export function packageById(id: string) {
-  return CARE_PACKAGES.find((p) => p.id === id);
+export function packageById(id: string, packages: Array<{ id: string; label: string; amount: number }> = CARE_PACKAGES) {
+  return packages.find((p) => p.id === id);
 }
 
 export function computeQuote(
@@ -144,18 +144,19 @@ export function computeQuote(
   addonIds: string[],
   discountPercent: number,
   customLines: QuoteLineItem[] = [],
+  packages: Array<{ id: string; label: string; amount: number }> = CARE_PACKAGES,
 ): Omit<CounselQuote, "visitId" | "patientId" | "approvalStatus" | "consentCaptured" | "whatsappSent"> {
-  const pkg = packageById(packageId) ?? CARE_PACKAGES[0];
+  const pkg = packageById(packageId, packages) ?? packages[0] ?? { id: packageId, label: packageId, amount: 0 };
   const lineItems: QuoteLineItem[] = [
-    { id: "pkg", label: pkg.label, amount: pkg.amount, quantity: 1, gstPercent: 18, type: "package" },
+    { id: "pkg", label: pkg.label, amount: pkg.amount, quantity: 1, gstPercent: 0, type: "package" },
     ...addonIds
       .map((id) => PACKAGE_ADDONS.find((a) => a.id === id))
       .filter(Boolean)
-      .map((a) => ({ id: a!.id, label: a!.label, amount: a!.amount, quantity: 1, gstPercent: 18, type: "addon" as const })),
+      .map((a) => ({ id: a!.id, label: a!.label, amount: a!.amount, quantity: 1, gstPercent: 0, type: "addon" as const })),
     ...customLines,
   ];
   const grossAmount = lineItems.reduce((s, l) => s + l.amount, 0);
-  const gstAmount = Math.round((grossAmount * 18) / 100);
+  const gstAmount = Math.round((grossAmount * 0) / 100);
   const discountAmount = Math.round((grossAmount * discountPercent) / 100);
   const netAmount = grossAmount + gstAmount - discountAmount;
   return {

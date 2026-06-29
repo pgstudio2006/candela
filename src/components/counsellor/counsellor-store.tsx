@@ -226,7 +226,7 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
       approvedDiscounts: [],
       billingHandoffs: [],
       packages: [],
-      discountPolicy: { counsellorMaxPercent: 5, seniorMaxPercent: 10, managerApprovalAbove: 10, requireReasonAbove: 3 },
+      discountPolicy: { counsellorMaxPercent: 100, seniorMaxPercent: 100, managerApprovalAbove: 100, requireReasonAbove: 100 },
       seniorMode: false,
       activeCounsellorId: "",
       activeCounsellorName: "Counsellor",
@@ -262,7 +262,7 @@ export function CounsellorStoreProvider({ children }: { children: ReactNode }) {
       customLines: CounselQuote["lineItems"] = [],
     ): CounselQuote => {
       const item = getQueueItem(visitId);
-      const base = computeQuote(packageId, addonIds, discountPercent, customLines);
+      const base = computeQuote(packageId, addonIds, discountPercent, customLines, data.packages);
       const limit = maxDiscountPercent();
       let approvalStatus: CounselQuote["approvalStatus"] = "none";
       if (discountPercent > data.discountPolicy.managerApprovalAbove) approvalStatus = "pending";
