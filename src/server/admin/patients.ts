@@ -41,11 +41,11 @@ export type AdminPatientHistory = {
   consultations: {
     id: string;
     visitId: string;
-    doctorId: string;
+    doctorId: string | null;
     status: string;
     startedAt: string;
     completedAt: string | null;
-    notes: string;
+    notes: string | null;
     diagnosisSummary: string;
   }[];
   appointments: {
@@ -137,7 +137,7 @@ export async function getAdminPatientHistory(
     throw new ServerActionError("NOT_FOUND", "Patient not found in this hospital.");
   }
 
-  const [visits, invoices, submissions, appointments, consultations] = await Promise.all([
+  const [visits, invoices, submissions, appointments] = await Promise.all([
     prisma.opdVisit.findMany({
       where: { patientId, ...tenantWhere },
       orderBy: { createdAt: "desc" },
@@ -158,12 +158,16 @@ export async function getAdminPatientHistory(
       orderBy: { createdAt: "desc" },
       take: 50,
     }),
-    prisma.consultation.findMany({
-      where: { patientId },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    }),
   ]);
+
+  const visitIds = visits.map((v) => v.id);
+  const consultations = visitIds.length
+    ? await prisma.consultNote.findMany({
+        where: { visitId: { in: visitIds } },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      })
+    : [];
 
   const patient = mapPrismaPatientRow(patientRow);
 
@@ -218,11 +222,11 @@ export async function getAdminPatientHistory(
       return {
         id: c.id,
         visitId: c.visitId,
-        doctorId: c.doctorId,
+        doctorId: c.doctorId ?? null,
         status: c.status,
-        startedAt: c.startedAt,
-        completedAt: c.completedAt,
-        notes: c.notes,
+        startedAt: c.createdAt.toISOString(),
+        completedAt: null,
+        notes: c.notes ?? null,
         diagnosisSummary,
       };
     }),

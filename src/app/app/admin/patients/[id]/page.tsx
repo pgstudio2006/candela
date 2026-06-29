@@ -30,14 +30,20 @@ export default function AdminPatientDetailPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
-    const result = await getAdminPatientHistoryAction(patientId);
-    if (result.ok) {
-      setHistory(result.data);
-    } else {
-      setError(result.error);
+    try {
+      const result = await getAdminPatientHistoryAction(patientId);
+      if (result.ok) {
+        setHistory(result.data);
+      } else {
+        setError(result.error);
+        setHistory(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load patient record.");
       setHistory(null);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [patientId]);
 
   useEffect(() => {
@@ -204,7 +210,7 @@ export default function AdminPatientDetailPage() {
                   <li key={c.id} className="rounded-lg border border-[var(--attio-border-subtle)] p-3 text-[13px]">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
-                        <p className="font-medium">{c.doctorId.replace(/^dr_/, "").replace(/_/g, " ")}</p>
+                        <p className="font-medium">{(c.doctorId ?? "—").replace(/^dr_/, "").replace(/_/g, " ")}</p>
                         <p className="text-[var(--attio-text-tertiary)]">
                           {c.startedAt.slice(0, 16).replace("T", " ")} · {c.status}
                         </p>
