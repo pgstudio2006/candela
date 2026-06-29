@@ -67,6 +67,10 @@ export type IpdPatient = {
   patientId: string;
   ward: string;
   bed: string;
+  category?: string;
+  patientType?: string;
+  billingMode?: string;
+  expectedDischarge?: string;
   admittedAt: string;
   diagnosis: string;
   attendingDoctorId: string;

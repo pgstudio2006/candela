@@ -24,6 +24,10 @@ export async function backfillBranchScope(ctx: ServerContext) {
     where: unscopedClinicalWhere,
     data: scope,
   });
+  await prisma.ipdAdmission.updateMany({
+    where: unscopedClinicalWhere,
+    data: scope,
+  });
 
   const branchVisitIds = (
     await prisma.opdVisit.findMany({ where: scope, select: { id: true } })

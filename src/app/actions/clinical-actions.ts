@@ -121,10 +121,10 @@ export async function updatePatientAction(
 export async function saveSubmissionAction(
   formId: string,
   data: Record<string, string | number | boolean>,
-  ctx?: { patientId?: string; visitId?: string },
+  link?: { patientId?: string; visitId?: string },
 ) {
-  await requireAuth();
-  return saveSubmission(formId, data, ctx);
+  const ctx = await requireModule("frontdesk");
+  return saveSubmission(ctx, formId, data, link);
 }
 
 export async function getVisitReceiptAction(visitId: string) {

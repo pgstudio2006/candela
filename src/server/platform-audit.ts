@@ -23,6 +23,8 @@ export async function writePlatformAudit(input: PlatformAuditInput) {
   await writeAuditLog({
     actor,
     actorRole,
+    tenantId: input.ctx?.tenantId,
+    branchId: input.ctx?.branchId,
     module: input.module,
     action: input.action,
     entityType: input.entityType,

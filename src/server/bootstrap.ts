@@ -193,13 +193,42 @@ async function seedAdminData() {
   });
 }
 
+async function backfillAdminBranchScope() {
+  const firstTenant = await prisma.tenant.findFirst({ orderBy: { createdAt: "asc" } });
+  if (!firstTenant) return;
+  const firstBranch = await prisma.branch.findFirst({
+    where: { tenantId: firstTenant.id },
+    orderBy: { createdAt: "asc" },
+  });
+  if (!firstBranch) return;
+
+  const where = { tenantId: null, branchId: null };
+  await Promise.all([
+    prisma.adminDepartment.updateMany({ where, data: { tenantId: firstTenant.id, branchId: firstBranch.id } }),
+    prisma.adminDiseaseNode.updateMany({ where, data: { tenantId: firstTenant.id, branchId: firstBranch.id } }),
+    prisma.adminDiseaseCluster.updateMany({ where, data: { tenantId: firstTenant.id, branchId: firstBranch.id } }),
+    prisma.adminGeoPin.updateMany({ where, data: { tenantId: firstTenant.id, branchId: firstBranch.id } }),
+    prisma.adminRevenuePolicy.updateMany({ where, data: { tenantId: firstTenant.id, branchId: firstBranch.id } }),
+    prisma.adminMrdRequest.updateMany({ where, data: { tenantId: firstTenant.id, branchId: firstBranch.id } }),
+    prisma.adminMisReport.updateMany({ where, data: { tenantId: firstTenant.id, branchId: firstBranch.id } }),
+    prisma.adminAuditLog.updateMany({ where, data: { tenantId: firstTenant.id, branchId: firstBranch.id } }),
+    prisma.formSubmission.updateMany({ where, data: { tenantId: firstTenant.id, branchId: firstBranch.id } }),
+    prisma.doctorTemplate.updateMany({ where, data: { tenantId: firstTenant.id, branchId: firstBranch.id } }),
+    prisma.documentTemplate.updateMany({ where: { tenantId: null, branchId: null }, data: { tenantId: firstTenant.id, branchId: firstBranch.id } }),
+    prisma.adminExpense.updateMany({ where: { branchId: null }, data: { branchId: firstBranch.id } }),
+    prisma.ipdAdmission.updateMany({ where, data: { tenantId: firstTenant.id, branchId: firstBranch.id } }),
+  ]);
+}
+
 async function runBootstrap() {
   await ensureHospitalBootstrap();
+  await backfillAdminBranchScope();
   if (!isDemoSeedEnabled()) return;
   await seedCoreData();
   await seedCrmData();
   await seedHrData();
   await seedAdminData();
+  await backfillAdminBranchScope();
 }
 
 export async function ensureBootstrapData() {

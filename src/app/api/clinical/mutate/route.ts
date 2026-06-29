@@ -128,8 +128,8 @@ export async function POST(request: Request) {
         break;
       }
       case "saveSubmission": {
-        await requireAuth();
-        result = await saveSubmission(body.formId!, body.data!, body.ctx);
+        const ctx = await requireModule("frontdesk");
+        result = await saveSubmission(ctx, body.formId!, body.data!, body.ctx);
         break;
       }
       default:

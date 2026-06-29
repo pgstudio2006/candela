@@ -40,7 +40,7 @@ import { ServerActionError } from "@/server/errors";
 import { writePlatformAudit } from "@/server/platform-audit";
 import { withPrismaError } from "@/server/prisma-errors";
 import { backfillBranchScope } from "@/server/branch-scope";
-import { branchClinicalWhere, tenantClinicalWhere } from "@/server/tenancy";
+import { branchClinicalWhere, branchScope, tenantClinicalWhere, tenantScope } from "@/server/tenancy";
 
 export type AdminAuditEvent = {
   id: string;
@@ -242,19 +242,19 @@ export async function getAdminSnapshotForContext(
       },
       orderBy: { name: "asc" },
     }),
-    prisma.adminDepartment.findMany({ orderBy: { label: "asc" } }),
-    prisma.adminDiseaseNode.findMany({ orderBy: { label: "asc" } }),
-    prisma.adminDiseaseCluster.findMany({ orderBy: { caseCount: "desc" } }),
-    prisma.adminGeoPin.findMany({ orderBy: { patientCount: "desc" } }),
+    prisma.adminDepartment.findMany({ where: branchScope(ctx), orderBy: { label: "asc" } }),
+    prisma.adminDiseaseNode.findMany({ where: branchScope(ctx), orderBy: { label: "asc" } }),
+    prisma.adminDiseaseCluster.findMany({ where: branchScope(ctx), orderBy: { caseCount: "desc" } }),
+    prisma.adminGeoPin.findMany({ where: branchScope(ctx), orderBy: { patientCount: "desc" } }),
     prisma.adminExpense.findMany({ where: branchScopedWhere(ctx), orderBy: { date: "desc" } }),
-    prisma.adminRevenuePolicy.findMany({ orderBy: { label: "asc" } }),
-    prisma.adminMrdRequest.findMany({ where: branchScopedWhere(ctx), orderBy: { requestedAt: "desc" } }),
-    prisma.adminMisReport.findMany({ orderBy: { label: "asc" } }),
-    prisma.adminAuditLog.findMany({ orderBy: { at: "desc" }, take: 300 }),
+    prisma.adminRevenuePolicy.findMany({ where: branchScope(ctx), orderBy: { label: "asc" } }),
+    prisma.adminMrdRequest.findMany({ where: branchScope(ctx), orderBy: { requestedAt: "desc" } }),
+    prisma.adminMisReport.findMany({ where: branchScope(ctx), orderBy: { label: "asc" } }),
+    prisma.adminAuditLog.findMany({ where: branchScope(ctx), orderBy: { at: "desc" }, take: 300 }),
     prisma.patient.findMany({ where: tenantWhere, orderBy: { fullName: "asc" }, take: 3000 }),
     prisma.opdVisit.findMany({ where: clinicalWhere, orderBy: { checkInAt: "desc" }, take: 5000 }),
-    prisma.documentTemplate.findMany({ where: { kind: { startsWith: "admin:" } } }),
-    prisma.formSubmission.findMany({ orderBy: { submittedAt: "desc" }, take: 500 }),
+    prisma.documentTemplate.findMany({ where: { ...tenantScope(ctx), kind: { startsWith: "admin:" }, OR: [{ branchId: ctx.branchId }, { branchId: null }] } }),
+    prisma.formSubmission.findMany({ where: branchScope(ctx), orderBy: { submittedAt: "desc" }, take: 500 }),
     prisma.consultation.findMany({ orderBy: { createdAt: "desc" }, take: 500 }),
   ]);
 
@@ -600,7 +600,7 @@ export async function updateDepartment(
     ctx,
     operator,
     async () => {
-      await prisma.adminDepartment.update({ where: { id: idValue }, data: patch });
+      await prisma.adminDepartment.update({ where: { id: idValue, tenantId: ctx.tenantId, branchId: ctx.branchId }, data: patch });
     },
     {
       module: "admin",
@@ -625,7 +625,7 @@ export async function addDepartment(
     ctx,
     operator,
     async () => {
-      await prisma.adminDepartment.create({ data: { id: newId, ...input } });
+      await prisma.adminDepartment.create({ data: { id: newId, ...input, tenantId: ctx.tenantId, branchId: ctx.branchId } });
     },
     {
       module: "admin",
@@ -647,7 +647,7 @@ export async function removeDepartment(
     ctx,
     operator,
     async () => {
-      await prisma.adminDepartment.delete({ where: { id: idValue } });
+      await prisma.adminDepartment.delete({ where: { id: idValue, tenantId: ctx.tenantId, branchId: ctx.branchId } });
       const branchStaff = await prisma.adminStaff.findMany({
         where: { branchId: ctx.branchId },
       });
@@ -681,7 +681,7 @@ export async function updateDiseaseNode(
     ctx,
     operator,
     async () => {
-      await prisma.adminDiseaseNode.update({ where: { id: idValue }, data: patch });
+      await prisma.adminDiseaseNode.update({ where: { id: idValue, tenantId: ctx.tenantId, branchId: ctx.branchId }, data: patch });
     },
     {
       module: "admin",
@@ -705,7 +705,7 @@ export async function addDiseaseNode(
     ctx,
     operator,
     async () => {
-      await prisma.adminDiseaseNode.create({ data: { id: newId, ...input } });
+      await prisma.adminDiseaseNode.create({ data: { id: newId, ...input, tenantId: ctx.tenantId, branchId: ctx.branchId } });
     },
     {
       module: "admin",
@@ -727,7 +727,7 @@ export async function removeDiseaseNode(
     ctx,
     operator,
     async () => {
-      await prisma.adminDiseaseNode.delete({ where: { id: idValue } });
+      await prisma.adminDiseaseNode.delete({ where: { id: idValue, tenantId: ctx.tenantId, branchId: ctx.branchId } });
     },
     {
       module: "admin",
@@ -778,7 +778,7 @@ export async function approveExpense(
     operator,
     async () => {
       await prisma.adminExpense.update({
-        where: { id: idValue },
+        where: { id: idValue, branchId: ctx.branchId },
         data: { status: approved ? "approved" : "rejected" },
       });
     },
@@ -804,7 +804,7 @@ export async function updateRevenuePolicy(
     ctx,
     operator,
     async () => {
-      await prisma.adminRevenuePolicy.update({ where: { id: idValue }, data: patch });
+      await prisma.adminRevenuePolicy.update({ where: { id: idValue, tenantId: ctx.tenantId, branchId: ctx.branchId }, data: patch });
     },
     {
       module: "admin",
@@ -828,7 +828,7 @@ export async function addRevenuePolicy(
     ctx,
     operator,
     async () => {
-      await prisma.adminRevenuePolicy.create({ data: { id: newId, ...input } });
+      await prisma.adminRevenuePolicy.create({ data: { id: newId, ...input, tenantId: ctx.tenantId, branchId: ctx.branchId } });
     },
     {
       module: "admin",
@@ -851,7 +851,7 @@ export async function updateMrdStatus(
     ctx,
     operator,
     async () => {
-      await prisma.adminMrdRequest.update({ where: { id: idValue }, data: { status } });
+      await prisma.adminMrdRequest.update({ where: { id: idValue, tenantId: ctx.tenantId, branchId: ctx.branchId }, data: { status } });
     },
     {
       module: "mrd",
@@ -879,6 +879,7 @@ export async function addMrdRequest(
         data: {
           id: newId,
           ...input,
+          tenantId: ctx.tenantId,
           branchId: ctx.branchId,
           requestedAt: new Date().toISOString(),
           status: "pending",
@@ -901,7 +902,7 @@ export async function runMisReport(
   idValue: string,
 ): Promise<{ snapshot: AdminSnapshot; csv: string; filename: string }> {
   assertNotViewer(operator);
-  const report = await prisma.adminMisReport.findUnique({ where: { id: idValue } });
+  const report = await prisma.adminMisReport.findUnique({ where: { id: idValue, tenantId: ctx.tenantId, branchId: ctx.branchId } });
   const visitCount = await prisma.opdVisit.count({ where: { branchId: ctx.branchId } });
   const revenue = await prisma.invoice.aggregate({
     where: { branchId: ctx.branchId },
@@ -915,7 +916,7 @@ export async function runMisReport(
   const filename = `mis-${(report?.label ?? idValue).replace(/\s+/g, "-").toLowerCase()}.csv`;
 
   await prisma.adminMisReport.update({
-    where: { id: idValue },
+    where: { id: idValue, tenantId: ctx.tenantId, branchId: ctx.branchId },
     data: { lastRun: new Date().toISOString() },
   });
 
@@ -1039,6 +1040,8 @@ export async function saveDocumentTemplate(
       description: input.description ?? "",
       enabled: input.enabled ?? true,
       isSystem: false,
+      tenantId: ctx.tenantId,
+      branchId: ctx.branchId,
     },
     create: {
       id: templateId,
@@ -1048,6 +1051,8 @@ export async function saveDocumentTemplate(
       description: input.description ?? "",
       enabled: input.enabled ?? true,
       isSystem: false,
+      tenantId: ctx.tenantId,
+      branchId: ctx.branchId,
     },
   });
   await writePlatformAudit({

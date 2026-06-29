@@ -1,12 +1,18 @@
 import { prisma } from "@/lib/prisma";
+import type { ServerContext } from "@/server/context";
 
 /** Remove a patient and dependent clinical/financial rows (admin or demo purge). */
-export async function deletePatientsByIds(patientIds: string[]): Promise<number> {
+export async function deletePatientsByIds(
+  patientIds: string[],
+  ctx?: ServerContext,
+): Promise<number> {
   if (!patientIds.length) return 0;
+
+  const scope = ctx ? { tenantId: ctx.tenantId, branchId: ctx.branchId } : {};
 
   const visitIds = (
     await prisma.opdVisit.findMany({
-      where: { patientId: { in: patientIds } },
+      where: { patientId: { in: patientIds }, ...scope },
       select: { id: true },
     })
   ).map((v) => v.id);
@@ -23,7 +29,7 @@ export async function deletePatientsByIds(patientIds: string[]): Promise<number>
     await prisma.consultNote.deleteMany({ where: { visitId: { in: visitIds } } }).catch(() => undefined);
   }
   await prisma.formSubmission
-    .deleteMany({ where: { patientId: { in: patientIds } } })
+    .deleteMany({ where: { patientId: { in: patientIds }, ...scope } })
     .catch(() => undefined);
   await prisma.queue.deleteMany({ where: { patientId: { in: patientIds } } }).catch(() => undefined);
   await prisma.consent.deleteMany({ where: { patientId: { in: patientIds } } }).catch(() => undefined);

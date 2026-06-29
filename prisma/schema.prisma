@@ -112,6 +112,17 @@ model Branch {
   misAggregates  MisAggregate[]
   serviceCharges ServiceCharge[]
   counsellorCommissions CounsellorCommission[]
+  adminDepartments   AdminDepartment[]
+  adminDiseaseNodes  AdminDiseaseNode[]
+  adminDiseaseClusters AdminDiseaseCluster[]
+  adminGeoPins       AdminGeoPin[]
+  adminRevenuePolicies AdminRevenuePolicy[]
+  adminMrdRequests   AdminMrdRequest[]
+  adminMisReports    AdminMisReport[]
+  adminAuditLogs     AdminAuditLog[]
+  doctorTemplates    DoctorTemplate[]
+  formSubmissions    FormSubmission[]
+  ipdAdmissions      IpdAdmission[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -1293,6 +1304,8 @@ model MisAggregate {
 
 model FormSubmission {
   id          String   @id
+  tenantId    String?
+  branchId    String?
   formId      String
   patientId   String?
   visitId     String?
@@ -1300,6 +1313,9 @@ model FormSubmission {
   submittedAt String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  branch      Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, branchId, formId])
 }
 
 model Consultation {
@@ -1333,6 +1349,8 @@ model Consultation {
 
 model DoctorTemplate {
   id           String   @id
+  tenantId     String?
+  branchId     String?
   label        String
   doctorId     String
   disease      String
@@ -1342,14 +1360,23 @@ model DoctorTemplate {
   isSystem     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  branch       Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, branchId, doctorId])
 }
 
 model IpdAdmission {
   id                String   @id
+  tenantId          String?
+  branchId          String?
   visitId           String   @unique
   patientId         String
   ward              String
   bed               String
+  category          String?
+  patientType       String?
+  billingMode       String?
+  expectedDischarge String?
   admittedAt        String
   diagnosis         String
   attendingDoctorId String
@@ -1358,6 +1385,9 @@ model IpdAdmission {
   status            String
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+  branch            Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, branchId, status])
 }
 
 model NursingHandoff {
@@ -1649,6 +1679,8 @@ model AdminStaff {
 
 model AdminDepartment {
   id                String   @id
+  tenantId          String?
+  branchId          String?
   label             String
   headStaffId       String?
   doctorIds         Json
@@ -1658,10 +1690,15 @@ model AdminDepartment {
   active            Boolean  @default(true)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+  branch            Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, branchId, active])
 }
 
 model AdminDiseaseNode {
   id                 String   @id
+  tenantId           String?
+  branchId           String?
   icd                String
   label              String
   departmentId       String
@@ -1671,10 +1708,15 @@ model AdminDiseaseNode {
   billingTemplateId  String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+  branch             Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, branchId, departmentId])
 }
 
 model AdminGeoPin {
   id           String   @id
+  tenantId     String?
+  branchId     String?
   pincode      String
   city         String
   lat          Float
@@ -1687,10 +1729,15 @@ model AdminGeoPin {
   severity     String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  branch       Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, branchId, city])
 }
 
 model AdminDiseaseCluster {
   id           String   @id
+  tenantId     String?
+  branchId     String?
   locality     String
   lat          Float
   lng          Float
@@ -1700,6 +1747,9 @@ model AdminDiseaseCluster {
   surgePercent Int?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  branch       Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, branchId, caseCount])
 }
 
 model AdminExpense {
@@ -1720,6 +1770,8 @@ model AdminExpense {
 
 model AdminRevenuePolicy {
   id                String   @id
+  tenantId          String?
+  branchId          String?
   label             String
   departmentId      String
   doctorId          String?
@@ -1730,10 +1782,14 @@ model AdminRevenuePolicy {
   active            Boolean  @default(true)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+  branch            Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, branchId, active])
 }
 
 model AdminMrdRequest {
   id          String   @id
+  tenantId    String?
   branchId    String?
   patientName String
   uhid        String
@@ -1744,19 +1800,25 @@ model AdminMrdRequest {
   documents   Json
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  branch      Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
-  @@index([branchId, status])
+  @@index([tenantId, branchId, status])
 }
 
 model AdminMisReport {
-  id       String   @id
-  label    String
-  category String
-  schedule String
-  lastRun  String?
-  format   String
+  id        String   @id
+  tenantId  String?
+  branchId  String?
+  label     String
+  category  String
+  schedule  String
+  lastRun   String?
+  format    String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  branch    Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, branchId, category])
 }
 
 model AdminSetting {
@@ -1782,6 +1844,8 @@ model FormSchemaOverride {
 
 model AdminAuditLog {
   id         String   @id
+  tenantId   String?
+  branchId   String?
   at         String
   actor      String
   actorRole  String
@@ -1793,6 +1857,9 @@ model AdminAuditLog {
   severity   String
   payload    Json?
   createdAt  DateTime @default(now())
+  branch     Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, branchId, createdAt])
 }
 
 model CounsellorCommission {

@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 export type AuditInput = {
   actor?: string;
   actorRole?: string;
+  tenantId?: string;
+  branchId?: string;
   module: string;
   action: string;
   entityType: string;
@@ -18,6 +20,8 @@ export async function writeAuditLog(input: AuditInput) {
   await db.adminAuditLog.create({
     data: {
       id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      tenantId: input.tenantId ?? null,
+      branchId: input.branchId ?? null,
       at: new Date().toISOString(),
       actor: input.actor ?? "System",
       actorRole: input.actorRole ?? "system",

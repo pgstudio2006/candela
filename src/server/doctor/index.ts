@@ -27,6 +27,7 @@ import { ServerActionError } from "@/server/errors";
 import { notifyPrescriptionWhatsapp } from "@/server/notifications";
 import { writePlatformAudit } from "@/server/platform-audit";
 import { syncVisitFromOpdVisit } from "@/server/visit-sync";
+import { branchScope, tenantScope } from "@/server/tenancy";
 
 function asRecord(value: unknown): Record<string, string | number | boolean> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
@@ -149,17 +150,17 @@ export async function getDoctorSnapshot(
         orderBy: { createdAt: "asc" },
       }),
       prisma.ipdAdmission.findMany({
-        where: { attendingDoctorId: doctorId },
+        where: { ...branchScope(ctx), attendingDoctorId: doctorId },
         orderBy: { createdAt: "asc" },
       }),
       prisma.doctorTemplate.findMany({
-        where: { OR: [{ doctorId }, { isSystem: true }] },
+        where: { ...branchScope(ctx), OR: [{ doctorId }, { isSystem: true }] },
         orderBy: { createdAt: "asc" },
       }),
-      prisma.documentTemplate.findMany({ orderBy: { createdAt: "asc" } }),
+      prisma.documentTemplate.findMany({ where: { ...tenantScope(ctx), OR: [{ branchId: ctx.branchId }, { branchId: null }] }, orderBy: { createdAt: "asc" } }),
       loadCarePackages(),
       prisma.formSubmission.findMany({
-        where: { formId: "junior-exam" },
+        where: { ...branchScope(ctx), formId: "junior-exam" },
         orderBy: { createdAt: "desc" },
       }),
     ]);
@@ -293,7 +294,7 @@ export async function startConsultation(ctx: ServerContext, visitId: string) {
   const existing = await prisma.consultation.findUnique({ where: { visitId } });
   if (existing) {
     const juniorExam = await prisma.formSubmission.findFirst({
-      where: { formId: "junior-exam", visitId },
+      where: { ...branchScope(ctx), formId: "junior-exam", visitId },
       orderBy: { createdAt: "desc" },
     });
     const junior = asRecord(juniorExam?.data);
@@ -323,7 +324,7 @@ export async function startConsultation(ctx: ServerContext, visitId: string) {
   }
 
   const juniorExam = await prisma.formSubmission.findFirst({
-    where: { formId: "junior-exam", visitId },
+    where: { ...branchScope(ctx), formId: "junior-exam", visitId },
     orderBy: { createdAt: "desc" },
   });
   const junior = asRecord(juniorExam?.data);
@@ -539,10 +540,15 @@ export async function completeConsultation(
         },
         create: {
           id: ipdAdmissionId,
+          tenantId: ctx.tenantId,
+          branchId: ctx.branchId,
           visitId,
           patientId: visit.patientId,
           ward: String(opts.handoff.ward ?? "MSK Ward A"),
           bed: String(opts.handoff.bed ?? "A-14"),
+          category: "general",
+          patientType: "general",
+          billingMode: "prepaid",
           admittedAt: new Date().toISOString().slice(0, 10),
           diagnosis: diagnosisSummary,
           attendingDoctorId: doctorId,
@@ -653,6 +659,8 @@ export async function createDoctorTemplate(
   await prisma.doctorTemplate.create({
     data: {
       id,
+      tenantId: ctx.tenantId,
+      branchId: ctx.branchId,
       doctorId,
       label: tpl.label,
       disease: tpl.disease,
@@ -675,7 +683,7 @@ export async function createDoctorTemplate(
 
 export async function updateDoctorTemplate(ctx: ServerContext, id: string, patch: Partial<DoctorTemplate>) {
   const resolvedId = await resolveDoctorIdForContext(ctx);
-  const existing = await prisma.doctorTemplate.findUnique({ where: { id } });
+  const existing = await prisma.doctorTemplate.findFirst({ where: { id, tenantId: ctx.tenantId, branchId: ctx.branchId } });
   if (!existing || existing.isSystem) {
     throw new ServerActionError("NOT_FOUND", "Template not found or not editable.");
   }
@@ -697,7 +705,7 @@ export async function updateDoctorTemplate(ctx: ServerContext, id: string, patch
 export async function deleteDoctorTemplate(ctx: ServerContext, id: string) {
   const resolvedId = await resolveDoctorIdForContext(ctx);
   const deleted = await prisma.doctorTemplate.deleteMany({
-    where: { id, doctorId: resolvedId, isSystem: false },
+    where: { id, doctorId: resolvedId, isSystem: false, tenantId: ctx.tenantId, branchId: ctx.branchId },
   });
   if (!deleted.count) {
     throw new ServerActionError("NOT_FOUND", "Template not found or not deletable.");
@@ -718,7 +726,7 @@ export async function saveIpdRound(
   note: Record<string, string | number | boolean>,
 ) {
   const doctorId = await resolveDoctorIdForContext(ctx);
-  const ipd = await prisma.ipdAdmission.findUnique({ where: { id: ipdId } });
+  const ipd = await prisma.ipdAdmission.findFirst({ where: { id: ipdId, ...branchScope(ctx) } });
   if (!ipd) throw new ServerActionError("NOT_FOUND", "IPD admission not found.");
   await requireDoctorVisit(ctx, ipd.visitId);
   if (ipd.attendingDoctorId !== doctorId && doctorId !== DEMO_DOCTOR_ID) {
@@ -736,6 +744,8 @@ export async function saveIpdRound(
     prisma.formSubmission.create({
       data: {
         id: `ipd_round_${ipdId}_${Date.now()}`,
+        tenantId: ctx.tenantId,
+        branchId: ctx.branchId,
         formId: "doctor-ipd-round",
         patientId: ipd.patientId,
         visitId: ipd.visitId,
@@ -756,12 +766,12 @@ export async function saveIpdRound(
 }
 
 export async function getIpdRoundHistory(ctx: ServerContext, ipdId: string): Promise<IpdRoundRecord[]> {
-  const ipd = await prisma.ipdAdmission.findUnique({ where: { id: ipdId } });
+  const ipd = await prisma.ipdAdmission.findFirst({ where: { id: ipdId, ...branchScope(ctx) } });
   if (!ipd) return [];
   await requireDoctorVisit(ctx, ipd.visitId);
 
   const rows = await prisma.formSubmission.findMany({
-    where: { formId: "doctor-ipd-round", visitId: ipd.visitId },
+    where: { ...branchScope(ctx), formId: "doctor-ipd-round", visitId: ipd.visitId },
     orderBy: { createdAt: "desc" },
   });
 
@@ -815,6 +825,8 @@ export async function addDocumentTemplate(
   await prisma.documentTemplate.create({
     data: {
       id: `doc_custom_${Date.now()}`,
+      tenantId: ctx.tenantId,
+      branchId: ctx.branchId,
       kind,
       label,
       layout: "navayu-letterhead",
@@ -836,9 +848,13 @@ export async function saveDocumentTemplate(ctx: ServerContext, template: Documen
       description: template.description,
       enabled: template.enabled,
       isSystem: template.isSystem,
+      tenantId: ctx.tenantId,
+      branchId: ctx.branchId,
     },
     create: {
       id: template.id,
+      tenantId: ctx.tenantId,
+      branchId: ctx.branchId,
       kind: template.kind,
       label: template.label,
       layout: template.layout,

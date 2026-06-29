@@ -391,11 +391,11 @@ export async function removeStaffMember(ctx: ServerContext, staffId: string) {
     await removeDoctorFromAllDepartments(drId);
   }
 
-  const departments = await prisma.adminDepartment.findMany();
+  const departments = await prisma.adminDepartment.findMany({ where: { tenantId: scope.tenantId, branchId: scope.branchId } });
   for (const dept of departments) {
     if (dept.headStaffId !== staffId) continue;
     await prisma.adminDepartment.update({
-      where: { id: dept.id },
+      where: { id: dept.id, tenantId: scope.tenantId, branchId: scope.branchId },
       data: { headStaffId: null },
     });
   }

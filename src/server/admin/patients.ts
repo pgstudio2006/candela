@@ -7,7 +7,7 @@ import { deletePatientsByIds } from "@/server/clinical/delete-patient";
 import type { ServerContext } from "@/server/context";
 import { ServerActionError } from "@/server/errors";
 import { writePlatformAudit } from "@/server/platform-audit";
-import { tenantClinicalWhere } from "@/server/tenancy";
+import { branchScope, tenantClinicalWhere } from "@/server/tenancy";
 
 export type AdminPatientHistory = {
   patient: Patient;
@@ -167,7 +167,7 @@ export async function getAdminPatientHistory(
     ),
     safeQuery("forms", () =>
       prisma.formSubmission.findMany({
-        where: { patientId },
+        where: { patientId, ...branchScope(ctx) },
         orderBy: { createdAt: "desc" },
         take: 50,
       }),
@@ -281,7 +281,7 @@ export async function deleteAdminPatient(
   }
 
   const patientName = patientRow.fullName?.trim() || patientRow.name?.trim() || patientId;
-  const count = await deletePatientsByIds([patientId]);
+  const count = await deletePatientsByIds([patientId], ctx);
   if (count === 0) {
     throw new ServerActionError("INTERNAL_ERROR", "Could not delete patient.");
   }

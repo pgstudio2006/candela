@@ -1,13 +1,10 @@
 import type { IpdPatient } from "@/design-system/doctor-data";
 import { IPD_PATIENTS } from "@/design-system/doctor-data";
+import { IPD_WARD_OPTIONS } from "@/design-system/ipd-data";
+
+export { IPD_WARD_OPTIONS } from "@/design-system/ipd-data";
 
 const DOCTOR_STORAGE_KEY = "candela-doctor-v1";
-
-export const IPD_WARD_OPTIONS = [
-  { id: "msk_a", label: "MSK Ward A", beds: ["A-12", "A-14", "A-16", "A-18"] },
-  { id: "wellness", label: "Wellness Unit", beds: ["W-03", "W-05", "W-07"] },
-  { id: "daycare", label: "Daycare Bay", beds: ["D-01", "D-02", "D-03"] },
-];
 
 type AdmitInput = {
   patientId: string;

@@ -235,6 +235,8 @@ async function ensureClinicalSeed() {
         await tx.opdVisit.create({
           data: {
             id: seedVisitId,
+            tenantId,
+            branchId,
             patientId: ipd.patientId,
             stage: "ipd_admitted",
             departmentId: "dept_spine",
@@ -253,10 +255,16 @@ async function ensureClinicalSeed() {
       await tx.ipdAdmission.create({
         data: {
           id: ipd.id,
+          tenantId,
+          branchId,
           visitId: seedVisitId,
           patientId: ipd.patientId,
           ward: ipd.ward,
           bed: ipd.bed,
+          category: ipd.category,
+          patientType: ipd.patientType,
+          billingMode: ipd.billingMode,
+          expectedDischarge: ipd.expectedDischarge,
           admittedAt: ipd.admittedAt,
           diagnosis: ipd.diagnosis,
           attendingDoctorId: ipd.attendingDoctorId,
@@ -405,6 +413,8 @@ export async function getClinicalSnapshot(ctx: ServerContext): Promise<ClinicalS
     branchPatientIds.length || branchVisitIds.length
       ? await prisma.formSubmission.findMany({
           where: {
+            tenantId: ctx.tenantId,
+            branchId: ctx.branchId,
             OR: [
               ...(branchVisitIds.length ? [{ visitId: { in: branchVisitIds } }] : []),
               ...(branchPatientIds.length ? [{ patientId: { in: branchPatientIds } }] : []),
@@ -468,20 +478,27 @@ export async function getClinicalSnapshot(ctx: ServerContext): Promise<ClinicalS
   });
 }
 
-export async function saveSubmission(formId: string, data: PrimitiveRecord, ctx?: { patientId?: string; visitId?: string }) {
+export async function saveSubmission(
+  ctx: ServerContext,
+  formId: string,
+  data: PrimitiveRecord,
+  link?: { patientId?: string; visitId?: string },
+) {
   await ensureClinicalSeed();
-  if (ctx?.visitId) {
+  if (link?.visitId) {
     await prisma.formSubmission.deleteMany({
-      where: { formId, visitId: ctx.visitId },
+      where: { formId, visitId: link.visitId, tenantId: ctx.tenantId, branchId: ctx.branchId },
     });
   }
 
   await prisma.formSubmission.create({
     data: {
       id: `sub_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      tenantId: ctx.tenantId,
+      branchId: ctx.branchId,
       formId,
-      patientId: ctx?.patientId,
-      visitId: ctx?.visitId,
+      patientId: link?.patientId,
+      visitId: link?.visitId,
       data,
       submittedAt: new Date().toISOString(),
     },
@@ -856,21 +873,29 @@ export async function processCounselBilling(
 
   let ipdAdmissionId: string | null = null;
   if (convertToIpd) {
+    const scope = branchScope(ctx);
     ipdAdmissionId = `ipd_${visitId}`;
+    const wardLabel = input.ward ?? "MSK Ward A";
+    const bedLabel = input.bed ?? "A-14";
     await prisma.ipdAdmission.upsert({
       where: { visitId },
       update: {
-        ward: input.ward ?? "MSK Ward A",
-        bed: input.bed ?? "A-14",
+        ward: wardLabel,
+        bed: bedLabel,
         diagnosis: handoff.diagnosisSummary ?? handoff.quote.packageLabel,
         status: "admitted",
       },
       create: {
         id: ipdAdmissionId,
+        tenantId: scope.tenantId,
+        branchId: scope.branchId,
         visitId,
         patientId: handoff.patientId,
-        ward: input.ward ?? "MSK Ward A",
-        bed: input.bed ?? "A-14",
+        ward: wardLabel,
+        bed: bedLabel,
+        category: "general",
+        patientType: "general",
+        billingMode: "prepaid",
         admittedAt: new Date().toISOString().slice(0, 10),
         diagnosis: handoff.diagnosisSummary ?? handoff.quote.packageLabel,
         attendingDoctorId: handoff.doctorId,
@@ -1012,7 +1037,7 @@ export async function completeJuniorExam(
   await ensureClinicalSeed();
   const visit = await requireVisitInBranch(ctx, visitId);
   if (data && Object.keys(data).length > 0) {
-    await saveSubmission("junior-exam", data, { visitId, patientId: visit.patientId });
+    await saveSubmission(ctx, "junior-exam", data, { visitId, patientId: visit.patientId });
   }
 
   const hasRedFlags = Boolean(data?.redFlags);
