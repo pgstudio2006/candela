@@ -43,6 +43,12 @@ type Store = PharmacySnapshot & {
     quantities: Record<string, number>,
     witnessName?: string,
   ) => Promise<{ ok: boolean; error?: string; billId?: string }>;
+  createManualPrescription: (input: {
+    patientName: string;
+    uhid: string;
+    priority?: "routine" | "urgent" | "stat";
+    lines: Array<{ drug: string; dose: string; frequency: string; duration: string; instructions?: string }>;
+  }) => Promise<{ ok: boolean; error?: string }>;
   addDrug: (drug: Omit<Drug, "id">) => Promise<void>;
   updateDrug: (id: string, patch: Partial<Drug>) => Promise<void>;
   addSupplier: (s: Omit<Supplier, "id">) => Promise<void>;
@@ -220,6 +226,17 @@ export function PharmacyStoreProvider({ children }: { children: ReactNode }) {
           if (!res.ok) return { ok: false, error: res.error };
           await refresh({ silent: true });
           return { ok: true, billId: res.data?.billId };
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "Something went wrong.";
+          return { ok: false, error: msg };
+        }
+      },
+      createManualPrescription: async (input) => {
+        try {
+          const res = await pharmacyMutate({ op: "createManualPrescription", operatorId: opId(), ...input });
+          if (!res.ok) return { ok: false, error: res.error };
+          await refresh({ silent: true });
+          return { ok: true };
         } catch (err) {
           const msg = err instanceof Error ? err.message : "Something went wrong.";
           return { ok: false, error: msg };

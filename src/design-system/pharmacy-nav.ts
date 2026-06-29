@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  BedDouble,
   ClipboardList,
   FileText,
   FlaskConical,
@@ -30,6 +31,7 @@ export const PHARMACY_NAV: PharmacyNavItem[] = [
   { id: "dashboard", label: "Dashboard", href: "/app/pharmacy", icon: LayoutDashboard, group: "workspace" },
   { id: "prescriptions", label: "Prescriptions", href: "/app/pharmacy/prescriptions", icon: ClipboardList, group: "operations" },
   { id: "billing", label: "Billing", href: "/app/pharmacy/billing", icon: Receipt, group: "operations" },
+  { id: "ipd", label: "IPD", href: "/app/pharmacy/ipd", icon: BedDouble, group: "operations" },
   { id: "indents", label: "Ward indents", href: "/app/pharmacy/indents", icon: FileText, group: "operations" },
   { id: "returns", label: "Returns", href: "/app/pharmacy/returns", icon: RotateCcw, group: "operations" },
   { id: "inventory", label: "Inventory", href: "/app/pharmacy/inventory", icon: Warehouse, group: "supply" },
@@ -71,6 +73,6 @@ export function canAccessPharmacyNav(
     const purchasePaths = ["dashboard", "inventory", "drugs", "suppliers", "purchase-orders", "expiry", "reports", "settings"];
     return purchasePaths.includes(item.id);
   }
-  const opdPaths = ["dashboard", "prescriptions", "billing", "indents", "returns", "inventory", "expiry", "reports", "settings"];
+  const opdPaths = ["dashboard", "prescriptions", "billing", "ipd", "indents", "returns", "inventory", "expiry", "reports", "settings"];
   return opdPaths.includes(item.id);
 }

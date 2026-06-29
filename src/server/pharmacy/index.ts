@@ -399,23 +399,19 @@ export async function listPharmacyAuditLogs(ctx: ServerContext, input: { limit?:
   }));
 }
 
-export async function pushPrescriptionFromDoctor(
-  ctx: ServerContext,
+function buildPrescriptionFromLines(
   input: {
-    visitId: string;
-    patientId: string;
+    visitId?: string;
     patientName: string;
     uhid: string;
-    doctorId: string;
     doctorName: string;
-    lines: Array<{ id?: string; drug: string; dose: string; frequency: string; duration: string; instructions?: string }>;
+    source: Prescription["source"];
     priority?: Prescription["priority"];
+    lines: Array<{ id?: string; drug: string; dose: string; frequency: string; duration: string; instructions?: string }>;
   },
-) {
+): Prescription | null {
   if (!input.lines.length) return null;
-
-  const state = await readState(ctx);
-  const rxId = `rx_${input.visitId}_${Date.now()}`;
+  const rxId = `rx_${input.visitId ?? "walk"}_${Date.now()}`;
   const priority = input.priority ?? "routine";
   const rx: Prescription = {
     id: rxId,
@@ -423,7 +419,7 @@ export async function pushPrescriptionFromDoctor(
     patientName: input.patientName,
     uhid: input.uhid,
     doctorName: input.doctorName,
-    source: "opd",
+    source: input.source,
     priority,
     status: "pending",
     lines: input.lines.map((l, idx) => {
@@ -443,18 +439,37 @@ export async function pushPrescriptionFromDoctor(
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+  return rx;
+}
+
+export async function pushPrescriptionFromDoctor(
+  ctx: ServerContext,
+  input: {
+    visitId: string;
+    patientId: string;
+    patientName: string;
+    uhid: string;
+    doctorId: string;
+    doctorName: string;
+    lines: Array<{ id?: string; drug: string; dose: string; frequency: string; duration: string; instructions?: string }>;
+    priority?: Prescription["priority"];
+  },
+) {
+  const state = await readState(ctx);
+  const rx = buildPrescriptionFromLines({ ...input, source: "opd" });
+  if (!rx) return null;
 
   const next: PharmacyStateShape = {
     ...state,
     prescriptions: [rx, ...state.prescriptions],
     activities: [
       {
-        id: `act_${rxId}`,
+        id: `act_${rx.id}`,
         at: new Date().toISOString(),
         actor: input.doctorName,
         type: "rx_received",
         summary: `Prescription from consult ${input.visitId} — ${input.lines.length} item(s)`,
-        refId: rxId,
+        refId: rx.id,
       },
       ...state.activities,
     ].slice(0, 200),
@@ -467,10 +482,63 @@ export async function pushPrescriptionFromDoctor(
     module: "pharmacy",
     action: "prescription_received",
     entityType: "prescription",
-    entityId: rxId,
+    entityId: rx.id,
     summary: `Rx queued for ${input.patientName} from ${input.doctorName}`,
-    payload: { visitId: input.visitId, lineCount: input.lines.length, priority },
+    payload: { visitId: input.visitId, lineCount: input.lines.length, priority: rx.priority },
   });
 
-  return rxId;
+  return rx.id;
+}
+
+export async function createManualPrescription(
+  ctx: ServerContext,
+  operatorId: string,
+  input: {
+    patientName: string;
+    uhid: string;
+    lines: Array<{ drug: string; dose: string; frequency: string; duration: string; instructions?: string }>;
+    priority?: Prescription["priority"];
+  },
+) {
+  const state = await readState(ctx);
+  const operator = resolveStaffOperator(state, operatorId);
+  const rx = buildPrescriptionFromLines({
+    patientName: input.patientName,
+    uhid: input.uhid,
+    doctorName: operator.name,
+    source: "walk_in",
+    priority: input.priority,
+    lines: input.lines,
+  });
+  if (!rx) return null;
+
+  const next: PharmacyStateShape = {
+    ...state,
+    prescriptions: [rx, ...state.prescriptions],
+    activities: [
+      {
+        id: `act_${rx.id}`,
+        at: new Date().toISOString(),
+        actor: operator.name,
+        type: "rx_manual",
+        summary: `Manual Rx created for ${input.patientName} — ${input.lines.length} item(s)`,
+        refId: rx.id,
+      },
+      ...state.activities,
+    ].slice(0, 200),
+  };
+
+  await persistState(ctx, next);
+
+  await writePlatformAudit({
+    ctx,
+    module: "pharmacy",
+    action: "prescription_manual",
+    entityType: "prescription",
+    entityId: rx.id,
+    summary: `Manual Rx created for ${input.patientName} by ${operator.name}`,
+    payload: { lineCount: input.lines.length, priority: rx.priority },
+  });
+
+  return rx.id;
 }

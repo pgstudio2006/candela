@@ -9,6 +9,7 @@ import {
   addSupplier,
   adjustStock,
   approveReturn,
+  createManualPrescription,
   createPO,
   dispensePrescription,
   fulfillIndent,
@@ -48,6 +49,10 @@ type ActionBody = {
   poId?: string;
   received?: Record<string, { qty: number; batchNo: string; expiry: string }>;
   qty?: number;
+  patientName?: string;
+  uhid?: string;
+  priority?: "routine" | "urgent" | "stat";
+  rxLines?: Array<{ drug: string; dose: string; frequency: string; duration: string; instructions?: string }>;
 };
 
 export async function POST(request: Request) {
@@ -116,6 +121,14 @@ export async function POST(request: Request) {
         break;
       case "fulfillIndent":
         result = await fulfillIndent(ctx, operatorId, body.id!, body.qty!);
+        break;
+      case "createManualPrescription":
+        result = await createManualPrescription(ctx, operatorId, {
+          patientName: body.patientName!,
+          uhid: body.uhid!,
+          priority: body.priority,
+          lines: body.rxLines!,
+        });
         break;
       default:
         return NextResponse.json({ ok: false, error: `Unknown operation: ${op}` }, { status: 400 });
