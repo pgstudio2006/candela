@@ -21,9 +21,9 @@ const FONT = {
 const LAYOUT = {
   marginLeft: 42,
   marginRight: 553,
-  invoiceTitleTop: 695,
+  invoiceTitleTop: 670,
   invoiceTitleSize: 16,
-  infoTableTop: 670,
+  infoTableTop: 645,
   infoBaseRowHeight: 13,
   infoHeaderHeight: 15,
   infoMidX: 298,
