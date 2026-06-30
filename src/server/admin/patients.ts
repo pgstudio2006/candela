@@ -281,22 +281,33 @@ export async function deleteAdminPatient(
   }
 
   const patientName = patientRow.fullName?.trim() || patientRow.name?.trim() || patientId;
-  const count = await deletePatientsByIds([patientId], ctx);
-  if (count === 0) {
-    throw new ServerActionError("INTERNAL_ERROR", "Could not delete patient.");
+  
+  try {
+    const count = await deletePatientsByIds([patientId], ctx);
+    if (count === 0) {
+      throw new ServerActionError("INTERNAL_ERROR", "Could not delete patient.");
+    }
+  } catch (e) {
+    console.error("Error in deletePatientsByIds:", e);
+    throw e;
   }
 
-  await writePlatformAudit({
-    ctx,
-    actor: operator.name,
-    actorRole: operator.staffRole,
-    module: "admin",
-    action: "patient_deleted",
-    entityType: "patient",
-    entityId: patientId,
-    summary: `Patient deleted: ${patientName}`,
-    severity: "warning",
-  });
+  try {
+    await writePlatformAudit({
+      ctx,
+      actor: operator.name,
+      actorRole: operator.staffRole,
+      module: "admin",
+      action: "patient_deleted",
+      entityType: "patient",
+      entityId: patientId,
+      summary: `Patient deleted: ${patientName}`,
+      severity: "warning",
+    });
+  } catch (e) {
+    console.error("Error writing audit log:", e);
+    // Don't fail the deletion if audit logging fails
+  }
 
   return { deleted: true, patientName };
 }
