@@ -23,10 +23,12 @@ const FONT = {
 const LAYOUT = {
   marginLeft: 42,
   marginRight: 553,
-  infoTableTop: 180,
+  contentTop: 650,
   minRowHeight: 17,
   lineLeading: 11,
-  footerMinY: 148,
+  footerMinY: 80,
+  sectionGap: 16,
+  paragraphGap: 12,
 } as const;
 
 type PrescriptionPdfProps = {
@@ -136,27 +138,29 @@ export async function generatePrescriptionPdf(props: PrescriptionPdfProps): Prom
   const { patient, visit, consult, doctorName } = props;
   const date = formatConsultDate(consult.completedAt ?? consult.startedAt ?? new Date().toISOString());
 
-  let currentY: number = LAYOUT.infoTableTop;
-
-  // Title
-  drawText(page, "PRESCRIPTION", LAYOUT.marginLeft, currentY, bold, FONT.title);
-  currentY -= 30;
-
-  // Patient info grid
+  let currentY: number = LAYOUT.contentTop;
   const infoWidth = LAYOUT.marginRight - LAYOUT.marginLeft;
   const midX = LAYOUT.marginLeft + infoWidth / 2;
 
-  drawText(page, `Patient: ${patient.name}`, LAYOUT.marginLeft, currentY, font, FONT.body);
-  drawText(page, `UHID: ${patient.uhid}`, midX, currentY, font, FONT.body);
-  currentY -= 16;
+  // Header
+  drawText(page, "PRESCRIPTION", LAYOUT.marginLeft, currentY, bold, FONT.title);
+  drawRightText(page, `Date: ${date}`, LAYOUT.marginRight, currentY, font, FONT.body);
+  currentY -= 28;
 
+  // Patient info card
+  drawHLine(page, LAYOUT.marginLeft, LAYOUT.marginRight, currentY);
+  currentY -= 16;
+  drawText(page, `Patient: ${patient.name}`, LAYOUT.marginLeft, currentY, bold, FONT.body);
+  drawText(page, `UHID: ${patient.uhid}`, midX, currentY, bold, FONT.body);
+  currentY -= 16;
   drawText(page, `Age / Sex: ${patient.age}y / ${patient.gender}`, LAYOUT.marginLeft, currentY, font, FONT.body);
   drawText(page, `Phone: ${patient.phone || "—"}`, midX, currentY, font, FONT.body);
   currentY -= 16;
-
   drawText(page, `Doctor: ${doctorName}`, LAYOUT.marginLeft, currentY, font, FONT.body);
-  drawText(page, `Date: ${date} · Token: #${visit.token ?? "—"}`, midX, currentY, font, FONT.body);
-  currentY -= 24;
+  drawText(page, `Token: #${visit.token ?? "—"}`, midX, currentY, font, FONT.body);
+  currentY -= 14;
+  drawHLine(page, LAYOUT.marginLeft, LAYOUT.marginRight, currentY);
+  currentY -= LAYOUT.sectionGap;
 
   // Diagnosis
   const primaryDiagnosis = String(consult.diagnosis.primaryDiagnosis ?? "").trim();
@@ -168,12 +172,12 @@ export async function generatePrescriptionPdf(props: PrescriptionPdfProps): Prom
     const lines = wrapText(diagnosis, font, FONT.body, infoWidth);
     lines.forEach((line) => {
       drawText(page, line, LAYOUT.marginLeft, currentY, font, FONT.body);
-      currentY -= 12;
+      currentY -= LAYOUT.lineLeading;
     });
-    currentY -= 8;
+    currentY -= LAYOUT.paragraphGap;
   }
 
-  // Medications header
+  // Medications
   drawText(page, "℞ Medications", LAYOUT.marginLeft, currentY, bold, FONT.emphasis);
   currentY -= 16;
 
@@ -181,8 +185,16 @@ export async function generatePrescriptionPdf(props: PrescriptionPdfProps): Prom
     drawText(page, "No medicines prescribed", LAYOUT.marginLeft, currentY, font, FONT.body);
     currentY -= 16;
   } else {
-    // Table header
-    const colX: number[] = [LAYOUT.marginLeft, LAYOUT.marginLeft + 30, LAYOUT.marginLeft + 180, LAYOUT.marginLeft + 260, LAYOUT.marginLeft + 320, LAYOUT.marginLeft + 400];
+    const colX: number[] = [
+      LAYOUT.marginLeft,
+      LAYOUT.marginLeft + 30,
+      LAYOUT.marginLeft + 180,
+      LAYOUT.marginLeft + 270,
+      LAYOUT.marginLeft + 350,
+      LAYOUT.marginLeft + 430,
+    ];
+    const rowHeight = 16;
+    const topY = currentY;
     drawHLine(page, LAYOUT.marginLeft, LAYOUT.marginRight, currentY);
     currentY -= 14;
     drawText(page, "#", colX[0], currentY, bold, FONT.tableHead);
@@ -191,21 +203,26 @@ export async function generatePrescriptionPdf(props: PrescriptionPdfProps): Prom
     drawText(page, "Frequency", colX[3], currentY, bold, FONT.tableHead);
     drawText(page, "Duration", colX[4], currentY, bold, FONT.tableHead);
     drawText(page, "Instructions", colX[5], currentY, bold, FONT.tableHead);
-    currentY -= 14;
-    drawHLine(page, LAYOUT.marginLeft, LAYOUT.marginRight, currentY);
+    currentY -= rowHeight;
+    drawHLine(page, LAYOUT.marginLeft, LAYOUT.marginRight, currentY + rowHeight - 2);
 
-    // Medication rows
     consult.prescription.forEach((line, i) => {
-      currentY -= 14;
+      const instructions = line.instructions ?? "—";
+      const instructionLines = wrapText(instructions, font, FONT.table, infoWidth - (colX[5] - LAYOUT.marginLeft));
+      const rowLines = Math.max(1, instructionLines.length);
+      const rowY = currentY;
       drawText(page, String(i + 1), colX[0], currentY, font, FONT.table);
       drawText(page, line.drug || "—", colX[1], currentY, font, FONT.table);
       drawText(page, line.dose, colX[2], currentY, font, FONT.table);
       drawText(page, formatFrequency(line.frequency), colX[3], currentY, font, FONT.table);
       drawText(page, formatDuration(line), colX[4], currentY, font, FONT.table);
-      drawText(page, line.instructions ?? "—", colX[5], currentY, font, FONT.table);
+      instructionLines.forEach((instLine, idx) => {
+        drawText(page, instLine, colX[5], currentY - idx * LAYOUT.lineLeading, font, FONT.table);
+      });
+      currentY -= Math.max(rowHeight, rowLines * LAYOUT.lineLeading + 4);
       drawHLine(page, LAYOUT.marginLeft, LAYOUT.marginRight, currentY);
     });
-    currentY -= 8;
+    currentY -= LAYOUT.paragraphGap;
   }
 
   // Advice
@@ -215,14 +232,14 @@ export async function generatePrescriptionPdf(props: PrescriptionPdfProps): Prom
     const planLines = wrapText(String(consult.treatment.plan), font, FONT.body, infoWidth);
     planLines.forEach((line) => {
       drawText(page, line, LAYOUT.marginLeft, currentY, font, FONT.body);
-      currentY -= 12;
+      currentY -= LAYOUT.lineLeading;
     });
     if (String(consult.treatment.followUp ?? "")) {
       currentY -= 4;
       drawText(page, `Follow-up: ${String(consult.treatment.followUp)}`, LAYOUT.marginLeft, currentY, font, FONT.body);
-      currentY -= 12;
+      currentY -= LAYOUT.lineLeading;
     }
-    currentY -= 8;
+    currentY -= LAYOUT.paragraphGap;
   }
 
   // Doctor advice
@@ -232,15 +249,15 @@ export async function generatePrescriptionPdf(props: PrescriptionPdfProps): Prom
     const adviceLines = wrapText(consult.doctorAdvice, font, FONT.body, infoWidth);
     adviceLines.forEach((line) => {
       drawText(page, line, LAYOUT.marginLeft, currentY, font, FONT.body);
-      currentY -= 12;
+      currentY -= LAYOUT.lineLeading;
     });
-    currentY -= 8;
+    currentY -= LAYOUT.paragraphGap;
   }
 
   // Signature
-  currentY = Math.max(currentY - 32, LAYOUT.footerMinY + 32);
+  currentY = Math.max(currentY, LAYOUT.footerMinY + 32);
   const sigX = LAYOUT.marginRight - 180;
-  drawHLine(page, sigX, sigX + 180, currentY);
+  drawHLine(page, sigX, LAYOUT.marginRight, currentY);
   currentY -= 4;
   drawText(page, doctorName, sigX + 90, currentY, font, FONT.caption);
   currentY -= 10;
