@@ -1,6 +1,6 @@
 "use client";
 
-import { searchAdminPatientsAction, deleteAdminPatientAction } from "@/server/admin/actions";
+import { searchAdminPatientsAction } from "@/server/admin/actions";
 import type { Patient } from "@/design-system/frontdesk-data";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, DataTable, StatusBadge } from "@/components/frontdesk/ui";
@@ -118,13 +118,18 @@ export default function AdminPatientsPage() {
   const handleDelete = async (patientId: string) => {
     if (!confirm("Are you sure you want to delete this patient? This action cannot be undone.")) return;
     try {
-      const result = await deleteAdminPatientAction(patientId);
-      if (result.ok) {
+      const res = await fetch(`/api/admin/patients/${patientId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const json = await res.json();
+      if (json.ok) {
         await load();
       } else {
-        alert(result.error || "Failed to delete patient");
+        alert(json.error || "Failed to delete patient");
       }
     } catch (err) {
+      console.error("Failed to delete patient:", err);
       alert("Failed to delete patient");
     }
   };
@@ -132,12 +137,34 @@ export default function AdminPatientsPage() {
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return;
     if (!confirm(`Are you sure you want to delete ${selectedIds.size} patient(s)? This action cannot be undone.`)) return;
+    let successCount = 0;
+    let failCount = 0;
     try {
       for (const id of selectedIds) {
-        await deleteAdminPatientAction(id);
+        try {
+          const res = await fetch(`/api/admin/patients/${id}`, {
+            method: "DELETE",
+            credentials: "include",
+          });
+          const json = await res.json();
+          if (json.ok) {
+            successCount++;
+          } else {
+            console.error("Failed to delete patient:", json.error);
+            failCount++;
+          }
+        } catch (err) {
+          console.error("Error deleting patient:", err);
+          failCount++;
+        }
       }
       setSelectedIds(new Set());
       await load();
+      if (failCount > 0) {
+        alert(`Deleted ${successCount} patient(s), ${failCount} failed`);
+      } else {
+        alert(`Successfully deleted ${successCount} patient(s)`);
+      }
     } catch (err) {
       alert("Failed to delete some patients");
     }
