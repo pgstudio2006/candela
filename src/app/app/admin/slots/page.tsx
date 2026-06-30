@@ -336,6 +336,11 @@ export default function SlotManagementPage() {
       {showBulkForm && (
         <Panel title="Bulk create slots">
           <div className="space-y-4">
+            {bulkCreating && (
+              <div className="rounded-md bg-blue-50 p-3 text-center text-[13px] text-blue-900">
+                Creating slots... Please wait.
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2">
                 <label className="block text-[12px] font-medium mb-1">Select Doctor</label>
@@ -343,6 +348,7 @@ export default function SlotManagementPage() {
                   value={bulkConfig.doctorId}
                   onChange={(e) => setBulkConfig({ ...bulkConfig, doctorId: e.target.value })}
                   className="h-9 w-full rounded border px-3 text-[13px]"
+                  disabled={bulkCreating}
                 >
                   <option value="">Select a doctor...</option>
                   {staff.filter((s) => s.role === "doctor").map((d) => (
@@ -357,6 +363,7 @@ export default function SlotManagementPage() {
                   value={bulkConfig.startDate}
                   onChange={(e) => setBulkConfig({ ...bulkConfig, startDate: e.target.value })}
                   className="h-9 w-full rounded border px-3 text-[13px]"
+                  disabled={bulkCreating}
                 />
               </div>
               <div>
@@ -366,6 +373,7 @@ export default function SlotManagementPage() {
                   value={bulkConfig.endDate}
                   onChange={(e) => setBulkConfig({ ...bulkConfig, endDate: e.target.value })}
                   className="h-9 w-full rounded border px-3 text-[13px]"
+                  disabled={bulkCreating}
                 />
               </div>
               <div>
@@ -375,6 +383,7 @@ export default function SlotManagementPage() {
                   value={bulkConfig.startTime}
                   onChange={(e) => setBulkConfig({ ...bulkConfig, startTime: e.target.value })}
                   className="h-9 w-full rounded border px-3 text-[13px]"
+                  disabled={bulkCreating}
                 />
               </div>
               <div>
@@ -384,6 +393,7 @@ export default function SlotManagementPage() {
                   value={bulkConfig.endTime}
                   onChange={(e) => setBulkConfig({ ...bulkConfig, endTime: e.target.value })}
                   className="h-9 w-full rounded border px-3 text-[13px]"
+                  disabled={bulkCreating}
                 />
               </div>
               <div>
@@ -395,6 +405,7 @@ export default function SlotManagementPage() {
                   value={bulkConfig.intervalMinutes}
                   onChange={(e) => setBulkConfig({ ...bulkConfig, intervalMinutes: Number(e.target.value) })}
                   className="h-9 w-full rounded border px-3 text-[13px]"
+                  disabled={bulkCreating}
                 />
               </div>
               <div>
@@ -405,6 +416,7 @@ export default function SlotManagementPage() {
                   value={bulkConfig.capacity}
                   onChange={(e) => setBulkConfig({ ...bulkConfig, capacity: Number(e.target.value) })}
                   className="h-9 w-full rounded border px-3 text-[13px]"
+                  disabled={bulkCreating}
                 />
               </div>
               <div className="col-span-2">
@@ -422,6 +434,7 @@ export default function SlotManagementPage() {
                             setBulkConfig({ ...bulkConfig, weekdays: bulkConfig.weekdays.filter((d) => d !== day) });
                           }
                         }}
+                        disabled={bulkCreating}
                       />
                       {day.charAt(0).toUpperCase() + day.slice(1)}
                     </label>
