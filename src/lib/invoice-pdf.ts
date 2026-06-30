@@ -194,6 +194,9 @@ function footerRows(receipt: OpdReceiptPayload): Array<{ label: string; value: s
   if (receipt.balanceDue > 0) {
     rows.push({ label: "Balance due", value: formatInrForPdf(receipt.balanceDue), emphasis: true });
   }
+  if (receipt.paymentMode) {
+    rows.push({ label: "Payment mode", value: receipt.paymentMode.toUpperCase() });
+  }
   return rows;
 }
 

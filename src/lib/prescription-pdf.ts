@@ -1,6 +1,6 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import type { Patient, Visit } from "@/design-system/frontdesk-data";
-import type { ConsultationRecord } from "@/design-system/doctor-data";
+import { PRESCRIPTION_FREQUENCY_OPTIONS, type ConsultationRecord, type PrescriptionLine } from "@/design-system/doctor-data";
 
 const TEMPLATE_URL = "/templates/navayu-invoice-template.pdf";
 
@@ -43,6 +43,16 @@ function pdfSafeText(text: string): string {
     .replace(/\u00B7/g, "|")
     .replace(/\u2026/g, "...")
     .replace(/[^\t\n\r\u0020-\u00FF]/g, "");
+}
+
+function formatFrequency(value: string): string {
+  return PRESCRIPTION_FREQUENCY_OPTIONS.find((o) => o.value === value)?.label ?? value;
+}
+
+function formatDuration(line: PrescriptionLine): string {
+  if (line.days && line.days > 0) return `${line.days} day${line.days === 1 ? "" : "s"}`;
+  if (line.duration) return line.duration;
+  return "—";
 }
 
 function formatConsultDate(iso: string): string {
@@ -141,18 +151,20 @@ export async function generatePrescriptionPdf(props: PrescriptionPdfProps): Prom
   currentY -= 16;
 
   drawText(page, `Age / Sex: ${patient.age}y / ${patient.gender}`, LAYOUT.marginLeft, currentY, font, FONT.body);
-  drawText(page, `Date: ${date}`, midX, currentY, font, FONT.body);
+  drawText(page, `Phone: ${patient.phone || "—"}`, midX, currentY, font, FONT.body);
   currentY -= 16;
 
   drawText(page, `Doctor: ${doctorName}`, LAYOUT.marginLeft, currentY, font, FONT.body);
-  drawText(page, `Token: #${visit.token ?? "—"}`, midX, currentY, font, FONT.body);
+  drawText(page, `Date: ${date} · Token: #${visit.token ?? "—"}`, midX, currentY, font, FONT.body);
   currentY -= 24;
 
   // Diagnosis
-  if (String(consult.diagnosis.primaryDiagnosis ?? "")) {
+  const primaryDiagnosis = String(consult.diagnosis.primaryDiagnosis ?? "").trim();
+  const clinicalImpression = String(consult.diagnosis.clinicalImpression ?? "").trim();
+  if (primaryDiagnosis || clinicalImpression) {
     drawText(page, "Diagnosis", LAYOUT.marginLeft, currentY, bold, FONT.tableHead);
     currentY -= 14;
-    const diagnosis = String(consult.diagnosis.primaryDiagnosis ?? consult.diagnosis.clinicalImpression ?? "—");
+    const diagnosis = primaryDiagnosis || clinicalImpression || "—";
     const lines = wrapText(diagnosis, font, FONT.body, infoWidth);
     lines.forEach((line) => {
       drawText(page, line, LAYOUT.marginLeft, currentY, font, FONT.body);
@@ -188,8 +200,8 @@ export async function generatePrescriptionPdf(props: PrescriptionPdfProps): Prom
       drawText(page, String(i + 1), colX[0], currentY, font, FONT.table);
       drawText(page, line.drug || "—", colX[1], currentY, font, FONT.table);
       drawText(page, line.dose, colX[2], currentY, font, FONT.table);
-      drawText(page, line.frequency, colX[3], currentY, font, FONT.table);
-      drawText(page, line.duration, colX[4], currentY, font, FONT.table);
+      drawText(page, formatFrequency(line.frequency), colX[3], currentY, font, FONT.table);
+      drawText(page, formatDuration(line), colX[4], currentY, font, FONT.table);
       drawText(page, line.instructions ?? "—", colX[5], currentY, font, FONT.table);
       drawHLine(page, LAYOUT.marginLeft, LAYOUT.marginRight, currentY);
     });

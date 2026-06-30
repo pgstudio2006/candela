@@ -101,6 +101,7 @@ export type PrescriptionLine = {
   dose: string;
   frequency: string;
   duration: string;
+  days: number;
   qtyPrescribed: number;
   qtyDispensed: number;
   substituteDrugId?: string;
@@ -260,8 +261,8 @@ export const SEED_PRESCRIPTIONS: Prescription[] = [
     assigneeId: "phm_opd",
     encounterId: "enc_001",
     lines: [
-      { id: "rxl_1", drugId: "dr_preg", dose: "75mg", frequency: "BD", duration: "14 days", qtyPrescribed: 28, qtyDispensed: 0 },
-      { id: "rxl_2", drugId: "dr_ome", dose: "20mg", frequency: "OD", duration: "14 days", qtyPrescribed: 14, qtyDispensed: 0 },
+      { id: "rxl_1", drugId: "dr_preg", dose: "75mg", frequency: "BD", duration: "14 days", days: 14, qtyPrescribed: 28, qtyDispensed: 0 },
+      { id: "rxl_2", drugId: "dr_ome", dose: "20mg", frequency: "OD", duration: "14 days", days: 14, qtyPrescribed: 14, qtyDispensed: 0 },
     ],
     createdAt: new Date(Date.now() - 3600000).toISOString(),
     updatedAt: new Date(Date.now() - 3600000).toISOString(),
@@ -278,7 +279,7 @@ export const SEED_PRESCRIPTIONS: Prescription[] = [
     status: "verified",
     assigneeId: "phm_opd",
     lines: [
-      { id: "rxl_3", drugId: "dr_amox", dose: "500mg", frequency: "TDS", duration: "5 days", qtyPrescribed: 15, qtyDispensed: 0 },
+      { id: "rxl_3", drugId: "dr_amox", dose: "500mg", frequency: "TDS", duration: "5 days", days: 5, qtyPrescribed: 15, qtyDispensed: 0 },
     ],
     createdAt: new Date(Date.now() - 7200000).toISOString(),
     updatedAt: new Date(Date.now() - 1800000).toISOString(),
@@ -296,7 +297,7 @@ export const SEED_PRESCRIPTIONS: Prescription[] = [
     status: "partially_dispensed",
     assigneeId: "phm_opd",
     lines: [
-      { id: "rxl_4", drugId: "dr_ins", dose: "10 units", frequency: "OD", duration: "30 days", qtyPrescribed: 2, qtyDispensed: 1 },
+      { id: "rxl_4", drugId: "dr_ins", dose: "10 units", frequency: "OD", duration: "30 days", days: 30, qtyPrescribed: 2, qtyDispensed: 1 },
     ],
     createdAt: new Date(Date.now() - 86400000).toISOString(),
     updatedAt: new Date(Date.now() - 3600000).toISOString(),
@@ -311,7 +312,7 @@ export const SEED_PRESCRIPTIONS: Prescription[] = [
     priority: "routine",
     status: "dispensed",
     assigneeId: "phm_opd",
-    lines: [{ id: "rxl_5", drugId: "dr_para", dose: "650mg", frequency: "SOS", duration: "3 days", qtyPrescribed: 6, qtyDispensed: 6 }],
+    lines: [{ id: "rxl_5", drugId: "dr_para", dose: "650mg", frequency: "SOS", duration: "3 days", days: 3, qtyPrescribed: 6, qtyDispensed: 6 }],
     createdAt: new Date(Date.now() - 172800000).toISOString(),
     updatedAt: new Date(Date.now() - 172800000).toISOString(),
     dispensedAt: new Date(Date.now() - 172800000).toISOString(),

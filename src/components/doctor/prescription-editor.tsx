@@ -2,6 +2,7 @@
 
 import { AttioButton } from "@/components/frontdesk/ui";
 import type { PrescriptionLine } from "@/design-system/doctor-data";
+import { PRESCRIPTION_FREQUENCY_OPTIONS } from "@/design-system/doctor-data";
 import { Plus, Trash2 } from "lucide-react";
 
 type PrescriptionEditorProps = {
@@ -18,7 +19,7 @@ export function PrescriptionEditor({ lines, onChange }: PrescriptionEditorProps)
         drug: "",
         dose: "1 tab",
         frequency: "OD",
-        duration: "7 days",
+        days: 7,
       },
     ]);
   };
@@ -54,23 +55,36 @@ export function PrescriptionEditor({ lines, onChange }: PrescriptionEditorProps)
                 className="min-w-0 flex-1 rounded border border-[var(--attio-border)] bg-white px-2 py-1.5 text-[13px] outline-none focus:border-[var(--attio-accent)]"
               />
             </div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-4 gap-2">
               <input
                 value={line.dose}
                 onChange={(e) => update(line.id, { dose: e.target.value })}
                 placeholder="Dose"
                 className="rounded border border-[var(--attio-border)] bg-white px-2 py-1.5 text-[12px] outline-none"
               />
-              <input
+              <select
                 value={line.frequency}
                 onChange={(e) => update(line.id, { frequency: e.target.value })}
-                placeholder="Frequency"
+                className="rounded border border-[var(--attio-border)] bg-white px-2 py-1.5 text-[12px] outline-none"
+              >
+                {PRESCRIPTION_FREQUENCY_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                min={1}
+                value={line.days}
+                onChange={(e) => update(line.id, { days: Number(e.target.value) })}
+                placeholder="Days"
                 className="rounded border border-[var(--attio-border)] bg-white px-2 py-1.5 text-[12px] outline-none"
               />
               <input
-                value={line.duration}
+                value={line.duration ?? ""}
                 onChange={(e) => update(line.id, { duration: e.target.value })}
-                placeholder="Duration"
+                placeholder="Duration (optional)"
                 className="rounded border border-[var(--attio-border)] bg-white px-2 py-1.5 text-[12px] outline-none"
               />
             </div>

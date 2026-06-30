@@ -118,7 +118,8 @@ function parseToolActions(name: string, argsRaw: string, ctx: CopilotContext): C
           drug: string;
           dose: string;
           frequency: string;
-          duration: string;
+          days: number;
+          duration?: string;
           instructions?: string;
         }>,
       },

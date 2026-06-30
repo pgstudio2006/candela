@@ -399,6 +399,21 @@ export async function listPharmacyAuditLogs(ctx: ServerContext, input: { limit?:
   }));
 }
 
+const FREQUENCY_DOSES_PER_DAY: Record<string, number> = {
+  OD: 1,
+  BD: 2,
+  TDS: 3,
+  QID: 4,
+  HS: 1,
+  SOS: 1,
+  STAT: 1,
+  weekly: 1 / 7,
+};
+
+function dosesPerDayFromFrequency(frequency: string): number {
+  return FREQUENCY_DOSES_PER_DAY[frequency] ?? 1;
+}
+
 function buildPrescriptionFromLines(
   input: {
     visitId?: string;
@@ -407,7 +422,7 @@ function buildPrescriptionFromLines(
     doctorName: string;
     source: Prescription["source"];
     priority?: Prescription["priority"];
-    lines: Array<{ id?: string; drug: string; dose: string; frequency: string; duration: string; instructions?: string }>;
+    lines: Array<{ id?: string; drug: string; dose: string; frequency: string; days?: number; duration?: string; instructions?: string }>;
   },
 ): Prescription | null {
   if (!input.lines.length) return null;
@@ -424,13 +439,16 @@ function buildPrescriptionFromLines(
     status: "pending",
     lines: input.lines.map((l, idx) => {
       const drugId = l.drug.toLowerCase().replace(/\s+/g, "_");
-      const qty = Math.max(1, Math.ceil(parseInt(l.duration, 10) || 7));
+      const days = typeof l.days === "number" && l.days > 0 ? l.days : Math.max(1, Math.ceil(parseInt(l.duration ?? "7", 10) || 7));
+      const qty = Math.max(1, Math.ceil(dosesPerDayFromFrequency(l.frequency) * days));
+      const durationText = l.duration ?? `${days} day${days === 1 ? "" : "s"}`;
       return {
         id: l.id || `rxl_${rxId}_${idx}`,
         drugId,
         dose: l.dose,
         frequency: l.frequency,
-        duration: l.duration,
+        duration: durationText,
+        days,
         qtyPrescribed: qty,
         qtyDispensed: 0,
         notes: l.instructions,
@@ -451,7 +469,7 @@ export async function pushPrescriptionFromDoctor(
     uhid: string;
     doctorId: string;
     doctorName: string;
-    lines: Array<{ id?: string; drug: string; dose: string; frequency: string; duration: string; instructions?: string }>;
+    lines: Array<{ id?: string; drug: string; dose: string; frequency: string; days?: number; duration?: string; instructions?: string }>;
     priority?: Prescription["priority"];
   },
 ) {

@@ -8,6 +8,7 @@ import {
 } from "@/app/actions/ipd-actions";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, MetricStrip, Panel } from "@/components/frontdesk/ui";
+import { PatientSearchField } from "@/components/frontdesk/patient-search-field";
 import { useToast } from "@/components/ui/toast-provider";
 import { IPD_WARD_OPTIONS } from "@/design-system/ipd-data";
 import type { IpdAdmissionDetail, IpdAdmissionStatus, IpdBillingMode, IpdPatientType, IpdSnapshot } from "@/design-system/ipd-data";
@@ -63,19 +64,13 @@ export default function FrontdeskIpdPage() {
     ];
   }, [snapshot]);
 
-  const [patientSearch, setPatientSearch] = useState("");
+  const [selectedPatient, setSelectedPatient] = useState<NonNullable<IpdSnapshot>["patients"][number] | null>(null);
+  const [admitWardId, setAdmitWardId] = useState(selectedBed?.wardId ?? IPD_WARD_OPTIONS[0].id);
 
-  const filteredPatients = useMemo(() => {
-    if (!snapshot) return [];
-    const q = patientSearch.trim().toLowerCase();
-    if (!q) return snapshot.patients.slice(0, 50);
-    return snapshot.patients.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.uhid.toLowerCase().includes(q) ||
-        p.phone.includes(q),
-    );
-  }, [snapshot, patientSearch]);
+  useEffect(() => {
+    setAdmitWardId(selectedBed?.wardId ?? IPD_WARD_OPTIONS[0].id);
+    setSelectedPatient(null);
+  }, [selectedBed, dialog]);
 
   const handleAdmit = async (formData: FormData) => {
     const patientId = formData.get("patientId") as string;
@@ -103,7 +98,7 @@ export default function FrontdeskIpdPage() {
     if (result.ok) {
       toast("Patient admitted successfully", "success");
       setDialog(null);
-      setPatientSearch("");
+      setSelectedPatient(null);
       setRefreshKey((k) => k + 1);
     } else {
       toast(result.error ?? "Admission failed", "error");
@@ -316,25 +311,16 @@ export default function FrontdeskIpdPage() {
                 <div className="space-y-3">
                   <label className="block text-[12px]">
                     <span className="mb-1 block text-[var(--attio-text-tertiary)]">Patient</span>
-                    <input
-                      value={patientSearch}
-                      onChange={(e) => setPatientSearch(e.target.value)}
+                    <PatientSearchField
+                      value={selectedPatient?.uhid ?? ""}
+                      patients={snapshot?.patients ?? []}
                       placeholder="Search registered patient by name, UHID or phone"
-                      className="h-9 w-full rounded-lg border border-[var(--attio-border)] px-3"
+                      onChange={(_, patient) => {
+                        if (patient) setSelectedPatient(patient);
+                      }}
                     />
-                    <select
-                      name="patientId"
-                      required
-                      className="mt-1 h-9 w-full rounded-lg border border-[var(--attio-border)] bg-white px-3"
-                      defaultValue=""
-                    >
-                      <option value="">Select patient</option>
-                      {filteredPatients.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} · {p.uhid} · {p.phone}
-                        </option>
-                      ))}
-                    </select>
+                    <input type="hidden" name="patientId" value={selectedPatient?.id ?? ""} />
+                    {!selectedPatient && <p className="mt-1 text-[11px] text-amber-600">Select a registered patient to admit.</p>}
                   </label>
                   <label className="block text-[12px]">
                     <span className="mb-1 block text-[var(--attio-text-tertiary)]">Attending doctor</span>
@@ -373,7 +359,8 @@ export default function FrontdeskIpdPage() {
                       <span className="mb-1 block text-[var(--attio-text-tertiary)]">Ward</span>
                       <select
                         name="wardId"
-                        defaultValue={selectedBed?.wardId ?? IPD_WARD_OPTIONS[0].id}
+                        value={admitWardId}
+                        onChange={(e) => setAdmitWardId(e.target.value)}
                         className="h-9 w-full rounded-lg border border-[var(--attio-border)] bg-white px-3"
                       >
                         {IPD_WARD_OPTIONS.map((w) => (
@@ -390,7 +377,7 @@ export default function FrontdeskIpdPage() {
                         defaultValue={selectedBed?.bedId}
                         className="h-9 w-full rounded-lg border border-[var(--attio-border)] bg-white px-3"
                       >
-                        {IPD_WARD_OPTIONS.find((w) => w.id === (selectedBed?.wardId ?? IPD_WARD_OPTIONS[0].id))?.beds.map((b) => (
+                        {IPD_WARD_OPTIONS.find((w) => w.id === admitWardId)?.beds.map((b) => (
                           <option key={b} value={b}>
                             {b}
                           </option>

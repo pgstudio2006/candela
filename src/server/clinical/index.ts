@@ -1081,6 +1081,8 @@ export async function completeJuniorExam(
       payload: { redFlagNotes, visitId, patientId: visit.patientId },
     });
   }
+
+  return { ok: true };
 }
 
 async function assertSlotAvailable(

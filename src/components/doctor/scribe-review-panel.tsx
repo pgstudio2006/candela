@@ -174,11 +174,11 @@ export function ScribeReviewPanel({ draft, analyzing, onDraftChange, onAccept, a
                           }}
                         />
                         <Field
-                          label="Duration"
-                          value={line.duration}
+                          label="Days"
+                          value={String(line.days ?? "")}
                           onChange={(v) => {
                             const next = [...draft.prescription];
-                            next[idx] = { ...line, duration: v };
+                            next[idx] = { ...line, days: Number(v) || 0 };
                             onDraftChange({ ...draft, prescription: next });
                           }}
                         />
@@ -187,7 +187,7 @@ export function ScribeReviewPanel({ draft, analyzing, onDraftChange, onAccept, a
                       <button type="button" className="w-full text-left" onClick={() => setEditingRx(idx)}>
                         <p className="font-medium">{line.drug}</p>
                         <p className="mt-0.5 text-[var(--attio-text-tertiary)]">
-                          {line.dose} · {line.frequency} · {line.duration}
+                          {line.dose} · {line.frequency} · {line.days} day{line.days === 1 ? "" : "s"}
                         </p>
                       </button>
                     )}

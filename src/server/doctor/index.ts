@@ -29,6 +29,8 @@ import { writePlatformAudit } from "@/server/platform-audit";
 import { syncVisitFromOpdVisit } from "@/server/visit-sync";
 import { branchScope, tenantScope } from "@/server/tenancy";
 
+const PATAUDI_BRANCH_ID = "branch_pataudi";
+
 function asRecord(value: unknown): Record<string, string | number | boolean> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return value as Record<string, string | number | boolean>;
@@ -330,6 +332,7 @@ export async function startConsultation(ctx: ServerContext, visitId: string) {
   const junior = asRecord(juniorExam?.data);
   const fromJunior = juniorExam ? juniorExamToConsultFields(junior) : null;
 
+  const isPataudi = ctx.branchId === PATAUDI_BRANCH_ID;
   const created = await prisma.consultation.create({
     data: {
       id: `consult_${visitId}`,
@@ -339,8 +342,8 @@ export async function startConsultation(ctx: ServerContext, visitId: string) {
       startedAt: new Date().toISOString(),
       status: "in_progress",
       treatmentMode: "opd",
-      recommendCounsellor: true,
-      skipCounsellor: false,
+      recommendCounsellor: !isPataudi,
+      skipCounsellor: isPataudi,
       whatsappRxSent: false,
       examination: fromJunior?.examination ?? {},
       diagnosis: fromJunior?.diagnosis ?? {},
@@ -391,7 +394,7 @@ export async function updateConsultation(
   if (patch.templateId !== undefined) data.templateId = patch.templateId;
   if (patch.handoff !== undefined) data.handoff = patch.handoff;
 
-  if (Object.keys(data).length === 0) return;
+  if (Object.keys(data).length === 0) return { ok: true };
 
   await prisma.consultation.upsert({
     where: { visitId },
@@ -415,6 +418,7 @@ export async function updateConsultation(
     },
     update: data,
   });
+  return { ok: true };
 }
 
 export async function saveConsultSection(
@@ -437,6 +441,7 @@ export async function saveConsultSection(
     where: { visitId },
     data: { [section]: nextSection },
   });
+  return { ok: true };
 }
 
 export async function setPrescription(ctx: ServerContext, visitId: string, lines: PrescriptionLine[]) {
@@ -446,6 +451,7 @@ export async function setPrescription(ctx: ServerContext, visitId: string, lines
     where: { visitId },
     data: { prescription: lines },
   });
+  return { ok: true };
 }
 
 function resolveCounsellorPriority(

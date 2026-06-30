@@ -22,6 +22,17 @@ function patchSchemaWithRoster(
   const deptOptions = roster.departments.map((d) => ({ value: d.id, label: d.label }));
   const deptValueSet = new Set(deptOptions.map((o) => o.value));
   const fallbackDept = deptOptions[0]?.value ?? "";
+  const deptField = base.sections
+    .flatMap((s) => s.fields)
+    .find((f) => f.id === "department" && f.type === "select");
+  const deptDefault =
+    typeof deptField?.defaultValue === "string" ? deptField.defaultValue : "";
+  const resolvedDept =
+    departmentId && deptValueSet.has(departmentId)
+      ? departmentId
+      : deptValueSet.has(deptDefault)
+        ? deptDefault
+        : "";
 
   return {
     ...base,
@@ -29,24 +40,17 @@ function patchSchemaWithRoster(
       ...section,
       fields: section.fields.map((field) => {
         if (field.id === "department" && field.type === "select") {
-          const validDefault =
-            departmentId && deptValueSet.has(departmentId)
-              ? departmentId
-              : typeof field.defaultValue === "string" && deptValueSet.has(field.defaultValue)
-                ? field.defaultValue
-                : "";
-          const deptDoctors = doctorsForDepartment(roster, validDefault || fallbackDept);
-          const doctorOptions = deptDoctors.map((d) => ({ value: d.id, label: d.name }));
           return {
             ...field,
-            options: deptOptions.length ? deptOptions : field.options,
-            defaultValue: deptOptions.length ? validDefault : field.defaultValue,
+            options: deptOptions,
+            defaultValue: deptOptions.length ? resolvedDept : "",
           };
         }
         if (field.id === "doctor" && field.type === "select") {
+          const deptDoctors = doctorsForDepartment(roster, resolvedDept || fallbackDept);
           return {
             ...field,
-            options: [],
+            options: deptDoctors.map((d) => ({ value: d.id, label: d.name })),
           };
         }
         return field;

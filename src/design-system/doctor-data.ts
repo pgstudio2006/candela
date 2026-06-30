@@ -2,12 +2,24 @@
 
 export type TreatmentMode = "opd" | "ipd" | "daycare";
 
+export const PRESCRIPTION_FREQUENCY_OPTIONS = [
+  { value: "OD", label: "Once a day" },
+  { value: "BD", label: "Twice a day" },
+  { value: "TDS", label: "Thrice a day" },
+  { value: "QID", label: "Four times a day" },
+  { value: "HS", label: "At bedtime" },
+  { value: "SOS", label: "As needed" },
+  { value: "STAT", label: "Immediately" },
+  { value: "weekly", label: "Once a week" },
+];
+
 export type PrescriptionLine = {
   id: string;
   drug: string;
   dose: string;
   frequency: string;
-  duration: string;
+  days: number;
+  duration?: string;
   instructions?: string;
 };
 
@@ -121,8 +133,8 @@ export const DOCTOR_TEMPLATES: DoctorTemplate[] = [
       procedures: "None",
     },
     prescription: [
-      { id: "rx1", drug: "Tab. Pregabalin 75mg", dose: "1 tab", frequency: "OD", duration: "14 days" },
-      { id: "rx2", drug: "Tab. Etoricoxib 60mg", dose: "1 tab", frequency: "OD", duration: "5 days" },
+      { id: "rx1", drug: "Tab. Pregabalin 75mg", dose: "1 tab", frequency: "OD", days: 14 },
+      { id: "rx2", drug: "Tab. Etoricoxib 60mg", dose: "1 tab", frequency: "OD", days: 5 },
     ],
   },
   {
@@ -141,7 +153,7 @@ export const DOCTOR_TEMPLATES: DoctorTemplate[] = [
       procedures: "None",
     },
     prescription: [
-      { id: "rx1", drug: "Tab. Thiocolchicoside 4mg", dose: "1 tab", frequency: "BD", duration: "7 days" },
+      { id: "rx1", drug: "Tab. Thiocolchicoside 4mg", dose: "1 tab", frequency: "BD", days: 7 },
     ],
   },
   {

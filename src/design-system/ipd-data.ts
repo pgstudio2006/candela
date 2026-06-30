@@ -43,6 +43,7 @@ export type IpdBedSummary = {
 export type IpdPatientOption = {
   id: string;
   name: string;
+  fullName?: string | null;
   uhid: string;
   phone: string;
 };

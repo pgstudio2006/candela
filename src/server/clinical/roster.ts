@@ -24,6 +24,7 @@ export async function resolveDoctorProfile(ctx: ServerContext): Promise<DoctorPr
     where: { tenantId: ctx.tenantId, branchId: ctx.branchId, active: true },
     orderBy: { label: "asc" },
   });
+  const departmentIdSet = new Set(departments.map((d) => d.id));
 
   const staff = await prisma.adminStaff.findFirst({
     where: { email, role: "doctor", branchId: ctx.branchId },
@@ -36,7 +37,7 @@ export async function resolveDoctorProfile(ctx: ServerContext): Promise<DoctorPr
     );
   }
 
-  const departmentIds = parseArray(staff.departmentIds);
+  const departmentIds = parseArray(staff.departmentIds).filter((id) => departmentIdSet.has(id));
   const departmentLabels = departmentIds.map(
     (id) => departments.find((d) => d.id === id)?.label ?? id,
   );

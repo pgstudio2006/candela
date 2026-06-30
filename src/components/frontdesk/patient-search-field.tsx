@@ -4,24 +4,31 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { Search, User } from "lucide-react";
 import { useMemo, useState } from "react";
-import type { Patient } from "@/design-system/frontdesk-data";
 import { patientDisplayName } from "@/lib/frontdesk-workflow";
 
-type PatientSearchFieldProps = {
+type SearchablePatient = {
+  id: string;
+  uhid: string;
+  name: string;
+  fullName?: string | null;
+  phone: string;
+};
+
+type PatientSearchFieldProps<T extends SearchablePatient = SearchablePatient> = {
   value: string;
-  onChange: (uhidOrQuery: string, patient?: Patient) => void;
-  patients: Patient[];
+  onChange: (uhidOrQuery: string, patient?: T) => void;
+  patients: T[];
   placeholder?: string;
   className?: string;
 };
 
-export function PatientSearchField({
+export function PatientSearchField<T extends SearchablePatient = SearchablePatient>({
   value,
   onChange,
   patients,
   placeholder = "Search by UHID, phone, or name…",
   className,
-}: PatientSearchFieldProps) {
+}: PatientSearchFieldProps<T>) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState(value);
 

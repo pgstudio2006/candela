@@ -7,6 +7,7 @@ import { PrescriptionEditor } from "@/components/doctor/prescription-editor";
 import { useDoctorFormSchema } from "@/components/doctor/use-doctor-form-schema";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
+import { useSession } from "@/components/candela/session-provider";
 import type { TreatmentMode } from "@/design-system/doctor-data";
 import { useDoctorPoll } from "@/hooks/use-doctor-poll";
 import { isRedFlagVisit } from "@/lib/frontdesk-workflow";
@@ -52,10 +53,14 @@ type ConsultationWorkspaceProps = {
   visitId: string;
 };
 
+const PATAUDI_BRANCH_ID = "branch_pataudi";
+
 export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
   useDoctorPoll();
   const router = useRouter();
   const { toast } = useToast();
+  const { session } = useSession();
+  const isPataudi = session?.branchId === PATAUDI_BRANCH_ID;
   const {
     getVisit,
     getPatient,
@@ -174,8 +179,8 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
 
     const result = await completeConsultation(visitId, {
       treatmentMode,
-      recommendCounsellor,
-      skipCounsellor,
+      recommendCounsellor: isPataudi ? false : recommendCounsellor,
+      skipCounsellor: isPataudi ? true : skipCounsellor,
       handoff: handoffValues,
       sendWhatsapp,
     });
@@ -212,7 +217,7 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
       ]}
       title={`Consultation · ${patient.name}`}
       meta={`Token #${visit.token} · ${patient.uhid} · ${visit.billing} billing`}
-      tabs={TABS.map((t) => ({ id: t.id, label: t.label }))}
+      tabs={TABS.filter((t) => !isPataudi || t.id !== "handoff").map((t) => ({ id: t.id, label: t.label }))}
       activeTab={tab}
       onTabChange={(id) => setTab(id as TabId)}
       actions={
@@ -294,28 +299,32 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
         ))}
 
         <div className="ml-auto flex flex-wrap gap-2">
-          <label className="flex items-center gap-1.5 text-[12px] text-[var(--attio-text-secondary)]">
-            <input
-              type="checkbox"
-              checked={recommendCounsellor}
-              onChange={(e) => {
-                setRecommendCounsellor(e.target.checked);
-                updateConsultation(visitId, { recommendCounsellor: e.target.checked });
-              }}
-            />
-            Recommend counsellor
-          </label>
-          <label className="flex items-center gap-1.5 text-[12px] text-[var(--attio-text-secondary)]">
-            <input
-              type="checkbox"
-              checked={skipCounsellor}
-              onChange={(e) => {
-                setSkipCounsellor(e.target.checked);
-                updateConsultation(visitId, { skipCounsellor: e.target.checked });
-              }}
-            />
-            Skip counsellor
-          </label>
+          {!isPataudi && (
+            <>
+              <label className="flex items-center gap-1.5 text-[12px] text-[var(--attio-text-secondary)]">
+                <input
+                  type="checkbox"
+                  checked={recommendCounsellor}
+                  onChange={(e) => {
+                    setRecommendCounsellor(e.target.checked);
+                    updateConsultation(visitId, { recommendCounsellor: e.target.checked });
+                  }}
+                />
+                Recommend counsellor
+              </label>
+              <label className="flex items-center gap-1.5 text-[12px] text-[var(--attio-text-secondary)]">
+                <input
+                  type="checkbox"
+                  checked={skipCounsellor}
+                  onChange={(e) => {
+                    setSkipCounsellor(e.target.checked);
+                    updateConsultation(visitId, { skipCounsellor: e.target.checked });
+                  }}
+                />
+                Skip counsellor
+              </label>
+            </>
+          )}
           <label className="flex items-center gap-1.5 text-[12px] text-[var(--attio-text-secondary)]">
             <input
               type="checkbox"
@@ -488,7 +497,7 @@ export function ConsultationWorkspace({ visitId }: ConsultationWorkspaceProps) {
         </div>
       )}
 
-      {tab === "handoff" && (
+      {tab === "handoff" && !isPataudi && (
         <div className={CONSULT_SIDEBAR_SPLIT}>
           <Panel title="Counsellor handoff">
             <PublishedSchemaForm
