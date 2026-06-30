@@ -32,10 +32,11 @@ function CheckInContent() {
     if (!patient && !visit) return undefined;
     const dept = visit?.departmentId || patient?.departmentId || "dept_spine";
     const deptDoctors = roster.doctorsByDept[dept] ?? roster.allDoctors;
+    const doctorId = visit?.doctorId || deptDoctors[0]?.id || "";
     return {
       uhid: patient?.uhid ?? "",
       department: dept,
-      doctor: visit?.doctorId || deptDoctors[0]?.id || "",
+      doctor: doctorId,
     };
   }, [visitParam, patientParam, getPatient, getVisit, ready, roster]);
 

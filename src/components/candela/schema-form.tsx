@@ -211,10 +211,13 @@ function SchemaFieldInput({
     if (raw && !options.some((o) => o.value === raw)) {
       options = [{ value: raw, label: humanizeSelectValue(raw, field.id, roster) }, ...options];
     }
+    const selectedOption = options.find((o) => o.value === raw);
     return (
       <Select value={raw || undefined} onValueChange={(v) => v != null && onChange(v)}>
         <SelectTrigger className={cn(base, "h-9 w-full")}>
-          <SelectValue placeholder={field.placeholder ?? "Select…"} />
+          <SelectValue placeholder={field.placeholder ?? "Select…"}>
+            {selectedOption?.label ?? (raw ? humanizeSelectValue(raw, field.id, roster) : undefined)}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent className="max-h-72">
           {options.map((o) => (
