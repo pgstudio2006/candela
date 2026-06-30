@@ -49,26 +49,16 @@ export function normalizeRegisterPatientInput(
   };
 }
 
-export const registerPatientSchema = z
-  .object({
-    firstName: z.string().trim().min(1, "First name is required"),
-    lastName: z.string().trim().optional().default(""),
-    phone: phoneSchema,
-    email: z.union([z.string().email("Invalid email"), z.literal("")]).optional().default(""),
-    dob: z.string().optional().default(""),
-    age: z.coerce.number().min(0).max(120).optional(),
-    gender: z.enum(["M", "F", "O"]),
-    department: z.string().min(1, "Department is required"),
-  })
-  .superRefine((val, ctx) => {
-    if (!val.dob && (val.age === undefined || val.age <= 0)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Date of birth or age is required",
-        path: ["dob"],
-      });
-    }
-  });
+export const registerPatientSchema = z.object({
+  firstName: z.string().trim().min(1, "First name is required"),
+  lastName: z.string().trim().optional().default(""),
+  phone: phoneSchema,
+  email: z.union([z.string().email("Invalid email"), z.literal("")]).optional().default(""),
+  dob: z.string().optional().default(""),
+  age: z.coerce.number().min(0).max(120).optional(),
+  gender: z.enum(["M", "F", "O"]),
+  department: z.string().min(1, "Department is required"),
+});
 
 export const checkInSchema = z.object({
   uhid: z.string().trim().min(1, "Patient UHID is required"),
