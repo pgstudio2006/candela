@@ -6,6 +6,7 @@ import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { useFrontdeskFormSchema } from "@/components/frontdesk/use-frontdesk-form-schema";
 import { AttioButton, Panel } from "@/components/frontdesk/ui";
 import { useToast } from "@/components/ui/toast-provider";
+import { useSession } from "@/components/candela/session-provider";
 import { canOverrideDuplicateAction, checkDuplicatePatientAction } from "@/app/actions/clinical-actions";
 import { detectLeadByMobileAction, assignCounsellorToPatientAction } from "@/server/crm/online-counsellor-actions";
 import { schemaFingerprint } from "@/lib/schema-field-utils";
