@@ -28,14 +28,6 @@ export default function AdminRevenueSharingPage() {
   const sim = policy ? simulateShare(policy.id) : null;
   const dept = departments.find((d) => d.id === policy?.departmentId);
 
-  if (!canManageFinance) {
-    return (
-      <PageChrome breadcrumbs={[{ label: "Admin", href: "/app/admin" }, { label: "Revenue sharing" }]} title="Doctor revenue sharing" meta="Finance access required">
-        <p className="text-[13px]">Revenue sharing is available to finance and admin roles.</p>
-      </PageChrome>
-    );
-  }
-
   return (
     <PageChrome breadcrumbs={[{ label: "Admin", href: "/app/admin" }, { label: "Revenue sharing" }]} title="Doctor revenue sharing" meta="Custom policies · department scope · settlement simulator">
       {toast && (
