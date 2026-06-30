@@ -76,7 +76,7 @@ export function OpdBillingForm({
   const [loading, setLoading] = useState(true);
   const [packageSearch, setPackageSearch] = useState("");
   const [serviceSearch, setServiceSearch] = useState("");
-  const [tab, setTab] = useState<"packages" | "services">("packages");
+  const [tab, setTab] = useState<"packages" | "services">("services");
 
   useEffect(() => {
     const loadData = async () => {
@@ -244,76 +244,27 @@ export function OpdBillingForm({
 
           {!skipBilling && (
             <>
-              <Panel title="Add packages or services">
-                {loading ? (
-                  <p className="text-[13px] text-[var(--attio-text-tertiary)]">Loading packages and services...</p>
-                ) : (
-                  <>
-                    <div className="mb-3 flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setTab("packages")}
-                        className={cn(
-                          "h-8 rounded-md border px-4 text-[12px] font-medium",
-                          tab === "packages"
-                            ? "border-zinc-900 bg-zinc-900 text-white"
-                            : "border-[var(--attio-border)] bg-white",
-                        )}
-                      >
-                        Packages ({packages.length})
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setTab("services")}
-                        className={cn(
-                          "h-8 rounded-md border px-4 text-[12px] font-medium",
-                          tab === "services"
-                            ? "border-zinc-900 bg-zinc-900 text-white"
-                            : "border-[var(--attio-border)] bg-white",
-                        )}
-                      >
-                        Services ({services.length})
-                      </button>
-                    </div>
-
-                    <div className="mb-3">
-                      <div className="relative">
-                        <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--attio-text-tertiary)]" />
-                        <Input
-                          type="text"
-                          placeholder={tab === "packages" ? "Search packages..." : "Search services..."}
-                          value={tab === "packages" ? packageSearch : serviceSearch}
-                          onChange={(e) => (tab === "packages" ? setPackageSearch(e.target.value) : setServiceSearch(e.target.value))}
-                          className="pl-9 h-9 text-[13px]"
-                        />
+              <div className="grid gap-6 lg:grid-cols-2">
+                <Panel title="Services">
+                  {loading ? (
+                    <p className="text-[13px] text-[var(--attio-text-tertiary)]">Loading services...</p>
+                  ) : (
+                    <>
+                      <div className="mb-3">
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--attio-text-tertiary)]" />
+                          <Input
+                            type="text"
+                            placeholder="Search services..."
+                            value={serviceSearch}
+                            onChange={(e) => setServiceSearch(e.target.value)}
+                            className="pl-9 h-9 text-[13px]"
+                          />
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {tab === "packages" &&
-                        packages
-                          .filter((pkg: BillingPackage) =>
-                            pkg.label.toLowerCase().includes(packageSearch.toLowerCase()) ||
-                            (pkg.description && pkg.description.toLowerCase().includes(packageSearch.toLowerCase()))
-                          )
-                          .map((pkg: BillingPackage) => (
-                            <button
-                              key={pkg.id}
-                              type="button"
-                              onClick={() => setLines((prev) => [...prev, lineFromPackage(pkg)])}
-                              className="rounded-lg border border-[var(--attio-border)] bg-white p-3 text-left hover:border-[var(--attio-text-tertiary)]"
-                            >
-                              <p className="text-[12px] font-medium leading-snug">{pkg.label}</p>
-                              {pkg.description && (
-                                <p className="mt-0.5 text-[11px] text-[var(--attio-text-tertiary)]">{pkg.description}</p>
-                              )}
-                              <p className="mt-1 text-[13px] font-semibold tabular-nums text-[var(--attio-accent)]">
-                                {formatPackagePrice(pkg)}
-                              </p>
-                            </button>
-                          ))}
-                      {tab === "services" &&
-                        services
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {services
                           .filter((svc: BillingPackage) =>
                             svc.label.toLowerCase().includes(serviceSearch.toLowerCase()) ||
                             (svc.description && svc.description.toLowerCase().includes(serviceSearch.toLowerCase()))
@@ -334,10 +285,56 @@ export function OpdBillingForm({
                               </p>
                             </button>
                           ))}
-                    </div>
-                  </>
-                )}
-              </Panel>
+                      </div>
+                    </>
+                  )}
+                </Panel>
+
+                <Panel title="Packages">
+                  {loading ? (
+                    <p className="text-[13px] text-[var(--attio-text-tertiary)]">Loading packages...</p>
+                  ) : (
+                    <>
+                      <div className="mb-3">
+                        <div className="relative">
+                          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--attio-text-tertiary)]" />
+                          <Input
+                            type="text"
+                            placeholder="Search packages..."
+                            value={packageSearch}
+                            onChange={(e) => setPackageSearch(e.target.value)}
+                            className="pl-9 h-9 text-[13px]"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {packages
+                          .filter((pkg: BillingPackage) =>
+                            pkg.label.toLowerCase().includes(packageSearch.toLowerCase()) ||
+                            (pkg.description && pkg.description.toLowerCase().includes(packageSearch.toLowerCase()))
+                          )
+                          .map((pkg: BillingPackage) => (
+                            <button
+                              key={pkg.id}
+                              type="button"
+                              onClick={() => setLines((prev) => [...prev, lineFromPackage(pkg)])}
+                              className="rounded-lg border border-[var(--attio-border)] bg-white p-3 text-left hover:border-[var(--attio-text-tertiary)]"
+                            >
+                              <p className="text-[12px] font-medium leading-snug">{pkg.label}</p>
+                              {pkg.description && (
+                                <p className="mt-0.5 text-[11px] text-[var(--attio-text-tertiary)]">{pkg.description}</p>
+                              )}
+                              <p className="mt-1 text-[13px] font-semibold tabular-nums text-[var(--attio-accent)]">
+                                {formatPackagePrice(pkg)}
+                              </p>
+                            </button>
+                          ))}
+                      </div>
+                    </>
+                  )}
+                </Panel>
+              </div>
 
               {lines.length > 0 && (
                 <Panel title="Selected packages">
