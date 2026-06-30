@@ -178,6 +178,26 @@ export default function SlotManagementPage() {
     }
   };
 
+  const handleClearAll = async () => {
+    if (!confirm("Are you sure you want to delete ALL slots? This cannot be undone.")) {
+      return;
+    }
+    
+    try {
+      for (const slot of slots) {
+        await fetch(`/api/admin/slots/${slot.id}`, {
+          method: "DELETE",
+          credentials: "include",
+        });
+      }
+      await loadSlots();
+      alert(`Deleted ${slots.length} slots`);
+    } catch (error) {
+      console.error("Failed to clear slots:", error);
+      alert("Failed to clear slots");
+    }
+  };
+
   const handleBulkCreate = async () => {
     const { doctorId, startDate, endDate, startTime, endTime, intervalMinutes, capacity, weekdays } = bulkConfig;
     
@@ -296,6 +316,12 @@ export default function SlotManagementPage() {
       meta="Manage appointment slots · Doctor scheduling · Capacity control"
       actions={
         <div className="flex gap-2">
+          {slots.length > 0 && (
+            <AttioButton variant="secondary" onClick={handleClearAll}>
+              <Trash2 className="size-3.5 mr-1.5" />
+              Clear all
+            </AttioButton>
+          )}
           <AttioButton variant="secondary" onClick={() => setShowBulkForm(true)}>
             <Copy className="size-3.5 mr-1.5" />
             Bulk create
