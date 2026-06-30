@@ -42,7 +42,7 @@ export default function RegistrationPage() {
   const [counsellors, setCounsellors] = useState<{ id: string; name: string }[]>([]);
   const [isEmergency, setIsEmergency] = useState(false);
 
-  const isPataudiBranch = session?.branchId?.toLowerCase().includes("pataudi") || false;
+  const isPataudiBranch = (session as any)?.branchId?.toLowerCase().includes("pataudi") || false;
 
   useEffect(() => {
     void canOverrideDuplicateAction().then(setCanOverrideDuplicate);

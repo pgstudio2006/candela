@@ -65,9 +65,9 @@ export async function resolveNurseOperator(ctx: ServerContext) {
   }
   const staff = await prisma.adminStaff.findFirst({
     where: { email: user.email.toLowerCase(), branchId: ctx.branchId },
-    select: { ward: true },
+    select: { ward: true } as any,
   });
-  return { operatorId: ctx.userId, operatorName: user.name ?? "Nurse", ward: staff?.ward };
+  return { operatorId: ctx.userId, operatorName: user.name ?? "Nurse", ward: (staff as any)?.ward };
 }
 
 export async function resolveCounsellorOperator() {

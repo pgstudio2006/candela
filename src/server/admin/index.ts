@@ -377,7 +377,7 @@ export async function getAdminSnapshotForContext(
       licenseNo: x.licenseNo ?? undefined,
       onDuty: x.onDuty,
       joinedAt: x.joinedAt,
-      ward: x.ward ?? undefined,
+      ward: (x as any).ward ?? undefined,
     })),
     departments: departments.map((x) => ({
       id: x.id,
