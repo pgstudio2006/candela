@@ -1,6 +1,7 @@
 import {
   Activity,
   Building2,
+  CalendarClock,
   ClipboardCheck,
   FileBarChart,
   FileText,
@@ -36,6 +37,7 @@ export const ADMIN_NAV: AdminNavItem[] = [
   { id: "geo", label: "Geo intelligence", href: "/app/admin/geo", icon: Globe2, group: "observe" },
   { id: "data-mining", label: "Data mining", href: "/app/admin/data-mining", icon: PieChart, group: "observe" },
   { id: "patients", label: "Patients", href: "/app/admin/patients", icon: UserRound, group: "observe" },
+  { id: "slots", label: "Slot management", href: "/app/admin/slots", icon: CalendarClock, group: "control", configOnly: true },
   { id: "staff", label: "Staff & access", href: "/app/admin/staff", icon: Users, group: "control", configOnly: true },
   { id: "departments", label: "Departments", href: "/app/admin/departments", icon: Building2, group: "control", configOnly: true },
   { id: "disease-mapping", label: "Disease mapping", href: "/app/admin/disease-mapping", icon: Network, group: "control", configOnly: true },
