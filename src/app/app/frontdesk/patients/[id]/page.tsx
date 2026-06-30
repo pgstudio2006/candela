@@ -122,6 +122,7 @@ export default function PatientRecordPage() {
                 <div><dt className="text-[var(--attio-text-tertiary)]">Email</dt><dd>{patient.email ?? "—"}</dd></div>
                 <div><dt className="text-[var(--attio-text-tertiary)]">Referrer</dt><dd>{patient.referrer ?? "—"}</dd></div>
                 <div><dt className="text-[var(--attio-text-tertiary)]">Referral source</dt><dd>{patient.referrerSource ?? "—"}</dd></div>
+                <div><dt className="text-[var(--attio-text-tertiary)]">Referral doctor</dt><dd>{(patient as any).referralDoctorName ?? "—"}</dd></div>
                 <div><dt className="text-[var(--attio-text-tertiary)]">Corporate ID</dt><dd>{patient.corporateId ?? "—"}</dd></div>
                 <div><dt className="text-[var(--attio-text-tertiary)]">Consent</dt><dd>{patient.consentTreatment || patient.consentData ? "On file" : "—"}</dd></div>
                 <div><dt className="text-[var(--attio-text-tertiary)]">Last visit</dt><dd>{patient.lastVisit ?? "—"}</dd></div>

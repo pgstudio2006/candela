@@ -123,6 +123,7 @@ model Branch {
   doctorTemplates    DoctorTemplate[]
   formSubmissions    FormSubmission[]
   ipdAdmissions      IpdAdmission[]
+  referralDoctors    ReferralDoctor[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -268,10 +269,13 @@ model Patient {
   assignedCounsellorId String?
   assignedCounsellorName String?
   leadSourceId    String?
+  referralDoctorId String?
+  referralDoctorName String?
 
   @@unique([tenantId, uhid])
   @@index([branchId, fullName])
   @@index([branchId, assignedCounsellorId])
+  @@index([branchId, referralDoctorId])
 }
 
 model Appointment {
@@ -1887,4 +1891,24 @@ model CounsellorCommission {
 
   @@index([branchId, counsellorId, status])
   @@index([branchId, patientId])
+}
+
+model ReferralDoctor {
+  id              String   @id @default(cuid())
+  tenantId        String
+  branchId        String?
+  name            String
+  phone           String?
+  email           String?
+  clinicName      String?
+  address         String?
+  specialization  String?
+  commissionPercent Decimal @default(0)
+  active          Boolean  @default(true)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  branch          Branch?  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, active])
 }

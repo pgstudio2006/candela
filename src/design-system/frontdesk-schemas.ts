@@ -184,6 +184,13 @@ export const REGISTRATION_SCHEMA: FormSchema = {
           options: HEAR_ABOUT_OPTIONS,
         },
         { id: "referrerName", type: "text", label: "Referrer name", placeholder: "Optional" },
+        {
+          id: "referralDoctor",
+          type: "select",
+          label: "Referral doctor",
+          placeholder: "Select referring doctor",
+          options: [],
+        },
         { id: "corporateId", type: "text", label: "Corporate / insurance ID", placeholder: "TCS-XXXX" },
       ],
     },

@@ -571,6 +571,8 @@ export async function registerPatient(
       meta: registration.meta,
       tenantId: scope.tenantId,
       branchId: scope.branchId,
+      referralDoctorId: (data as any).referralDoctor || null,
+      referralDoctorName: (data as any).referralDoctor ? (data as any).referralDoctorName || null : null,
     },
     create: {
       id: patientId,
@@ -591,6 +593,8 @@ export async function registerPatient(
       tags: registration.tags,
       referrer: registration.referrer,
       meta: registration.meta,
+      referralDoctorId: (data as any).referralDoctor || null,
+      referralDoctorName: (data as any).referralDoctor ? (data as any).referralDoctorName || null : null,
     },
   });
 
