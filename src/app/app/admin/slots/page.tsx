@@ -179,8 +179,19 @@ export default function SlotManagementPage() {
 
   const handleBulkCreate = async () => {
     const { doctorId, startDate, endDate, startTime, endTime, intervalMinutes, capacity, weekdays } = bulkConfig;
-    if (!doctorId || !startDate || !endDate) {
-      alert("Please select doctor and date range");
+    
+    console.log("Bulk create config:", bulkConfig);
+    
+    if (!doctorId) {
+      alert("Please select a doctor");
+      return;
+    }
+    if (!startDate || !endDate) {
+      alert("Please select date range");
+      return;
+    }
+    if (weekdays.length === 0) {
+      alert("Please select at least one weekday");
       return;
     }
 
@@ -196,7 +207,9 @@ export default function SlotManagementPage() {
 
     while (current <= end) {
       const dayOfWeek = current.getDay();
-      if (weekdays.includes(Object.keys(weekdayMap).find((k) => weekdayMap[k] === dayOfWeek) || "")) {
+      const dayKey = Object.keys(weekdayMap).find((k) => weekdayMap[k] === dayOfWeek);
+      
+      if (dayKey && weekdays.includes(dayKey)) {
         const [startHour, startMin] = startTime.split(":").map(Number);
         const [endHour, endMin] = endTime.split(":").map(Number);
 
@@ -224,18 +237,46 @@ export default function SlotManagementPage() {
       current.setDate(current.getDate() + 1);
     }
 
+    console.log(`Creating ${slotsToCreate.length} slots...`);
+
+    if (slotsToCreate.length === 0) {
+      alert("No slots to create based on the configuration");
+      return;
+    }
+
     try {
+      let successCount = 0;
+      let failCount = 0;
+      
       for (const slot of slotsToCreate) {
-        await fetch("/api/admin/slots", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(slot),
-        });
+        try {
+          const res = await fetch("/api/admin/slots", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(slot),
+          });
+          const json = await res.json();
+          if (json.ok) {
+            successCount++;
+          } else {
+            console.error("Failed to create slot:", json.error);
+            failCount++;
+          }
+        } catch (error) {
+          console.error("Error creating slot:", error);
+          failCount++;
+        }
       }
+      
       await loadSlots();
       setShowBulkForm(false);
-      alert(`Created ${slotsToCreate.length} slots`);
+      
+      if (failCount > 0) {
+        alert(`Created ${successCount} slots, ${failCount} failed`);
+      } else {
+        alert(`Successfully created ${successCount} slots`);
+      }
     } catch (error) {
       console.error("Failed to create bulk slots:", error);
       alert("Failed to create slots");
