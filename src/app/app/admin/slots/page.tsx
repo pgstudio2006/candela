@@ -38,6 +38,7 @@ export default function SlotManagementPage() {
   const [showForm, setShowForm] = useState(false);
   const [showBulkForm, setShowBulkForm] = useState(false);
   const [editing, setEditing] = useState<Slot | null>(null);
+  const [bulkCreating, setBulkCreating] = useState(false);
   const [formData, setFormData] = useState({
     doctorId: "",
     doctorName: "",
@@ -195,6 +196,8 @@ export default function SlotManagementPage() {
       return;
     }
 
+    setBulkCreating(true);
+
     const doctor = staff.find((s) => s.id === doctorId);
     const doctorName = doctor?.name || "";
 
@@ -240,6 +243,7 @@ export default function SlotManagementPage() {
     console.log(`Creating ${slotsToCreate.length} slots...`);
 
     if (slotsToCreate.length === 0) {
+      setBulkCreating(false);
       alert("No slots to create based on the configuration");
       return;
     }
@@ -271,6 +275,7 @@ export default function SlotManagementPage() {
       
       await loadSlots();
       setShowBulkForm(false);
+      setBulkCreating(false);
       
       if (failCount > 0) {
         alert(`Created ${successCount} slots, ${failCount} failed`);
@@ -279,6 +284,7 @@ export default function SlotManagementPage() {
       }
     } catch (error) {
       console.error("Failed to create bulk slots:", error);
+      setBulkCreating(false);
       alert("Failed to create slots");
     }
   };
@@ -303,7 +309,7 @@ export default function SlotManagementPage() {
     >
       {showBulkForm && (
         <Panel title="Bulk create slots">
-          <form onSubmit={(e) => { e.preventDefault(); handleBulkCreate(); }} className="space-y-4">
+          <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2">
                 <label className="block text-[12px] font-medium mb-1">Select Doctor</label>
@@ -398,14 +404,14 @@ export default function SlotManagementPage() {
               </div>
             </div>
             <div className="flex gap-2">
-              <AttioButton variant="primary" type="submit">
-                Create slots
+              <AttioButton variant="primary" onClick={handleBulkCreate} disabled={bulkCreating}>
+                {bulkCreating ? "Creating slots..." : "Create slots"}
               </AttioButton>
-              <AttioButton variant="secondary" type="button" onClick={() => setShowBulkForm(false)}>
+              <AttioButton variant="secondary" onClick={() => setShowBulkForm(false)} disabled={bulkCreating}>
                 Cancel
               </AttioButton>
             </div>
-          </form>
+          </div>
         </Panel>
       )}
 
