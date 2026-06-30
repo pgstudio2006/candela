@@ -235,6 +235,7 @@ export async function getAdminSnapshotForContext(
     documentTemplates,
     formSubmissions,
     consultations,
+    payments,
   ] = await Promise.all([
     prisma.adminStaff.findMany({
       where: {
@@ -256,6 +257,7 @@ export async function getAdminSnapshotForContext(
     prisma.documentTemplate.findMany({ where: { ...tenantScope(ctx), kind: { startsWith: "admin:" }, OR: [{ branchId: ctx.branchId }, { branchId: null }] } }),
     prisma.formSubmission.findMany({ where: branchScope(ctx), orderBy: { submittedAt: "desc" }, take: 500 }),
     prisma.consultation.findMany({ orderBy: { createdAt: "desc" }, take: 500 }),
+    prisma.payment.findMany({ where: branchScope(ctx), orderBy: { paidAt: "desc" }, take: 1000 }),
   ]);
 
   const mappedPatients = patients.map((x) => ({
@@ -375,6 +377,7 @@ export async function getAdminSnapshotForContext(
       licenseNo: x.licenseNo ?? undefined,
       onDuty: x.onDuty,
       joinedAt: x.joinedAt,
+      ward: x.ward ?? undefined,
     })),
     departments: departments.map((x) => ({
       id: x.id,
@@ -444,6 +447,11 @@ export async function getAdminSnapshotForContext(
     auditEvents: toAudit(auditEvents),
     patients: mappedPatients,
     visits: mappedVisits,
+    payments: payments.map((x) => ({
+      id: x.id,
+      amount: Number(x.amount),
+      status: x.status,
+    })),
     dataMining,
     documentTemplates: documentTemplates.map((x) => ({
       id: x.id,

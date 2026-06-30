@@ -206,6 +206,7 @@ model AdminStaff {
   licenseNo     String?
   onDuty        Boolean  @default(false)
   joinedAt      String
+  ward          String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }

@@ -29,6 +29,7 @@ export default function RegistrationPage() {
   const router = useRouter();
   const { toast } = useToast();
   const { registerPatientAsync, saveSubmission, counters, roster } = useFrontdeskStore();
+  const session = useSession();
   const [draft, setDraft] = useState<Record<string, string | number | boolean>>({});
   const [savedUhid, setSavedUhid] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -38,6 +39,9 @@ export default function RegistrationPage() {
   const [assignCounsellor, setAssignCounsellor] = useState(false);
   const [counsellorName, setCounsellorName] = useState("");
   const [counsellors, setCounsellors] = useState<{ id: string; name: string }[]>([]);
+  const [isEmergency, setIsEmergency] = useState(false);
+
+  const isPataudiBranch = session?.branchId?.toLowerCase().includes("pataudi") || false;
 
   useEffect(() => {
     void canOverrideDuplicateAction().then(setCanOverrideDuplicate);
@@ -80,13 +84,13 @@ export default function RegistrationPage() {
     data: Record<string, string | number | boolean>,
     opts?: { forceDuplicate?: boolean },
   ) => {
-    if (phoneWarning && !opts?.forceDuplicate) {
+    if (phoneWarning && !opts?.forceDuplicate && !isEmergency) {
       toast("This phone is already registered. Use check-in for the existing patient.", "error");
       return;
     }
 
     setSubmitting(true);
-    const result = await registerPatientAsync(data, { forceDuplicate: opts?.forceDuplicate });
+    const result = await registerPatientAsync(data, { forceDuplicate: opts?.forceDuplicate || isEmergency });
     setSubmitting(false);
 
     if (!result.ok) {
@@ -134,6 +138,24 @@ export default function RegistrationPage() {
       meta="New capture · duplicate phone guard · billing-first routing"
     >
       <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
+        {isPataudiBranch && (
+          <Panel title="Emergency mode">
+            <label className="flex items-center gap-2 text-[12px]">
+              <input
+                type="checkbox"
+                checked={isEmergency}
+                onChange={(e) => setIsEmergency(e.target.checked)}
+                className="size-4 rounded border-[var(--attio-border)]"
+              />
+              <span className="font-medium text-red-700">Emergency registration</span>
+            </label>
+            <p className="mt-2 text-[11px] text-[var(--attio-text-tertiary)]">
+              {isEmergency
+                ? "Duplicate phone check disabled. Use for urgent cases requiring immediate care."
+                : "Enable to skip duplicate phone validation for emergency cases."}
+            </p>
+          </Panel>
+        )}
         <Panel title="Patient details">
           <PublishedSchemaForm
             schema={schema}

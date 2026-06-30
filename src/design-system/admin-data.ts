@@ -32,6 +32,7 @@ export type StaffMember = {
   licenseNo?: string;
   onDuty: boolean;
   joinedAt: string;
+  ward?: string;
 };
 
 export type DepartmentConfig = {

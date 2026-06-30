@@ -537,12 +537,14 @@ export async function completeConsultation(
 
     if (opts.treatmentMode === "ipd") {
       ipdAdmissionId = `ipd_${visitId}`;
+      const ward = String(opts.handoff.ward ?? "MSK Ward A");
       await tx.ipdAdmission.upsert({
         where: { visitId },
         update: {
           diagnosis: diagnosisSummary,
           attendingDoctorId: doctorId,
           status: "admitted",
+          ward,
         },
         create: {
           id: ipdAdmissionId,
@@ -550,7 +552,7 @@ export async function completeConsultation(
           branchId: ctx.branchId,
           visitId,
           patientId: visit.patientId,
-          ward: String(opts.handoff.ward ?? "MSK Ward A"),
+          ward,
           bed: String(opts.handoff.bed ?? "A-14"),
           category: "general",
           patientType: "general",
@@ -561,6 +563,74 @@ export async function completeConsultation(
           status: "admitted",
         },
       });
+
+      // Auto-assign nurse based on ward
+      const assignedNurse = await tx.adminStaff.findFirst({
+        where: {
+          branchId: ctx.branchId,
+          role: "nurse",
+          ward,
+          onDuty: true,
+        },
+      });
+
+      if (assignedNurse) {
+        await tx.nursingHandoff.upsert({
+          where: { visitId },
+          update: {
+            ipdWard: ward,
+            ipdBed: String(opts.handoff.bed ?? "A-14"),
+          },
+          create: {
+            id: `nh_${visitId}`,
+            visitId,
+            patientId: visit.patientId,
+            patientName: visit.patientName ?? "",
+            uhid: visit.uhid ?? "",
+            doctorId,
+            doctorName: visit.doctorName ?? "",
+            treatmentPath: "ipd",
+            packageId: packageId || "",
+            packageLabel: pkg?.label ?? "",
+            billingStatus: visit.billingStatus ?? "pending",
+            amountPaid: visit.amountPaid ?? 0,
+            balanceDue: visit.balanceDue ?? 0,
+            netAmount: (visit.amountPaid ?? 0) + (visit.balanceDue ?? 0),
+            commercialConsent: false,
+            billingHandoff: opts.handoff,
+            consultation: updatedConsult,
+            ipdWard: ward,
+            ipdBed: String(opts.handoff.bed ?? "A-14"),
+            sentAt: completedAt,
+          },
+        });
+
+        // Create nursing episode for assigned nurse
+        await tx.nursingEpisode.create({
+          data: {
+            id: `ep_${visitId}`,
+            visitId,
+            patientId: visit.patientId,
+            nurseId: assignedNurse.id,
+            nurseName: assignedNurse.name,
+            branchId: ctx.branchId,
+            treatmentPath: "ipd",
+            packageLabel: pkg?.label ?? "",
+            packageId: packageId || "",
+            doctorName: visit.doctorName ?? "",
+            doctorId,
+            billingStatus: visit.billingStatus ?? "pending",
+            balanceDue: visit.balanceDue ?? 0,
+            status: "queued",
+            priority: "high",
+            queuedAt: completedAt,
+            consents: [],
+            sessions: [],
+            internalNotes: "",
+            tasks: [],
+          },
+        });
+      }
     }
 
     await tx.opdVisit.update({

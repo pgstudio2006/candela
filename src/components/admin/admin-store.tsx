@@ -302,7 +302,7 @@ export function AdminStoreProvider({ children }: { children: ReactNode }) {
       removeStaffLocal,
       getAuditLog: () => data.auditEvents,
       getCommandKpis: () =>
-        computeCommandKpis(visits, data.staff, data.mrdRequests, patients, data.auditEvents.length),
+        computeCommandKpis(visits, data.staff, data.mrdRequests, patients, data.auditEvents.length, (data as any).payments ?? []),
       getHawkEye: () => computeHawkEye(visits),
       getLeakageFlags: () => computeLeakageFlags(visits, patients),
       getActiveLeakageFlags: () =>

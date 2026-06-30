@@ -63,7 +63,11 @@ export async function resolveNurseOperator(ctx: ServerContext) {
   if (!user?.email) {
     throw new ServerActionError("UNAUTHORIZED", "Nurse account is not linked to this login.");
   }
-  return { operatorId: ctx.userId, operatorName: user.name ?? "Nurse" };
+  const staff = await prisma.adminStaff.findFirst({
+    where: { email: user.email.toLowerCase(), branchId: ctx.branchId },
+    select: { ward: true },
+  });
+  return { operatorId: ctx.userId, operatorName: user.name ?? "Nurse", ward: staff?.ward };
 }
 
 export async function resolveCounsellorOperator() {

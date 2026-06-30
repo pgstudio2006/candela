@@ -41,6 +41,7 @@ export function StaffFormModal({ open, onClose, departments, branchId, initial, 
   const [departmentIds, setDepartmentIds] = useState<string[]>([]);
   const [licenseNo, setLicenseNo] = useState("");
   const [onDuty, setOnDuty] = useState(true);
+  const [ward, setWard] = useState("");
   const [createLogin, setCreateLogin] = useState(true);
   const [resetPassword, setResetPassword] = useState(false);
   const [password, setPassword] = useState("");
@@ -56,6 +57,7 @@ export function StaffFormModal({ open, onClose, departments, branchId, initial, 
     setDepartmentIds(initial?.departmentIds ?? []);
     setLicenseNo(initial?.licenseNo ?? "");
     setOnDuty(initial?.onDuty ?? true);
+    setWard((initial as any)?.ward ?? "");
     setCreateLogin(!initial);
     setResetPassword(false);
     setPassword("");
@@ -97,6 +99,7 @@ export function StaffFormModal({ open, onClose, departments, branchId, initial, 
           branchId: initial?.branchId ?? branchId,
           licenseNo: licenseNo.trim() || undefined,
           onDuty,
+          ward: role === "nurse" ? ward.trim() || undefined : undefined,
           joinedAt: initial?.joinedAt ?? new Date().toISOString().slice(0, 10),
         },
         initial
@@ -168,6 +171,12 @@ export function StaffFormModal({ open, onClose, departments, branchId, initial, 
               <Label className="text-[12px]">License / ID</Label>
               <Input value={licenseNo} onChange={(e) => setLicenseNo(e.target.value)} className="h-9 text-[13px]" placeholder="Optional" />
             </div>
+            {role === "nurse" && (
+              <div className="space-y-1.5">
+                <Label className="text-[12px]">Ward assignment</Label>
+                <Input value={ward} onChange={(e) => setWard(e.target.value)} className="h-9 text-[13px]" placeholder="e.g. Ward A, Ward B, ICU" />
+              </div>
+            )}
           </div>
 
           {doctorWorkspaceId && (

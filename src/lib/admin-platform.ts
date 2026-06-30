@@ -169,15 +169,18 @@ export function computeCommandKpis(
   mrdRequests: { status: string }[] = [],
   patients: Patient[] = [],
   auditCount = 0,
+  payments: { amount: number; status: string }[] = [],
 ) {
-  const collected = visits.reduce((s, v) => s + (v.amountPaid ?? 0), 0);
+  const collected = payments
+    .filter((p) => p.status === "completed")
+    .reduce((s, p) => s + (p.amount ?? 0), 0);
   const balance = patients.reduce((s, p) => s + p.balance, 0);
   const inPipeline = visits.filter((v) => !["completed", "registered"].includes(v.stage)).length;
   const onDuty = staff.filter((s) => s.onDuty).length;
   const mrdPending = mrdRequests.filter((r) => r.status !== "released" && r.status !== "rejected").length;
 
   return [
-    { label: "Revenue collected", value: `₹${(collected / 100000).toFixed(1)}L`, delta: "Live from billing events", trend: "up" as const },
+    { label: "Revenue collected", value: `₹${(collected / 100000).toFixed(1)}L`, delta: "Live from payment records", trend: "up" as const },
     { label: "Outstanding balance", value: `₹${(balance / 1000).toFixed(0)}K`, delta: "Partial & defer ledger", trend: balance > 50000 ? ("down" as const) : ("neutral" as const) },
     { label: "Active pipeline", value: String(inPipeline), delta: "Cross-module visits", trend: "neutral" as const },
     { label: "Audit events", value: String(auditCount), delta: "From database audit log", trend: "neutral" as const },
