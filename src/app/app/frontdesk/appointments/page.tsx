@@ -14,7 +14,7 @@ import { subsetSchema } from "@/lib/schema-registry";
 import { cn } from "@/lib/utils";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 
 export default function AppointmentsPage() {
@@ -62,10 +62,39 @@ export default function AppointmentsPage() {
     [appointments, date, getPatient],
   );
 
-  const slots = useMemo(
-    () => generateDaySlots(deptId, booked, activeDoctorId),
-    [deptId, booked, activeDoctorId],
-  );
+  const [adminSlots, setAdminSlots] = useState<any[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+
+  const loadAdminSlots = async () => {
+    setLoadingSlots(true);
+    try {
+      const res = await fetch(`/api/admin/slots?date=${date}&doctorId=${activeDoctorId}`, { credentials: "include" });
+      const json = await res.json();
+      if (json.ok) {
+        setAdminSlots(json.data);
+      }
+    } catch (error) {
+      console.error("Failed to load slots:", error);
+    } finally {
+      setLoadingSlots(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAdminSlots();
+  }, [date, activeDoctorId]);
+
+  const slots = useMemo(() => {
+    if (adminSlots.length > 0) {
+      return adminSlots.map((slot) => ({
+        time: slot.startTime,
+        available: slot.status === "available" && slot.booked < slot.capacity,
+        bookedPatient: slot.booked > 0 ? "Booked" : undefined,
+        slotId: slot.id,
+      }));
+    }
+    return generateDaySlots(deptId, booked, activeDoctorId);
+  }, [adminSlots, deptId, booked, activeDoctorId]);
 
   const dayAppointments = useMemo(
     () =>
@@ -84,6 +113,27 @@ export default function AppointmentsPage() {
       toast("Select a time slot", "error");
       return;
     }
+
+    const selectedSlot = adminSlots.find((s) => s.startTime === selectedTime);
+    if (selectedSlot) {
+      try {
+        const res = await fetch(`/api/admin/slots/${selectedSlot.id}`, {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...selectedSlot, booked: selectedSlot.booked + 1 }),
+        });
+        const json = await res.json();
+        if (!json.ok) {
+          toast("Failed to update slot", "error");
+          return;
+        }
+      } catch (error) {
+        toast("Failed to update slot", "error");
+        return;
+      }
+    }
+
     const result = await bookAppointment({
       patient: selectedPatientUhid,
       department: deptId,
@@ -111,6 +161,23 @@ export default function AppointmentsPage() {
   };
 
   const handleCancel = async (appointmentId: string) => {
+    const appointment = appointments.find((a) => a.id === appointmentId);
+    if (appointment) {
+      const slot = adminSlots.find((s) => s.startTime === appointment.time && s.date === appointment.date);
+      if (slot && slot.booked > 0) {
+        try {
+          await fetch(`/api/admin/slots/${slot.id}`, {
+            method: "PUT",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...slot, booked: slot.booked - 1 }),
+          });
+        } catch (error) {
+          console.error("Failed to update slot on cancel:", error);
+        }
+      }
+    }
+
     const result = await cancelAppointment(appointmentId);
     if (!result.ok) {
       toast(result.error ?? "Could not cancel", "error");
@@ -124,6 +191,38 @@ export default function AppointmentsPage() {
       toast("Pick a new date and time", "error");
       return;
     }
+
+    const appointment = appointments.find((a) => a.id === appointmentId);
+    if (appointment) {
+      const oldSlot = adminSlots.find((s) => s.startTime === appointment.time && s.date === appointment.date);
+      if (oldSlot && oldSlot.booked > 0) {
+        try {
+          await fetch(`/api/admin/slots/${oldSlot.id}`, {
+            method: "PUT",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...oldSlot, booked: oldSlot.booked - 1 }),
+          });
+        } catch (error) {
+          console.error("Failed to update old slot on reschedule:", error);
+        }
+      }
+
+      const newSlot = adminSlots.find((s) => s.startTime === rescheduleTime && s.date === rescheduleDate);
+      if (newSlot) {
+        try {
+          await fetch(`/api/admin/slots/${newSlot.id}`, {
+            method: "PUT",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...newSlot, booked: newSlot.booked + 1 }),
+          });
+        } catch (error) {
+          console.error("Failed to update new slot on reschedule:", error);
+        }
+      }
+    }
+
     const result = await rescheduleAppointment(appointmentId, {
       date: rescheduleDate,
       time: rescheduleTime,

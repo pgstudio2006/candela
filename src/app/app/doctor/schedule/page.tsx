@@ -7,6 +7,7 @@ import { useDoctorPoll } from "@/hooks/use-doctor-poll";
 import { formatStageStatus, patientDisplayName } from "@/lib/frontdesk-workflow";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { useState, useEffect } from "react";
 
 const DEFAULT_SLOTS = [
   "09:00", "09:20", "09:40", "10:00", "10:20", "10:40",
@@ -18,19 +19,44 @@ const DEFAULT_SLOTS = [
 export default function DoctorSchedulePage() {
   useDoctorPoll();
   const { activeDoctorId, visits, getPatient } = useDoctorStore();
-  const today = new Date().toLocaleDateString("en-IN", {
+  const [adminSlots, setAdminSlots] = useState<any[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const today = new Date().toISOString().slice(0, 10);
+  const todayDisplay = new Date().toLocaleDateString("en-IN", {
     weekday: "short",
     day: "numeric",
     month: "short",
     year: "numeric",
   });
 
+  const loadAdminSlots = async () => {
+    setLoadingSlots(true);
+    try {
+      const res = await fetch(`/api/admin/slots?date=${today}&doctorId=${activeDoctorId}`, { credentials: "include" });
+      const json = await res.json();
+      if (json.ok) {
+        setAdminSlots(json.data);
+      }
+    } catch (error) {
+      console.error("Failed to load slots:", error);
+    } finally {
+      setLoadingSlots(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAdminSlots();
+  }, [today, activeDoctorId]);
+
   const appointments = visits
     .filter((v) => v.doctorId === activeDoctorId && v.appointment)
     .sort((a, b) => String(a.appointmentTime).localeCompare(String(b.appointmentTime)));
 
   const booked = new Set(appointments.map((v) => v.appointmentTime).filter(Boolean));
-  const slots = [...new Set([...DEFAULT_SLOTS, ...booked])].sort();
+
+  const slots = adminSlots.length > 0
+    ? adminSlots.map((s) => s.startTime).sort()
+    : [...new Set([...DEFAULT_SLOTS, ...booked])].sort();
 
   return (
     <PageChrome
@@ -39,29 +65,41 @@ export default function DoctorSchedulePage() {
         { label: "Schedule" },
       ]}
       title="Today's schedule"
-      meta={`${today} · ${appointments.length} appointment(s)`}
+      meta={`${todayDisplay} · ${appointments.length} appointment(s)`}
     >
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel title="OPD time slots">
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-            {slots.map((slot) => {
-              const taken = booked.has(slot);
-              return (
-                <div
-                  key={slot}
-                  className={cn(
-                    "rounded-lg border px-3 py-2.5 text-center text-[13px]",
-                    taken
-                      ? "border-[var(--attio-accent)]/30 bg-[var(--attio-accent)]/5 text-[var(--attio-accent)]"
-                      : "border-[var(--attio-border-subtle)] text-[var(--attio-text-secondary)]",
-                  )}
-                >
-                  {slot}
-                  {taken && <p className="mt-0.5 text-[10px]">Booked</p>}
-                </div>
-              );
-            })}
-          </div>
+          {loadingSlots ? (
+            <p className="text-[13px] text-[var(--attio-text-tertiary)]">Loading slots…</p>
+          ) : (
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+              {slots.map((slot) => {
+                const taken = booked.has(slot);
+                const adminSlot = adminSlots.find((s) => s.startTime === slot);
+                const capacity = adminSlot?.capacity ?? 1;
+                const bookedCount = adminSlot?.booked ?? 0;
+                const isFull = adminSlot ? bookedCount >= capacity : taken;
+                return (
+                  <div
+                    key={slot}
+                    className={cn(
+                      "rounded-lg border px-3 py-2.5 text-center text-[13px]",
+                      isFull
+                        ? "border-[var(--attio-accent)]/30 bg-[var(--attio-accent)]/5 text-[var(--attio-accent)]"
+                        : "border-[var(--attio-border-subtle)] text-[var(--attio-text-secondary)]",
+                    )}
+                  >
+                    <p>{slot}</p>
+                    {adminSlot ? (
+                      <p className="mt-0.5 text-[10px]">{bookedCount}/{capacity}</p>
+                    ) : taken ? (
+                      <p className="mt-0.5 text-[10px]">Booked</p>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </Panel>
 
         <Panel title="Appointments today">
