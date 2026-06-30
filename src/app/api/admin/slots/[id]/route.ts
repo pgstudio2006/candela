@@ -3,8 +3,9 @@ import { requireAuth } from "@/server/auth";
 import { branchScope } from "@/server/tenancy";
 import { NextRequest, NextResponse } from "next/server";
 
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const ctx = await requireAuth();
     const body = await req.json();
     const { doctorId, doctorName, departmentId, date, startTime, endTime, capacity, status, notes } = body;
@@ -12,7 +13,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const scope = branchScope(ctx);
 
     const slot = await prisma.slot.findFirst({
-      where: { id: params.id, ...scope },
+      where: { id, ...scope },
     });
 
     if (!slot) {
@@ -20,7 +21,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     }
 
     const updated = await prisma.slot.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         ...(doctorId !== undefined && { doctorId }),
         ...(doctorName !== undefined && { doctorName }),
@@ -41,13 +42,14 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   }
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const ctx = await requireAuth();
     const scope = branchScope(ctx);
 
     const slot = await prisma.slot.findFirst({
-      where: { id: params.id, ...scope },
+      where: { id, ...scope },
     });
 
     if (!slot) {
@@ -55,7 +57,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
     }
 
     await prisma.slot.delete({
-      where: { id: params.id },
+      where: { id },
     });
 
     return NextResponse.json({ ok: true });
