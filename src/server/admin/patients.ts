@@ -7,7 +7,7 @@ import { deletePatientsByIds } from "@/server/clinical/delete-patient";
 import type { ServerContext } from "@/server/context";
 import { ServerActionError } from "@/server/errors";
 import { writePlatformAudit } from "@/server/platform-audit";
-import { branchScope, tenantClinicalWhere } from "@/server/tenancy";
+import { branchScope } from "@/server/tenancy";
 
 export type AdminPatientHistory = {
   patient: Patient;
@@ -63,7 +63,7 @@ export async function searchAdminPatients(
   input: { q?: string; page?: number; pageSize?: number; view?: "all" | "balance" | "today" },
 ) {
   await backfillBranchScope(ctx);
-  const tenantWhere = tenantClinicalWhere(ctx);
+  const scope = branchScope(ctx);
   const page = Math.max(1, input.page ?? 1);
   const pageSize = Math.min(100, Math.max(10, input.pageSize ?? 25));
   const q = input.q?.trim();
@@ -74,7 +74,7 @@ export async function searchAdminPatients(
     todayStart.setHours(0, 0, 0, 0);
     const visits = await prisma.opdVisit.findMany({
       where: {
-        ...tenantWhere,
+        ...scope,
         checkInAt: { not: null },
         updatedAt: { gte: todayStart },
       },
@@ -88,7 +88,7 @@ export async function searchAdminPatients(
 
   const where = {
     AND: [
-      tenantWhere,
+      scope,
       ...(input.view === "balance" ? [{ balance: { gt: 0 } }] : []),
       ...(patientIdsFilter ? [{ id: { in: patientIdsFilter } }] : []),
       ...(q
@@ -129,10 +129,10 @@ export async function getAdminPatientHistory(
   patientId: string,
 ): Promise<AdminPatientHistory> {
   await backfillBranchScope(ctx);
-  const tenantWhere = tenantClinicalWhere(ctx);
+  const scope = branchScope(ctx);
 
   const patientRow = await prisma.patient.findFirst({
-    where: { id: patientId, ...tenantWhere },
+    where: { id: patientId, ...scope },
   });
   if (!patientRow) {
     throw new ServerActionError("NOT_FOUND", "Patient not found in this hospital.");
@@ -153,28 +153,28 @@ export async function getAdminPatientHistory(
   const [visits, invoices, submissions, appointments] = await Promise.all([
     safeQuery("visits", () =>
       prisma.opdVisit.findMany({
-        where: { patientId, ...tenantWhere },
+        where: { patientId, ...scope },
         orderBy: { createdAt: "desc" },
         take: 100,
       }),
     ),
     safeQuery("invoices", () =>
       prisma.invoice.findMany({
-        where: { patientId, tenantId: ctx.tenantId },
+        where: { patientId, tenantId: ctx.tenantId, branchId: ctx.branchId },
         orderBy: { createdAt: "desc" },
         take: 50,
       }),
     ),
     safeQuery("forms", () =>
       prisma.formSubmission.findMany({
-        where: { patientId, ...branchScope(ctx) },
+        where: { patientId, ...scope },
         orderBy: { createdAt: "desc" },
         take: 50,
       }),
     ),
     safeQuery("appointments", () =>
       prisma.appointment.findMany({
-        where: { patientId, ...tenantWhere },
+        where: { patientId, ...scope },
         orderBy: { createdAt: "desc" },
         take: 50,
       }),
@@ -273,7 +273,7 @@ export async function deleteAdminPatient(
   await backfillBranchScope(ctx);
 
   const patientRow = await prisma.patient.findFirst({
-    where: { id: patientId, ...tenantClinicalWhere(ctx) },
+    where: { id: patientId, ...branchScope(ctx) },
     select: { id: true, fullName: true, name: true },
   });
   if (!patientRow) {

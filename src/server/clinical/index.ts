@@ -102,9 +102,9 @@ function parseUhidCounter(uhid: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-async function maxUhidCounterInTenant(ctx: ServerContext): Promise<number> {
+async function maxUhidCounterInBranch(ctx: ServerContext): Promise<number> {
   const patients = await prisma.patient.findMany({
-    where: { tenantId: ctx.tenantId },
+    where: { tenantId: ctx.tenantId, branchId: ctx.branchId },
     select: { uhid: true },
   });
   return Math.max(0, ...patients.map((p) => parseUhidCounter(p.uhid)));
@@ -382,13 +382,13 @@ function buildCounters(
   patients: Patient[],
   visits: Visit[],
   appointments: Appointment[],
-  tenantPatientCounter: number,
+  branchPatientCounter: number,
 ): FrontdeskCounters {
   const visitCounter = Math.max(0, ...visits.map((v) => parseCounterFromId("v", v.id)));
   const tokenCounter = Math.max(0, ...visits.map((v) => v.token ?? 0));
   const appointmentCounter = Math.max(0, ...appointments.map((a) => parseCounterFromId("ap", a.id)));
   return {
-    patient: tenantPatientCounter,
+    patient: branchPatientCounter,
     visit: visitCounter,
     token: tokenCounter,
     appointment: appointmentCounter,
@@ -402,7 +402,7 @@ export async function getClinicalSnapshot(ctx: ServerContext): Promise<ClinicalS
   await backfillBranchScope(ctx);
   const clinicalWhere = branchClinicalWhere(ctx);
 
-  const [patientsRows, visitsRows, appointmentRows, handoffRows, roster, tenantPatientCounter] = await Promise.all([
+  const [patientsRows, visitsRows, appointmentRows, handoffRows, roster, branchPatientCounter] = await Promise.all([
     prisma.patient.findMany({ where: clinicalWhere, orderBy: { createdAt: "asc" } }),
     prisma.opdVisit.findMany({ where: clinicalWhere, orderBy: { createdAt: "asc" } }),
     prisma.appointment.findMany({
@@ -411,7 +411,7 @@ export async function getClinicalSnapshot(ctx: ServerContext): Promise<ClinicalS
     }),
     prisma.billingHandoff.findMany({ where: { branchId: ctx.branchId }, orderBy: { createdAt: "asc" } }),
     loadClinicalRoster(ctx),
-    maxUhidCounterInTenant(ctx),
+    maxUhidCounterInBranch(ctx),
   ]);
 
   const patients: Patient[] = patientsRows.map(mapPrismaPatientRow);
@@ -482,7 +482,7 @@ export async function getClinicalSnapshot(ctx: ServerContext): Promise<ClinicalS
     visits,
     appointments,
     submissions,
-    counters: buildCounters(patients, visits, appointments, tenantPatientCounter),
+    counters: buildCounters(patients, visits, appointments, branchPatientCounter),
     billingHandoffs,
     roster,
   };
@@ -538,8 +538,8 @@ export async function registerPatient(
       "Supervisor approval required to register a duplicate patient.",
     );
   }
-  const tenantPatientCounter = await maxUhidCounterInTenant(ctx);
-  const uhid = data.uhid ? String(data.uhid) : nextUhid(tenantPatientCounter + 1);
+  const branchPatientCounter = await maxUhidCounterInBranch(ctx);
+  const uhid = data.uhid ? String(data.uhid) : nextUhid(branchPatientCounter + 1, ctx.branchId);
   const deptId = String(data.department ?? "dept_spine");
   const first = String(data.firstName ?? "").trim();
   const last = String(data.lastName ?? "").trim();

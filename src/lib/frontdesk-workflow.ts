@@ -83,8 +83,17 @@ export function isAwaitingConsultant(visit: { stage: string; exam?: string }) {
   return visit.stage === "with_doctor" && visit.exam === "done";
 }
 
-export function nextUhid(counter: number) {
-  return `NV-2026-${String(counter).padStart(4, "0")}`;
+export function branchCodeFromBranchId(branchId: string | undefined | null): string {
+  if (!branchId) return "XX";
+  const parts = branchId.split("_");
+  const last = parts[parts.length - 1];
+  if (!last) return "XX";
+  return last.slice(0, 2).toUpperCase();
+}
+
+export function nextUhid(counter: number, branchId?: string) {
+  const code = branchCodeFromBranchId(branchId);
+  return `NV-${code}-2026-${String(counter).padStart(4, "0")}`;
 }
 
 export function templateAmount(templateId: string) {
