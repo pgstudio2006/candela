@@ -45,7 +45,7 @@ export default function WhatsAppTemplatesPage() {
   const [logs, setLogs] = useState<WhatsAppLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
-  const [tab, setTab] = useState<"templates" | "logs">("templates");
+  const [tab, setTab] = useState<"templates" | "logs" | "test">("templates");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -103,6 +103,37 @@ export default function WhatsAppTemplatesPage() {
     );
   };
 
+  const [testPhone, setTestPhone] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; detail?: string } | null>(null);
+
+  const sendTest = async () => {
+    if (!testPhone.trim()) {
+      alert("Enter a phone number first");
+      return;
+    }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/admin/whatsapp/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ phone: testPhone.trim() }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setTestResult({ ok: true, detail: json.data?.error || "Message sent successfully" });
+      } else {
+        setTestResult({ ok: false, detail: json.error || json.data?.error || "Send failed" });
+      }
+    } catch (e) {
+      setTestResult({ ok: false, detail: "Request failed" });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   return (
     <PageChrome
       breadcrumbs={[
@@ -124,6 +155,12 @@ export default function WhatsAppTemplatesPage() {
           onClick={() => setTab("logs")}
         >
           Message Logs
+        </AttioButton>
+        <AttioButton
+          variant={tab === "test" ? "primary" : "secondary"}
+          onClick={() => setTab("test")}
+        >
+          Test Send
         </AttioButton>
       </div>
 
@@ -204,6 +241,59 @@ export default function WhatsAppTemplatesPage() {
             </Panel>
           ))}
         </div>
+      ) : tab === "test" ? (
+        <Panel title="Test WhatsApp Message">
+          <div className="space-y-4">
+            <p className="text-[13px] text-neutral-500">
+              Send a test WhatsApp message to verify your Meta Cloud API configuration is working.
+              Make sure the phone number is registered with WhatsApp.
+            </p>
+            <div>
+              <label className="mb-1 block text-[12px] font-medium text-neutral-700">
+                Phone Number (with or without country code)
+              </label>
+              <input
+                type="tel"
+                placeholder="e.g. 9876543210"
+                value={testPhone}
+                onChange={(e) => setTestPhone(e.target.value)}
+                className="w-full rounded-md border border-neutral-300 px-3 py-2 text-[13px]"
+              />
+              <p className="mt-1 text-[11px] text-neutral-400">
+                Indian numbers: 10 digits without country code. International: include country code.
+              </p>
+            </div>
+            <AttioButton
+              variant="primary"
+              onClick={() => void sendTest()}
+              disabled={testing}
+            >
+              {testing ? "Sending..." : "Send Test Message"}
+            </AttioButton>
+            {testResult && (
+              <div
+                className={`rounded-md p-3 text-[13px] ${
+                  testResult.ok
+                    ? "bg-green-50 text-green-700"
+                    : "bg-red-50 text-red-700"
+                }`}
+              >
+                <strong>{testResult.ok ? "Success" : "Failed"}</strong>
+                {testResult.detail && <p className="mt-1">{testResult.detail}</p>}
+              </div>
+            )}
+            <div className="rounded-md bg-neutral-50 p-3 text-[12px] text-neutral-500">
+              <p className="font-medium text-neutral-700">Required Environment Variables:</p>
+              <ul className="mt-2 space-y-1">
+                <li><code>WHATSAPP_API_TOKEN</code> — Meta WhatsApp Business permanent access token</li>
+                <li><code>WHATSAPP_PHONE_NUMBER_ID</code> — Phone number ID from Meta Business Manager</li>
+                <li><code>WHATSAPP_API_VERSION</code> — API version (default: v21.0)</li>
+                <li><code>WHATSAPP_WEBHOOK_VERIFY_TOKEN</code> — Custom token for webhook verification</li>
+              </ul>
+              <p className="mt-2">Webhook URL: <code>/api/whatsapp/webhook</code></p>
+            </div>
+          </div>
+        </Panel>
       ) : (
         <Panel title="Recent WhatsApp Messages">
           {logs.length === 0 ? (

@@ -90,45 +90,56 @@ export async function deliverSms(
   return { ok: true, provider: "twilio" };
 }
 
-/** WhatsApp via Twilio WhatsApp sender */
+/** WhatsApp via Meta Cloud API (WhatsApp Business Cloud API) */
 export async function deliverWhatsApp(
   recipient: string,
   body: string,
 ): Promise<DeliveryResult> {
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  const token = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_WHATSAPP_FROM ?? "whatsapp:+14155238886";
+  const token = process.env.WHATSAPP_API_TOKEN;
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const apiVersion = process.env.WHATSAPP_API_VERSION ?? "v21.0";
 
-  if (!sid || !token) {
+  if (!token || !phoneNumberId) {
     if (demoMode()) {
       console.info("[notifications:demo:whatsapp]", recipient, body.slice(0, 120));
-      return { ok: true, provider: "demo", detail: "Twilio not configured — logged only" };
+      return { ok: true, provider: "demo", detail: "WHATSAPP_API_TOKEN / WHATSAPP_PHONE_NUMBER_ID not set — logged only" };
     }
-    return { ok: false, provider: "twilio-whatsapp", detail: "Twilio env vars missing" };
+    return { ok: false, provider: "meta-cloud", detail: "WHATSAPP_API_TOKEN or WHATSAPP_PHONE_NUMBER_ID not configured" };
   }
 
+  // Normalize phone: strip non-digits, ensure country code
   const phone = recipient.replace(/\D/g, "");
-  const to = phone.length === 10 ? `whatsapp:+91${phone}` : recipient.startsWith("whatsapp:") ? recipient : `whatsapp:+${phone}`;
+  const to = phone.length === 10 ? `91${phone}` : phone;
 
-  const auth = Buffer.from(`${sid}:${token}`).toString("base64");
-  const res = await fetch(
-    `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${auth}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({ To: to, From: from, Body: body }).toString(),
+  const url = `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
     },
-  );
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to,
+      type: "text",
+      text: {
+        body: body,
+      },
+    }),
+  });
 
   if (!res.ok) {
     const err = await res.text();
-    return { ok: false, provider: "twilio-whatsapp", detail: err.slice(0, 200) };
+    console.error("[whatsapp:meta-cloud] Send failed:", res.status, err);
+    return { ok: false, provider: "meta-cloud", detail: err.slice(0, 300) };
   }
 
-  return { ok: true, provider: "twilio-whatsapp" };
+  const data = await res.json().catch(() => ({}));
+  const messageId = data?.messages?.[0]?.id ?? "unknown";
+
+  return { ok: true, provider: "meta-cloud", detail: `Message ID: ${messageId}` };
 }
 
 export async function deliverNotification(n: QueuedNotification): Promise<DeliveryResult> {
