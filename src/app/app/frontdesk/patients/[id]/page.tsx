@@ -26,10 +26,18 @@ export default function PatientRecordPage() {
   const [selectedCounsellor, setSelectedCounsellor] = useState("");
   const [reassigning, setReassigning] = useState(false);
   const [reassignToast, setReassignToast] = useState<string | null>(null);
+  const [patientStatus, setPatientStatus] = useState<string>("");
+  const [updatingStatus, setUpdatingStatus] = useState(false);
 
   useEffect(() => {
     if (patient) setActivePatientId(patient.id);
   }, [patient, setActivePatientId]);
+
+  useEffect(() => {
+    if (patient) {
+      setPatientStatus((patient as any).status || "active");
+    }
+  }, [patient]);
 
   useEffect(() => {
     void (async () => {
@@ -54,6 +62,33 @@ export default function PatientRecordPage() {
     } else {
       setReassignToast(`Failed: ${result.error}`);
       setTimeout(() => setReassignToast(null), 4000);
+    }
+  };
+
+  const handleStatusChange = async (newStatus: string) => {
+    if (!patient) return;
+    setUpdatingStatus(true);
+    try {
+      const res = await fetch("/api/patients/status", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patientId: patient.id, status: newStatus }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        setPatientStatus(newStatus);
+        setReassignToast(`Patient status updated to ${newStatus}.`);
+        setTimeout(() => setReassignToast(null), 3000);
+      } else {
+        setReassignToast(`Failed: ${json.error}`);
+        setTimeout(() => setReassignToast(null), 3000);
+      }
+    } catch {
+      setReassignToast("Failed to update status");
+      setTimeout(() => setReassignToast(null), 3000);
+    } finally {
+      setUpdatingStatus(false);
     }
   };
 
@@ -124,6 +159,21 @@ export default function PatientRecordPage() {
                 <div><dt className="text-[var(--attio-text-tertiary)]">Referral source</dt><dd>{patient.referrerSource ?? "—"}</dd></div>
                 <div><dt className="text-[var(--attio-text-tertiary)]">Referral doctor</dt><dd>{(patient as any).referralDoctorName ?? "—"}</dd></div>
                 <div><dt className="text-[var(--attio-text-tertiary)]">Corporate ID</dt><dd>{patient.corporateId ?? "—"}</dd></div>
+                <div><dt className="text-[var(--attio-text-tertiary)]">Status</dt>
+                  <dd>
+                    <select
+                      value={patientStatus}
+                      onChange={(e) => handleStatusChange(e.target.value)}
+                      disabled={updatingStatus}
+                      className="h-7 rounded border px-2 text-[12px]"
+                    >
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                      <option value="blocked">Blocked</option>
+                      <option value="deceased">Deceased</option>
+                    </select>
+                  </dd>
+                </div>
                 <div><dt className="text-[var(--attio-text-tertiary)]">Consent</dt><dd>{patient.consentTreatment || patient.consentData ? "On file" : "—"}</dd></div>
                 <div><dt className="text-[var(--attio-text-tertiary)]">Last visit</dt><dd>{patient.lastVisit ?? "—"}</dd></div>
                 <div><dt className="text-[var(--attio-text-tertiary)]">Balance</dt><dd>{patient.balance > 0 ? `₹${patient.balance}` : "Clear"}</dd></div>

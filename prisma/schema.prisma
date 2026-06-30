@@ -124,6 +124,7 @@ model Branch {
   formSubmissions    FormSubmission[]
   ipdAdmissions      IpdAdmission[]
   referralDoctors    ReferralDoctor[]
+  slots             Slot[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -253,6 +254,7 @@ model Patient {
   referrer        String?
   address         Json?
   meta            Json?
+  status          String      @default("active")
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
   tenant          Tenant?     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1911,4 +1913,26 @@ model ReferralDoctor {
   branch          Branch?  @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   @@index([branchId, active])
+}
+
+model Slot {
+  id              String   @id @default(cuid())
+  tenantId        String
+  branchId        String?
+  doctorId        String?
+  doctorName      String?
+  departmentId    String?
+  date            String
+  startTime       String
+  endTime         String
+  capacity        Int      @default(1)
+  booked          Int      @default(0)
+  status          String   @default("available")
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  branch          Branch?  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, date, status])
+  @@index([branchId, doctorId, date])
 }

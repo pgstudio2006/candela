@@ -4,7 +4,7 @@ import { searchAdminPatientsAction, deleteAdminPatientAction } from "@/server/ad
 import type { Patient } from "@/design-system/frontdesk-data";
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, DataTable, StatusBadge } from "@/components/frontdesk/ui";
-import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trash2, CheckSquare, Square } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
@@ -77,6 +77,7 @@ export default function AdminPatientsPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const pageSize = 25;
 
   const load = useCallback(async () => {
@@ -128,6 +129,37 @@ export default function AdminPatientsPage() {
     }
   };
 
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Are you sure you want to delete ${selectedIds.size} patient(s)? This action cannot be undone.`)) return;
+    try {
+      for (const id of selectedIds) {
+        await deleteAdminPatientAction(id);
+      }
+      setSelectedIds(new Set());
+      await load();
+    } catch (err) {
+      alert("Failed to delete some patients");
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === patients.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(patients.map((p) => p.id)));
+    }
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
@@ -157,6 +189,16 @@ export default function AdminPatientsPage() {
           placeholder="Search name, UHID, phone…"
           className="ml-auto h-9 min-w-[200px] rounded-md border px-3 text-[13px]"
         />
+        {selectedIds.size > 0 && (
+          <AttioButton
+            variant="secondary"
+            className="ml-2 gap-1 text-red-600"
+            onClick={handleBulkDelete}
+          >
+            <Trash2 className="size-3.5" />
+            Delete {selectedIds.size}
+          </AttioButton>
+        )}
       </div>
 
       {error && (
@@ -170,6 +212,7 @@ export default function AdminPatientsPage() {
       ) : (
         <DataTable
           columns={[
+            { key: "select", label: "" },
             { key: "name", label: "Name" },
             { key: "uhid", label: "UHID" },
             { key: "phone", label: "Phone" },
@@ -179,6 +222,22 @@ export default function AdminPatientsPage() {
             { key: "actions", label: "Actions" },
           ]}
           rows={patients.map((p) => ({
+            select: (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleSelect(p.id);
+                }}
+                className="p-1"
+              >
+                {selectedIds.has(p.id) ? (
+                  <CheckSquare className="size-4 text-[var(--attio-accent)]" />
+                ) : (
+                  <Square className="size-4 text-[var(--attio-text-tertiary)]" />
+                )}
+              </button>
+            ),
             name: <span className="font-medium text-[var(--attio-text)]">{p.name}</span>,
             uhid: <span className="font-mono text-[12px]">{p.uhid}</span>,
             phone: p.phone,
