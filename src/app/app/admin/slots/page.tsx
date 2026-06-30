@@ -152,9 +152,12 @@ export default function SlotManagementPage() {
       const json = await res.json();
       if (json.ok) {
         await loadSlots();
+      } else {
+        alert(json.error || "Failed to delete slot");
       }
     } catch (error) {
       console.error("Failed to delete slot:", error);
+      alert("Failed to delete slot");
     }
   };
 
@@ -183,15 +186,35 @@ export default function SlotManagementPage() {
       return;
     }
     
+    let successCount = 0;
+    let failCount = 0;
+    
     try {
       for (const slot of slots) {
-        await fetch(`/api/admin/slots/${slot.id}`, {
-          method: "DELETE",
-          credentials: "include",
-        });
+        try {
+          const res = await fetch(`/api/admin/slots/${slot.id}`, {
+            method: "DELETE",
+            credentials: "include",
+          });
+          const json = await res.json();
+          if (json.ok) {
+            successCount++;
+          } else {
+            console.error("Failed to delete slot:", json.error);
+            failCount++;
+          }
+        } catch (error) {
+          console.error("Error deleting slot:", error);
+          failCount++;
+        }
       }
       await loadSlots();
-      alert(`Deleted ${slots.length} slots`);
+      
+      if (failCount > 0) {
+        alert(`Deleted ${successCount} slots, ${failCount} failed (some may have bookings)`);
+      } else {
+        alert(`Successfully deleted ${successCount} slots`);
+      }
     } catch (error) {
       console.error("Failed to clear slots:", error);
       alert("Failed to clear slots");

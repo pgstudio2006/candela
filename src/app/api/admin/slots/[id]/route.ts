@@ -56,6 +56,11 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       return NextResponse.json({ ok: false, error: "Slot not found" }, { status: 404 });
     }
 
+    // Check if slot has bookings
+    if (slot.booked > 0) {
+      return NextResponse.json({ ok: false, error: "Cannot delete slot with bookings" }, { status: 400 });
+    }
+
     await prisma.slot.delete({
       where: { id },
     });
