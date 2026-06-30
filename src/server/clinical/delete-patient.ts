@@ -17,33 +17,107 @@ export async function deletePatientsByIds(
     })
   ).map((v) => v.id);
 
-  await prisma.payment
-    .deleteMany({ where: { invoice: { patientId: { in: patientIds } } } })
-    .catch(() => undefined);
-  await prisma.invoiceLine
-    .deleteMany({ where: { invoice: { patientId: { in: patientIds } } } })
-    .catch(() => undefined);
-  await prisma.invoice.deleteMany({ where: { patientId: { in: patientIds } } });
-  await prisma.consultation.deleteMany({ where: { patientId: { in: patientIds } } }).catch(() => undefined);
-  if (visitIds.length) {
-    await prisma.consultNote.deleteMany({ where: { visitId: { in: visitIds } } }).catch(() => undefined);
+  try {
+    await prisma.payment
+      .deleteMany({ where: { invoice: { patientId: { in: patientIds } } } })
+      .catch(() => undefined);
+  } catch (e) {
+    console.error("Error deleting payments:", e);
   }
-  await prisma.formSubmission
-    .deleteMany({ where: { patientId: { in: patientIds }, ...scope } })
-    .catch(() => undefined);
-  await prisma.queue.deleteMany({ where: { patientId: { in: patientIds } } }).catch(() => undefined);
-  await prisma.consent.deleteMany({ where: { patientId: { in: patientIds } } }).catch(() => undefined);
-  await prisma.counsellorSession
-    .deleteMany({ where: { patientId: { in: patientIds } } })
-    .catch(() => undefined);
-  await prisma.billingHandoff
-    .deleteMany({ where: { patientId: { in: patientIds } } })
-    .catch(() => undefined);
-  await prisma.nursingEpisode.deleteMany({ where: { visitId: { in: visitIds } } }).catch(() => undefined);
-  await prisma.opdVisit.deleteMany({ where: { patientId: { in: patientIds } } });
-  await prisma.visit.deleteMany({ where: { patientId: { in: patientIds } } }).catch(() => undefined);
-  await prisma.appointment.deleteMany({ where: { patientId: { in: patientIds } } }).catch(() => undefined);
+  
+  try {
+    await prisma.invoiceLine
+      .deleteMany({ where: { invoice: { patientId: { in: patientIds } } } })
+      .catch(() => undefined);
+  } catch (e) {
+    console.error("Error deleting invoice lines:", e);
+  }
+  
+  try {
+    await prisma.invoice.deleteMany({ where: { patientId: { in: patientIds } } });
+  } catch (e) {
+    console.error("Error deleting invoices:", e);
+  }
+  
+  try {
+    await prisma.consultation.deleteMany({ where: { patientId: { in: patientIds } } }).catch(() => undefined);
+  } catch (e) {
+    console.error("Error deleting consultations:", e);
+  }
+  
+  if (visitIds.length) {
+    try {
+      await prisma.consultNote.deleteMany({ where: { visitId: { in: visitIds } } }).catch(() => undefined);
+    } catch (e) {
+      console.error("Error deleting consult notes:", e);
+    }
+  }
+  
+  try {
+    await prisma.formSubmission
+      .deleteMany({ where: { patientId: { in: patientIds }, ...scope } })
+      .catch(() => undefined);
+  } catch (e) {
+    console.error("Error deleting form submissions:", e);
+  }
+  
+  try {
+    await prisma.queue.deleteMany({ where: { patientId: { in: patientIds } } }).catch(() => undefined);
+  } catch (e) {
+    console.error("Error deleting queue:", e);
+  }
+  
+  try {
+    await prisma.consent.deleteMany({ where: { patientId: { in: patientIds } } }).catch(() => undefined);
+  } catch (e) {
+    console.error("Error deleting consent:", e);
+  }
+  
+  try {
+    await prisma.counsellorSession
+      .deleteMany({ where: { patientId: { in: patientIds } } })
+      .catch(() => undefined);
+  } catch (e) {
+    console.error("Error deleting counsellor sessions:", e);
+  }
+  
+  try {
+    await prisma.billingHandoff
+      .deleteMany({ where: { patientId: { in: patientIds } } })
+      .catch(() => undefined);
+  } catch (e) {
+    console.error("Error deleting billing handoff:", e);
+  }
+  
+  try {
+    await prisma.nursingEpisode.deleteMany({ where: { visitId: { in: visitIds } } }).catch(() => undefined);
+  } catch (e) {
+    console.error("Error deleting nursing episodes:", e);
+  }
+  
+  try {
+    await prisma.opdVisit.deleteMany({ where: { patientId: { in: patientIds } } });
+  } catch (e) {
+    console.error("Error deleting opd visits:", e);
+  }
+  
+  try {
+    await prisma.visit.deleteMany({ where: { patientId: { in: patientIds } } }).catch(() => undefined);
+  } catch (e) {
+    console.error("Error deleting visits:", e);
+  }
+  
+  try {
+    await prisma.appointment.deleteMany({ where: { patientId: { in: patientIds } } }).catch(() => undefined);
+  } catch (e) {
+    console.error("Error deleting appointments:", e);
+  }
 
-  const removed = await prisma.patient.deleteMany({ where: { id: { in: patientIds } } });
-  return removed.count;
+  try {
+    const removed = await prisma.patient.deleteMany({ where: { id: { in: patientIds } } });
+    return removed.count;
+  } catch (e) {
+    console.error("Error deleting patients:", e);
+    throw e;
+  }
 }
