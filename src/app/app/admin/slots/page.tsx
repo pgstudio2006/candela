@@ -2,8 +2,9 @@
 
 import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
+import { useAdminStore } from "@/components/admin/admin-store";
 import { useState, useEffect } from "react";
-import { Calendar, Clock, Plus, Trash2 } from "lucide-react";
+import { Calendar, Clock, Plus, Trash2, Copy } from "lucide-react";
 
 type Slot = {
   id: string;
@@ -19,10 +20,23 @@ type Slot = {
   notes?: string;
 };
 
+type BulkSlotConfig = {
+  doctorId: string;
+  startDate: string;
+  endDate: string;
+  startTime: string;
+  endTime: string;
+  intervalMinutes: number;
+  capacity: number;
+  weekdays: string[];
+};
+
 export default function SlotManagementPage() {
+  const { staff } = useAdminStore();
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [showBulkForm, setShowBulkForm] = useState(false);
   const [editing, setEditing] = useState<Slot | null>(null);
   const [formData, setFormData] = useState({
     doctorId: "",
@@ -35,6 +49,16 @@ export default function SlotManagementPage() {
     booked: 0,
     status: "available",
     notes: "",
+  });
+  const [bulkConfig, setBulkConfig] = useState<BulkSlotConfig>({
+    doctorId: "",
+    startDate: "",
+    endDate: "",
+    startTime: "09:00",
+    endTime: "17:00",
+    intervalMinutes: 20,
+    capacity: 1,
+    weekdays: ["mon", "tue", "wed", "thu", "fri"],
   });
 
   const loadSlots = async () => {
@@ -153,48 +177,220 @@ export default function SlotManagementPage() {
     }
   };
 
+  const handleBulkCreate = async () => {
+    const { doctorId, startDate, endDate, startTime, endTime, intervalMinutes, capacity, weekdays } = bulkConfig;
+    if (!doctorId || !startDate || !endDate) {
+      alert("Please select doctor and date range");
+      return;
+    }
+
+    const doctor = staff.find((s) => s.id === doctorId);
+    const doctorName = doctor?.name || "";
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const weekdayMap: Record<string, number> = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 0 };
+
+    const slotsToCreate: any[] = [];
+    let current = new Date(start);
+
+    while (current <= end) {
+      const dayOfWeek = current.getDay();
+      if (weekdays.includes(Object.keys(weekdayMap).find((k) => weekdayMap[k] === dayOfWeek) || "")) {
+        const [startHour, startMin] = startTime.split(":").map(Number);
+        const [endHour, endMin] = endTime.split(":").map(Number);
+
+        let slotTime = startHour * 60 + startMin;
+        const endTimeMinutes = endHour * 60 + endMin;
+
+        while (slotTime + intervalMinutes <= endTimeMinutes) {
+          const slotStart = `${String(Math.floor(slotTime / 60)).padStart(2, "0")}:${String(slotTime % 60).padStart(2, "0")}`;
+          const slotEnd = `${String(Math.floor((slotTime + intervalMinutes) / 60)).padStart(2, "0")}:${String((slotTime + intervalMinutes) % 60).padStart(2, "0")}`;
+
+          slotsToCreate.push({
+            doctorId,
+            doctorName,
+            date: current.toISOString().slice(0, 10),
+            startTime: slotStart,
+            endTime: slotEnd,
+            capacity,
+            booked: 0,
+            status: "available",
+          });
+
+          slotTime += intervalMinutes;
+        }
+      }
+      current.setDate(current.getDate() + 1);
+    }
+
+    try {
+      for (const slot of slotsToCreate) {
+        await fetch("/api/admin/slots", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(slot),
+        });
+      }
+      await loadSlots();
+      setShowBulkForm(false);
+      alert(`Created ${slotsToCreate.length} slots`);
+    } catch (error) {
+      console.error("Failed to create bulk slots:", error);
+      alert("Failed to create slots");
+    }
+  };
+
   return (
     <PageChrome
       breadcrumbs={[{ label: "Admin", href: "/app/admin" }, { label: "Slot Management" }]}
       title="Slot management"
       meta="Manage appointment slots · Doctor scheduling · Capacity control"
       actions={
-        <AttioButton variant="primary" onClick={() => setShowForm(true)}>
-          <Plus className="size-3.5 mr-1.5" />
-          Add slot
-        </AttioButton>
+        <div className="flex gap-2">
+          <AttioButton variant="secondary" onClick={() => setShowBulkForm(true)}>
+            <Copy className="size-3.5 mr-1.5" />
+            Bulk create
+          </AttioButton>
+          <AttioButton variant="primary" onClick={() => setShowForm(true)}>
+            <Plus className="size-3.5 mr-1.5" />
+            Add slot
+          </AttioButton>
+        </div>
       }
     >
+      {showBulkForm && (
+        <Panel title="Bulk create slots">
+          <form onSubmit={(e) => { e.preventDefault(); handleBulkCreate(); }} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <label className="block text-[12px] font-medium mb-1">Select Doctor</label>
+                <select
+                  value={bulkConfig.doctorId}
+                  onChange={(e) => setBulkConfig({ ...bulkConfig, doctorId: e.target.value })}
+                  className="h-9 w-full rounded border px-3 text-[13px]"
+                >
+                  <option value="">Select a doctor...</option>
+                  {staff.filter((s) => s.role === "doctor").map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[12px] font-medium mb-1">Start Date</label>
+                <input
+                  type="date"
+                  value={bulkConfig.startDate}
+                  onChange={(e) => setBulkConfig({ ...bulkConfig, startDate: e.target.value })}
+                  className="h-9 w-full rounded border px-3 text-[13px]"
+                />
+              </div>
+              <div>
+                <label className="block text-[12px] font-medium mb-1">End Date</label>
+                <input
+                  type="date"
+                  value={bulkConfig.endDate}
+                  onChange={(e) => setBulkConfig({ ...bulkConfig, endDate: e.target.value })}
+                  className="h-9 w-full rounded border px-3 text-[13px]"
+                />
+              </div>
+              <div>
+                <label className="block text-[12px] font-medium mb-1">Start Time</label>
+                <input
+                  type="time"
+                  value={bulkConfig.startTime}
+                  onChange={(e) => setBulkConfig({ ...bulkConfig, startTime: e.target.value })}
+                  className="h-9 w-full rounded border px-3 text-[13px]"
+                />
+              </div>
+              <div>
+                <label className="block text-[12px] font-medium mb-1">End Time</label>
+                <input
+                  type="time"
+                  value={bulkConfig.endTime}
+                  onChange={(e) => setBulkConfig({ ...bulkConfig, endTime: e.target.value })}
+                  className="h-9 w-full rounded border px-3 text-[13px]"
+                />
+              </div>
+              <div>
+                <label className="block text-[12px] font-medium mb-1">Interval (minutes)</label>
+                <input
+                  type="number"
+                  min="5"
+                  step="5"
+                  value={bulkConfig.intervalMinutes}
+                  onChange={(e) => setBulkConfig({ ...bulkConfig, intervalMinutes: Number(e.target.value) })}
+                  className="h-9 w-full rounded border px-3 text-[13px]"
+                />
+              </div>
+              <div>
+                <label className="block text-[12px] font-medium mb-1">Capacity per slot</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={bulkConfig.capacity}
+                  onChange={(e) => setBulkConfig({ ...bulkConfig, capacity: Number(e.target.value) })}
+                  className="h-9 w-full rounded border px-3 text-[13px]"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-[12px] font-medium mb-1">Weekdays</label>
+                <div className="flex flex-wrap gap-2">
+                  {["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((day) => (
+                    <label key={day} className="flex items-center gap-1 text-[12px]">
+                      <input
+                        type="checkbox"
+                        checked={bulkConfig.weekdays.includes(day)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setBulkConfig({ ...bulkConfig, weekdays: [...bulkConfig.weekdays, day] });
+                          } else {
+                            setBulkConfig({ ...bulkConfig, weekdays: bulkConfig.weekdays.filter((d) => d !== day) });
+                          }
+                        }}
+                      />
+                      {day.charAt(0).toUpperCase() + day.slice(1)}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <AttioButton variant="primary" type="submit">
+                Create slots
+              </AttioButton>
+              <AttioButton variant="secondary" type="button" onClick={() => setShowBulkForm(false)}>
+                Cancel
+              </AttioButton>
+            </div>
+          </form>
+        </Panel>
+      )}
+
       {showForm && (
         <Panel title={editing ? "Edit slot" : "New slot"}>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-[12px] font-medium mb-1">Doctor ID</label>
-                <input
-                  type="text"
+              <div className="col-span-2">
+                <label className="block text-[12px] font-medium mb-1">Select Doctor</label>
+                <select
                   value={formData.doctorId}
-                  onChange={(e) => setFormData({ ...formData, doctorId: e.target.value })}
+                  onChange={(e) => {
+                    const selectedDoctor = staff.find((s) => s.id === e.target.value);
+                    setFormData({
+                      ...formData,
+                      doctorId: e.target.value,
+                      doctorName: selectedDoctor?.name || "",
+                    });
+                  }}
                   className="h-9 w-full rounded border px-3 text-[13px]"
-                />
-              </div>
-              <div>
-                <label className="block text-[12px] font-medium mb-1">Doctor Name</label>
-                <input
-                  type="text"
-                  value={formData.doctorName}
-                  onChange={(e) => setFormData({ ...formData, doctorName: e.target.value })}
-                  className="h-9 w-full rounded border px-3 text-[13px]"
-                />
-              </div>
-              <div>
-                <label className="block text-[12px] font-medium mb-1">Department ID</label>
-                <input
-                  type="text"
-                  value={formData.departmentId}
-                  onChange={(e) => setFormData({ ...formData, departmentId: e.target.value })}
-                  className="h-9 w-full rounded border px-3 text-[13px]"
-                />
+                >
+                  <option value="">Select a doctor...</option>
+                  {staff.filter((s) => s.role === "doctor").map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="block text-[12px] font-medium mb-1">Date</label>
