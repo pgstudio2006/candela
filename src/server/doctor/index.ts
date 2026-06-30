@@ -25,6 +25,7 @@ import {
 import { ensureVisitDoctorAssignment } from "@/server/doctor/visit-claim";
 import { ServerActionError } from "@/server/errors";
 import { notifyPrescriptionWhatsapp } from "@/server/notifications";
+import { sendWhatsAppAsync } from "@/server/whatsapp/service";
 import { writePlatformAudit } from "@/server/platform-audit";
 import { syncVisitFromOpdVisit } from "@/server/visit-sync";
 import { branchScope, tenantScope } from "@/server/tenancy";
@@ -705,7 +706,30 @@ export async function completeConsultation(
         visitId,
         lineCount: consult.prescription.length,
       });
+
+      // WhatsApp: send prescription notification via template (Gurgaon only)
+      try {
+        await sendWhatsAppAsync(ctx, "prescription_sent", patient.phone, {
+          patientName: patient.name ?? patient.fullName ?? "Patient",
+          itemCount: consult.prescription.length,
+          doctorName: visit.doctorName ?? doctorId,
+        });
+      } catch (e) {
+        console.error("[whatsapp] prescription trigger failed:", e);
+      }
     }
+  }
+
+  // WhatsApp: send visit thank-you + Google review link (Gurgaon only)
+  try {
+    const patient = await prisma.patient.findUnique({ where: { id: visit.patientId } });
+    if (patient?.phone) {
+      await sendWhatsAppAsync(ctx, "visit_thankyou_review", patient.phone, {
+        patientName: patient.name ?? patient.fullName ?? "Patient",
+      });
+    }
+  } catch (e) {
+    console.error("[whatsapp] visit thank-you trigger failed:", e);
   }
 
   await writePlatformAudit({

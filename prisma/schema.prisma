@@ -125,6 +125,8 @@ model Branch {
   ipdAdmissions      IpdAdmission[]
   referralDoctors    ReferralDoctor[]
   slots             Slot[]
+  whatsappTemplates WhatsAppTemplate[]
+  whatsappLogs      WhatsAppLog[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -1935,4 +1937,36 @@ model Slot {
 
   @@index([branchId, date, status])
   @@index([branchId, doctorId, date])
+}
+
+model WhatsAppTemplate {
+  id         String   @id @default(cuid())
+  tenantId   String?
+  branchId   String?
+  trigger    String
+  label      String
+  body       String
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  branch     Branch?  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, trigger])
+  @@index([branchId, trigger, enabled])
+}
+
+model WhatsAppLog {
+  id         String   @id @default(cuid())
+  tenantId   String?
+  branchId   String?
+  trigger    String
+  recipient  String
+  body       String
+  status     String   @default("queued")
+  error      String?
+  createdAt  DateTime @default(now())
+  branch     Branch?  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId, createdAt])
+  @@index([branchId, trigger, status])
 }

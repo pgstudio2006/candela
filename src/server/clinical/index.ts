@@ -36,6 +36,7 @@ import { withPrismaError } from "@/server/prisma-errors";
 import { resolveDoctorName, staffIdFromDoctorId } from "@/lib/clinical-roster";
 import type { ClinicalRoster } from "@/lib/clinical-roster";
 import { notifyAppointmentReminder } from "@/server/notifications";
+import { sendWhatsAppAsync } from "@/server/whatsapp/service";
 
 type PrimitiveRecord = Record<string, string | number | boolean>;
 
@@ -696,6 +697,26 @@ export async function checkInVisit(
     });
     const updated = await prisma.opdVisit.findUnique({ where: { id: existing.id } });
     if (updated) await syncVisitFromOpdVisit(ctx, updated);
+
+    // WhatsApp: notify doctor of patient check-in (Gurgaon only)
+    try {
+      const doctor = await prisma.adminStaff.findFirst({
+        where: { id: doctorId },
+        select: { phone: true },
+      });
+      if (doctor?.phone) {
+        await sendWhatsAppAsync(ctx, "checkin_doctor_schedule", doctor.phone, {
+          doctorName: resolvedDoctorName,
+          patientName: patient.name,
+          uhid: patient.uhid,
+          time: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }),
+          department: deptId,
+        });
+      }
+    } catch (e) {
+      console.error("[whatsapp] checkin trigger failed:", e);
+    }
+
     return { visitId: existing.id, patientId: patient.id };
   }
 
@@ -719,6 +740,26 @@ export async function checkInVisit(
   });
   const created = await prisma.opdVisit.findUnique({ where: { id: newVisitId } });
   if (created) await syncVisitFromOpdVisit(ctx, created);
+
+  // WhatsApp: notify doctor of new patient check-in (Gurgaon only)
+  try {
+    const doctor = await prisma.adminStaff.findFirst({
+      where: { id: doctorId },
+      select: { phone: true, name: true },
+    });
+    if (doctor?.phone) {
+      await sendWhatsAppAsync(ctx, "checkin_doctor_schedule", doctor.phone, {
+        doctorName: resolvedDoctorName,
+        patientName: patient.name,
+        uhid: patient.uhid,
+        time: new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }),
+        department: deptId,
+      });
+    }
+  } catch (e) {
+    console.error("[whatsapp] checkin trigger failed:", e);
+  }
+
   return { visitId: newVisitId, patientId: patient.id };
 }
 
@@ -842,6 +883,22 @@ export async function processBilling(
   });
 
   const invoice = await prisma.invoice.findUnique({ where: { visitId } });
+
+  // WhatsApp: send billing invoice to patient (Gurgaon only)
+  try {
+    const patient = await prisma.patient.findUnique({ where: { id: visit.patientId } });
+    if (patient?.phone) {
+      await sendWhatsAppAsync(ctx, "billing_invoice", patient.phone, {
+        patientName: patient.name ?? patient.fullName ?? "Patient",
+        invoiceNumber: invoice?.invoiceNumber ?? `NV-${visitId.slice(-8).toUpperCase()}`,
+        amount: net,
+        paymentStatus: paymentScope === "defer" ? "Deferred" : collected >= net ? "Paid" : "Partial",
+        balanceDue: balanceDue,
+      });
+    }
+  } catch (e) {
+    console.error("[whatsapp] billing trigger failed:", e);
+  }
 
   return {
     routeHref: route.routeHref,
@@ -1401,6 +1458,20 @@ export async function bookAppointment(
     time: `${String(data.date ?? "")} ${String(data.time ?? "")}`.trim(),
     visitId,
   });
+
+  // WhatsApp: send appointment confirmation to patient (Gurgaon only)
+  try {
+    if (patient.phone) {
+      await sendWhatsAppAsync(ctx, "appointment_confirmation", patient.phone, {
+        patientName: patient.name,
+        doctorName: resolvedDoctorName,
+        date: String(data.date ?? ""),
+        time: String(data.time ?? ""),
+      });
+    }
+  } catch (e) {
+    console.error("[whatsapp] appointment trigger failed:", e);
+  }
 
   return { appointmentId, visitId };
 }

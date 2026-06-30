@@ -50,6 +50,7 @@ import { prisma } from "@/lib/prisma";
 import type { ServerContext } from "@/server/context";
 import { assertAssignableAgent, assertLeadAccess, assertManager, requireAgent, requireLead } from "@/server/crm/guards";
 import { writePlatformAudit } from "@/server/platform-audit";
+import { sendWhatsAppAsync } from "@/server/whatsapp/service";
 import { ensureRevenueSeeded } from "@/server/revenue/bootstrap";
 import { hashPassword } from "@/server/revenue/password";
 import { defaultCrmState, defaultPharmacyState, type CrmStateShape } from "@/server/revenue/state-seeds";
@@ -339,6 +340,19 @@ export async function createLead(
     });
     return result.state;
   });
+
+  // WhatsApp: send greeting to new lead (Gurgaon only)
+  try {
+    const phone = partial.phone?.trim();
+    if (phone) {
+      await sendWhatsAppAsync(ctx, "lead_greeting", phone, {
+        leadName: partial.fullName ?? "there",
+      });
+    }
+  } catch (e) {
+    console.error("[whatsapp] lead greeting trigger failed:", e);
+  }
+
   return { leadId };
 }
 
