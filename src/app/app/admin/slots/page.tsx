@@ -528,6 +528,80 @@ export default function SlotManagementPage() {
                   ))}
                 </select>
               </div>
+              <div className="col-span-2">
+                <label className="block text-[12px] font-medium mb-1">Quick Date Range</label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const today = new Date();
+                      const start = today.toISOString().slice(0, 10);
+                      const end = new Date(today);
+                      end.setMonth(end.getMonth() + 1);
+                      setBulkConfig({ ...bulkConfig, startDate: start, endDate: end.toISOString().slice(0, 10) });
+                    }}
+                    className="h-8 rounded border px-3 text-[12px] hover:bg-neutral-50"
+                    disabled={bulkCreating}
+                  >
+                    1 Month
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const today = new Date();
+                      const start = today.toISOString().slice(0, 10);
+                      const end = new Date(today);
+                      end.setMonth(end.getMonth() + 3);
+                      setBulkConfig({ ...bulkConfig, startDate: start, endDate: end.toISOString().slice(0, 10) });
+                    }}
+                    className="h-8 rounded border px-3 text-[12px] hover:bg-neutral-50"
+                    disabled={bulkCreating}
+                  >
+                    3 Months
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const today = new Date();
+                      const start = today.toISOString().slice(0, 10);
+                      const end = new Date(today);
+                      end.setMonth(end.getMonth() + 6);
+                      setBulkConfig({ ...bulkConfig, startDate: start, endDate: end.toISOString().slice(0, 10) });
+                    }}
+                    className="h-8 rounded border px-3 text-[12px] hover:bg-neutral-50"
+                    disabled={bulkCreating}
+                  >
+                    6 Months
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const today = new Date();
+                      const start = today.toISOString().slice(0, 10);
+                      const end = new Date(today);
+                      end.setFullYear(end.getFullYear() + 1);
+                      setBulkConfig({ ...bulkConfig, startDate: start, endDate: end.toISOString().slice(0, 10) });
+                    }}
+                    className="h-8 rounded border px-3 text-[12px] hover:bg-neutral-50"
+                    disabled={bulkCreating}
+                  >
+                    1 Year
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const today = new Date();
+                      const start = today.toISOString().slice(0, 10);
+                      const end = new Date(today.getFullYear(), 11, 31);
+                      setBulkConfig({ ...bulkConfig, startDate: start, endDate: end.toISOString().slice(0, 10) });
+                    }}
+                    className="h-8 rounded border px-3 text-[12px] hover:bg-neutral-50"
+                    disabled={bulkCreating}
+                  >
+                    Till End of Year
+                  </button>
+                </div>
+              </div>
               <div>
                 <label className="block text-[12px] font-medium mb-1">Available From</label>
                 <input
