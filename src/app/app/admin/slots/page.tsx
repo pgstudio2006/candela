@@ -4,7 +4,7 @@ import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { useAdminStore } from "@/components/admin/admin-store";
 import { useState, useEffect } from "react";
-import { Calendar, Clock, Plus, Trash2, Copy, Filter } from "lucide-react";
+import { Calendar, Clock, Plus, Trash2, Copy, Filter, Timer } from "lucide-react";
 
 type Slot = {
   id: string;
@@ -48,6 +48,7 @@ export default function SlotManagementPage() {
     date: "",
     startTime: "",
     endTime: "",
+    duration: 30,
     capacity: 1,
     booked: 0,
     status: "available",
@@ -59,10 +60,56 @@ export default function SlotManagementPage() {
     endDate: "",
     startTime: "09:00",
     endTime: "17:00",
-    intervalMinutes: 20,
+    intervalMinutes: 30,
     capacity: 1,
     weekdays: ["mon", "tue", "wed", "thu", "fri"],
   });
+
+  const calcEndTime = (start: string, durationMin: number) => {
+    if (!start) return "";
+    const [h, m] = start.split(":").map(Number);
+    const total = h * 60 + m + durationMin;
+    const eh = Math.floor(total / 60);
+    const em = total % 60;
+    return `${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`;
+  };
+
+  const calcSlotDuration = (start: string, end: string) => {
+    if (!start || !end) return 0;
+    const [sh, sm] = start.split(":").map(Number);
+    const [eh, em] = end.split(":").map(Number);
+    return (eh * 60 + em) - (sh * 60 + sm);
+  };
+
+  const previewSlotCount = (() => {
+    if (!bulkConfig.startDate || !bulkConfig.endDate || !bulkConfig.startTime || !bulkConfig.endTime) return 0;
+    const weekdayMap: Record<string, number> = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 0 };
+    const start = new Date(bulkConfig.startDate);
+    const end = new Date(bulkConfig.endDate);
+    const [sh, sm] = bulkConfig.startTime.split(":").map(Number);
+    const [eh, em] = bulkConfig.endTime.split(":").map(Number);
+    const dayStart = sh * 60 + sm;
+    const dayEnd = eh * 60 + em;
+    const perDay = Math.floor((dayEnd - dayStart) / bulkConfig.intervalMinutes);
+    if (perDay <= 0) return 0;
+    let days = 0;
+    const current = new Date(start);
+    while (current <= end) {
+      const dayKey = Object.keys(weekdayMap).find((k) => weekdayMap[k] === current.getDay());
+      if (dayKey && bulkConfig.weekdays.includes(dayKey)) days++;
+      current.setDate(current.getDate() + 1);
+    }
+    return days * perDay;
+  })();
+
+  const groupedSlots = (() => {
+    const groups: Record<string, Slot[]> = {};
+    for (const slot of slots) {
+      if (!groups[slot.date]) groups[slot.date] = [];
+      groups[slot.date].push(slot);
+    }
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+  })();
 
   const loadSlots = async () => {
     setLoading(true);
@@ -122,6 +169,7 @@ export default function SlotManagementPage() {
         date: "",
         startTime: "",
         endTime: "",
+        duration: 30,
         capacity: 1,
         booked: 0,
         status: "available",
@@ -141,6 +189,7 @@ export default function SlotManagementPage() {
       date: slot.date,
       startTime: slot.startTime,
       endTime: slot.endTime,
+      duration: calcSlotDuration(slot.startTime, slot.endTime) || 30,
       capacity: slot.capacity,
       booked: slot.booked,
       status: slot.status,
@@ -399,7 +448,7 @@ export default function SlotManagementPage() {
           )}
           <AttioButton variant="secondary" onClick={() => setShowBulkForm(true)}>
             <Copy className="size-3.5 mr-1.5" />
-            Bulk create
+            Availability schedule
           </AttioButton>
           <AttioButton variant="primary" onClick={() => setShowForm(true)}>
             <Plus className="size-3.5 mr-1.5" />
@@ -453,13 +502,17 @@ export default function SlotManagementPage() {
       </Panel>
 
       {showBulkForm && (
-        <Panel title="Bulk create slots">
+        <Panel title="Doctor availability schedule">
           <div className="space-y-4">
             {bulkCreating && (
               <div className="rounded-md bg-blue-50 p-3 text-center text-[13px] text-blue-900">
                 Creating slots... Please wait.
               </div>
             )}
+            <p className="text-[12px] text-neutral-500">
+              Set up a doctor's availability: pick a date range, daily working hours, and slot duration.
+              The system will auto-generate individual time slots for each day.
+            </p>
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2">
                 <label className="block text-[12px] font-medium mb-1">Select Doctor</label>
@@ -476,7 +529,7 @@ export default function SlotManagementPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-[12px] font-medium mb-1">Start Date</label>
+                <label className="block text-[12px] font-medium mb-1">Available From</label>
                 <input
                   type="date"
                   value={bulkConfig.startDate}
@@ -486,7 +539,7 @@ export default function SlotManagementPage() {
                 />
               </div>
               <div>
-                <label className="block text-[12px] font-medium mb-1">End Date</label>
+                <label className="block text-[12px] font-medium mb-1">Available Until</label>
                 <input
                   type="date"
                   value={bulkConfig.endDate}
@@ -496,7 +549,7 @@ export default function SlotManagementPage() {
                 />
               </div>
               <div>
-                <label className="block text-[12px] font-medium mb-1">Start Time</label>
+                <label className="block text-[12px] font-medium mb-1">Daily Start Time</label>
                 <input
                   type="time"
                   value={bulkConfig.startTime}
@@ -506,7 +559,7 @@ export default function SlotManagementPage() {
                 />
               </div>
               <div>
-                <label className="block text-[12px] font-medium mb-1">End Time</label>
+                <label className="block text-[12px] font-medium mb-1">Daily End Time</label>
                 <input
                   type="time"
                   value={bulkConfig.endTime}
@@ -516,16 +569,20 @@ export default function SlotManagementPage() {
                 />
               </div>
               <div>
-                <label className="block text-[12px] font-medium mb-1">Interval (minutes)</label>
-                <input
-                  type="number"
-                  min="5"
-                  step="5"
-                  value={bulkConfig.intervalMinutes}
-                  onChange={(e) => setBulkConfig({ ...bulkConfig, intervalMinutes: Number(e.target.value) })}
-                  className="h-9 w-full rounded border px-3 text-[13px]"
-                  disabled={bulkCreating}
-                />
+                <label className="block text-[12px] font-medium mb-1">Slot Duration (minutes)</label>
+                <div className="flex gap-2">
+                  {[15, 20, 30, 45, 60].map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => setBulkConfig({ ...bulkConfig, intervalMinutes: d })}
+                      className={`h-9 rounded border px-3 text-[13px] ${bulkConfig.intervalMinutes === d ? "border-blue-500 bg-blue-50 text-blue-700" : ""}`}
+                      disabled={bulkCreating}
+                    >
+                      {d}m
+                    </button>
+                  ))}
+                </div>
               </div>
               <div>
                 <label className="block text-[12px] font-medium mb-1">Capacity per slot</label>
@@ -539,31 +596,44 @@ export default function SlotManagementPage() {
                 />
               </div>
               <div className="col-span-2">
-                <label className="block text-[12px] font-medium mb-1">Weekdays</label>
+                <label className="block text-[12px] font-medium mb-1">Working Days</label>
                 <div className="flex flex-wrap gap-2">
-                  {["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((day) => (
-                    <label key={day} className="flex items-center gap-1 text-[12px]">
+                  {[
+                    { key: "mon", label: "Monday" },
+                    { key: "tue", label: "Tuesday" },
+                    { key: "wed", label: "Wednesday" },
+                    { key: "thu", label: "Thursday" },
+                    { key: "fri", label: "Friday" },
+                    { key: "sat", label: "Saturday" },
+                    { key: "sun", label: "Sunday" },
+                  ].map((day) => (
+                    <label key={day.key} className="flex items-center gap-1 text-[12px]">
                       <input
                         type="checkbox"
-                        checked={bulkConfig.weekdays.includes(day)}
+                        checked={bulkConfig.weekdays.includes(day.key)}
                         onChange={(e) => {
                           if (e.target.checked) {
-                            setBulkConfig({ ...bulkConfig, weekdays: [...bulkConfig.weekdays, day] });
+                            setBulkConfig({ ...bulkConfig, weekdays: [...bulkConfig.weekdays, day.key] });
                           } else {
-                            setBulkConfig({ ...bulkConfig, weekdays: bulkConfig.weekdays.filter((d) => d !== day) });
+                            setBulkConfig({ ...bulkConfig, weekdays: bulkConfig.weekdays.filter((d) => d !== day.key) });
                           }
                         }}
                         disabled={bulkCreating}
                       />
-                      {day.charAt(0).toUpperCase() + day.slice(1)}
+                      {day.label}
                     </label>
                   ))}
                 </div>
               </div>
             </div>
+            {previewSlotCount > 0 && (
+              <div className="rounded-md bg-blue-50 p-3 text-[13px] text-blue-800">
+                <strong>{previewSlotCount}</strong> slots will be created · Each slot is <strong>{bulkConfig.intervalMinutes} minutes</strong> long · {Math.floor((bulkConfig.intervalMinutes * 0 + (parseInt(bulkConfig.endTime.split(":")[0]) * 60 + parseInt(bulkConfig.endTime.split(":")[1]) - parseInt(bulkConfig.startTime.split(":")[0]) * 60 - parseInt(bulkConfig.startTime.split(":")[1])) / bulkConfig.intervalMinutes))} slots per day
+              </div>
+            )}
             <div className="flex gap-2">
-              <AttioButton variant="primary" onClick={handleBulkCreate} disabled={bulkCreating}>
-                {bulkCreating ? "Creating slots..." : "Create slots"}
+              <AttioButton variant="primary" onClick={handleBulkCreate} disabled={bulkCreating || previewSlotCount === 0}>
+                {bulkCreating ? "Creating slots..." : `Create ${previewSlotCount > 0 ? previewSlotCount : ""} slots`}
               </AttioButton>
               <AttioButton variant="secondary" onClick={() => setShowBulkForm(false)} disabled={bulkCreating}>
                 Cancel
@@ -611,10 +681,34 @@ export default function SlotManagementPage() {
                 <input
                   type="time"
                   value={formData.startTime}
-                  onChange={(e) => setFormData({ ...formData, startTime: e.target.value })}
+                  onChange={(e) => {
+                    const newStart = e.target.value;
+                    setFormData({
+                      ...formData,
+                      startTime: newStart,
+                      endTime: editing ? formData.endTime : calcEndTime(newStart, formData.duration),
+                    });
+                  }}
                   className="h-9 w-full rounded border px-3 text-[13px]"
                 />
               </div>
+              {!editing && (
+                <div>
+                  <label className="block text-[12px] font-medium mb-1">Slot Duration</label>
+                  <div className="flex gap-2">
+                    {[15, 20, 30, 45, 60].map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, duration: d, endTime: calcEndTime(formData.startTime, d) })}
+                        className={`h-9 rounded border px-3 text-[13px] ${formData.duration === d ? "border-blue-500 bg-blue-50 text-blue-700" : ""}`}
+                      >
+                        {d}m
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div>
                 <label className="block text-[12px] font-medium mb-1">End Time</label>
                 <input
@@ -668,51 +762,64 @@ export default function SlotManagementPage() {
         </Panel>
       )}
 
-      <Panel title="All slots">
+      <Panel title={`All slots (${slots.length})`}>
         {loading ? (
           <p className="text-[13px] text-[var(--attio-text-tertiary)]">Loading slots…</p>
         ) : slots.length === 0 ? (
-          <p className="text-[13px] text-[var(--attio-text-tertiary)]">No slots configured yet.</p>
+          <p className="text-[13px] text-[var(--attio-text-tertiary)]">No slots configured yet. Use "Availability schedule" to generate slots for a doctor.</p>
         ) : (
-          <div className="space-y-3">
-            {slots.map((slot) => (
-              <div
-                key={slot.id}
-                className="flex items-center justify-between rounded-lg border border-[var(--attio-border-subtle)] p-4"
-              >
-                <div className="flex-1">
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1 text-[13px] font-medium">
-                      <Calendar className="size-3.5" />
-                      {slot.date}
-                    </div>
-                    <div className="flex items-center gap-1 text-[13px]">
-                      <Clock className="size-3.5" />
-                      {slot.startTime} - {slot.endTime}
-                    </div>
-                    <StatusBadge
-                      label={slot.status}
-                      variant={slot.status === "available" ? "success" : slot.status === "booked" ? "warning" : "neutral"}
-                    />
-                  </div>
-                  <p className="mt-1 text-[13px]">
-                    {slot.doctorName || "Unassigned"} · {slot.departmentId || "No department"}
-                  </p>
-                  <p className="mt-1 text-[12px] text-[var(--attio-text-tertiary)]">
-                    Capacity: {slot.capacity} · Booked: {slot.booked}
-                  </p>
-                  {slot.notes && <p className="mt-1 text-[11px] text-[var(--attio-text-tertiary)]">{slot.notes}</p>}
+          <div className="space-y-4">
+            {groupedSlots.map(([date, dateSlots]) => (
+              <div key={date}>
+                <div className="mb-2 flex items-center gap-2 border-b border-[var(--attio-border-subtle)] pb-1">
+                  <Calendar className="size-4 text-neutral-600" />
+                  <span className="text-[13px] font-semibold">{date}</span>
+                  <span className="text-[11px] text-neutral-400">({dateSlots.length} slots)</span>
                 </div>
-                <div className="flex gap-2">
-                  <AttioButton variant="secondary" onClick={() => handleEdit(slot)}>
-                    Edit
-                  </AttioButton>
-                  <AttioButton variant="secondary" onClick={() => handleToggleStatus(slot.id)}>
-                    {slot.status === "available" ? "Block" : "Unblock"}
-                  </AttioButton>
-                  <AttioButton variant="secondary" onClick={() => handleDelete(slot.id)}>
-                    <Trash2 className="size-3" />
-                  </AttioButton>
+                <div className="space-y-2">
+                  {dateSlots.map((slot) => {
+                    const duration = calcSlotDuration(slot.startTime, slot.endTime);
+                    return (
+                      <div
+                        key={slot.id}
+                        className="flex items-center justify-between rounded-lg border border-[var(--attio-border-subtle)] p-3"
+                      >
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-1 text-[13px] font-medium">
+                              <Clock className="size-3.5" />
+                              {slot.startTime} - {slot.endTime}
+                            </div>
+                            <span className="flex items-center gap-1 rounded bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-600">
+                              <Timer className="size-3" />
+                              {duration} min
+                            </span>
+                            <StatusBadge
+                              label={slot.status}
+                              variant={slot.status === "available" ? "success" : slot.status === "booked" ? "warning" : "neutral"}
+                            />
+                          </div>
+                          <p className="mt-1 text-[12px]">
+                            {slot.doctorName || "Unassigned"} · {slot.departmentId || "No department"}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-[var(--attio-text-tertiary)]">
+                            Capacity: {slot.capacity} · Booked: {slot.booked}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <AttioButton variant="secondary" onClick={() => handleEdit(slot)}>
+                            Edit
+                          </AttioButton>
+                          <AttioButton variant="secondary" onClick={() => handleToggleStatus(slot.id)}>
+                            {slot.status === "available" ? "Block" : "Unblock"}
+                          </AttioButton>
+                          <AttioButton variant="secondary" onClick={() => handleDelete(slot.id)}>
+                            <Trash2 className="size-3" />
+                          </AttioButton>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ))}
