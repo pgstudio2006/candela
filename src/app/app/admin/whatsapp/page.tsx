@@ -283,14 +283,15 @@ export default function WhatsAppTemplatesPage() {
               </div>
             )}
             <div className="rounded-md bg-neutral-50 p-3 text-[12px] text-neutral-500">
-              <p className="font-medium text-neutral-700">Required Environment Variables:</p>
+              <p className="font-medium text-neutral-700">TeleCRM WACA — Environment Variables (set in Coolify):</p>
               <ul className="mt-2 space-y-1">
-                <li><code>WHATSAPP_API_TOKEN</code> — Meta WhatsApp Business permanent access token</li>
-                <li><code>WHATSAPP_PHONE_NUMBER_ID</code> — Phone number ID from Meta Business Manager</li>
-                <li><code>WHATSAPP_API_VERSION</code> — API version (default: v21.0)</li>
-                <li><code>WHATSAPP_WEBHOOK_VERIFY_TOKEN</code> — Custom token for webhook verification</li>
+                <li><code>WHATSAPP_API_TOKEN</code> — Your TeleCRM API access token</li>
+                <li><code>WHATSAPP_API_BASE_URL</code> — TeleCRM API URL (default: https://next-api.telecrm.in/waca)</li>
+                <li><code>WHATSAPP_PHONE_NUMBER_ID</code> — Phone number ID from TeleCRM/Meta (optional — if TeleCRM uses a single number)</li>
+                <li><code>WHATSAPP_WEBHOOK_VERIFY_TOKEN</code> — Your TeleCRM webhook verify token</li>
               </ul>
-              <p className="mt-2">Webhook URL: <code>/api/whatsapp/webhook</code></p>
+              <p className="mt-2">Our webhook receiver: <code>/api/whatsapp/webhook</code></p>
+              <p className="mt-1">Set this URL in TeleCRM webhook config: <code>https://your-domain.com/api/whatsapp/webhook</code></p>
             </div>
           </div>
         </Panel>
