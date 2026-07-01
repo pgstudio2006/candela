@@ -11,6 +11,8 @@ export type ServerErrorCode =
   | "VALIDATION"
   | "DOCTOR_ON_LEAVE"
   | "SLOT_TAKEN"
+  | "SLOT_BLOCKED"
+  | "SLOT_FULL"
   | "INVALID";
 
 export class ServerActionError extends Error {

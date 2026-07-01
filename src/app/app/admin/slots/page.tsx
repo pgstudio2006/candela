@@ -4,7 +4,7 @@ import { PageChrome } from "@/components/frontdesk/page-chrome";
 import { AttioButton, Panel, StatusBadge } from "@/components/frontdesk/ui";
 import { useAdminStore } from "@/components/admin/admin-store";
 import { useState, useEffect } from "react";
-import { Calendar, Clock, Plus, Trash2, Copy } from "lucide-react";
+import { Calendar, Clock, Plus, Trash2, Copy, Filter } from "lucide-react";
 
 type Slot = {
   id: string;
@@ -35,6 +35,8 @@ export default function SlotManagementPage() {
   const { staff } = useAdminStore();
   const [slots, setSlots] = useState<Slot[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filterDate, setFilterDate] = useState("");
+  const [filterDoctor, setFilterDoctor] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [showBulkForm, setShowBulkForm] = useState(false);
   const [editing, setEditing] = useState<Slot | null>(null);
@@ -65,7 +67,11 @@ export default function SlotManagementPage() {
   const loadSlots = async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/admin/slots", { credentials: "include" });
+      const params = new URLSearchParams();
+      if (filterDate) params.set("date", filterDate);
+      if (filterDoctor) params.set("doctorId", filterDoctor);
+      const query = params.toString();
+      const res = await fetch(`/api/admin/slots${query ? `?${query}` : ""}`, { credentials: "include" });
       const json = await res.json();
       if (json.ok) {
         setSlots(json.data);
@@ -79,7 +85,7 @@ export default function SlotManagementPage() {
 
   useEffect(() => {
     loadSlots();
-  }, []);
+  }, [filterDate, filterDoctor]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -185,40 +191,86 @@ export default function SlotManagementPage() {
     if (!confirm("Are you sure you want to delete ALL slots? This cannot be undone.")) {
       return;
     }
-    
-    let successCount = 0;
-    let failCount = 0;
-    
     try {
-      for (const slot of slots) {
-        try {
-          const res = await fetch(`/api/admin/slots/${slot.id}`, {
-            method: "DELETE",
-            credentials: "include",
-          });
-          const json = await res.json();
-          if (json.ok) {
-            successCount++;
-          } else {
-            console.error("Failed to delete slot:", json.error);
-            failCount++;
-          }
-        } catch (error) {
-          console.error("Error deleting slot:", error);
-          failCount++;
-        }
-      }
-      await loadSlots();
-      
-      if (failCount > 0) {
-        alert(`Deleted ${successCount} slots, ${failCount} failed (some may have bookings)`);
+      const res = await fetch("/api/admin/slots?all=true", {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const json = await res.json();
+      if (json.ok) {
+        alert(`Deleted ${json.deleted} slots`);
+        await loadSlots();
       } else {
-        alert(`Successfully deleted ${successCount} slots`);
+        alert(json.error || "Failed to clear slots");
       }
     } catch (error) {
       console.error("Failed to clear slots:", error);
       alert("Failed to clear slots");
     }
+  };
+
+  const handleClearByDate = async () => {
+    if (!filterDate) {
+      alert("Select a date to clear slots for that date");
+      return;
+    }
+    if (!confirm(`Delete all slots for ${filterDate}? This will cancel any booked appointments.`)) {
+      return;
+    }
+    try {
+      const params = new URLSearchParams({ date: filterDate });
+      if (filterDoctor) params.set("doctorId", filterDoctor);
+      const res = await fetch(`/api/admin/slots?${params.toString()}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const json = await res.json();
+      if (json.ok) {
+        alert(`Deleted ${json.deleted} slots for ${filterDate}`);
+        await loadSlots();
+      } else {
+        alert(json.error || "Failed to clear slots");
+      }
+    } catch (error) {
+      console.error("Failed to clear slots by date:", error);
+      alert("Failed to clear slots");
+    }
+  };
+
+  const handleToggleDate = async () => {
+    if (!filterDate) {
+      alert("Select a date first");
+      return;
+    }
+    const dateSlots = slots.filter((s) => s.date === filterDate);
+    if (dateSlots.length === 0) {
+      alert(`No slots found for ${filterDate}`);
+      return;
+    }
+    const allBlocked = dateSlots.every((s) => s.status === "blocked");
+    const newStatus = allBlocked ? "available" : "blocked";
+    const action = allBlocked ? "unblock" : "block";
+    if (!confirm(`${action === "block" ? "Block" : "Unblock"} all ${dateSlots.length} slots for ${filterDate}?`)) {
+      return;
+    }
+    let ok = 0;
+    let fail = 0;
+    for (const slot of dateSlots) {
+      try {
+        const res = await fetch(`/api/admin/slots/${slot.id}`, {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...slot, status: newStatus }),
+        });
+        const json = await res.json();
+        if (json.ok) ok++; else fail++;
+      } catch {
+        fail++;
+      }
+    }
+    await loadSlots();
+    alert(`${action === "block" ? "Blocked" : "Unblocked"} ${ok} slots${fail > 0 ? `, ${fail} failed` : ""}`);
   };
 
   const handleBulkCreate = async () => {
@@ -356,6 +408,50 @@ export default function SlotManagementPage() {
         </div>
       }
     >
+      <Panel title="Filter slots">
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="block text-[12px] font-medium mb-1">Filter by Date</label>
+            <input
+              type="date"
+              value={filterDate}
+              onChange={(e) => setFilterDate(e.target.value)}
+              className="h-9 rounded border px-3 text-[13px]"
+            />
+          </div>
+          <div>
+            <label className="block text-[12px] font-medium mb-1">Filter by Doctor</label>
+            <select
+              value={filterDoctor}
+              onChange={(e) => setFilterDoctor(e.target.value)}
+              className="h-9 rounded border px-3 text-[13px]"
+            >
+              <option value="">All doctors</option>
+              {staff.filter((s) => s.role === "doctor").map((d) => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+          </div>
+          {(filterDate || filterDoctor) && (
+            <AttioButton variant="secondary" onClick={() => { setFilterDate(""); setFilterDoctor(""); }}>
+              <Filter className="size-3.5 mr-1.5" />
+              Clear filter
+            </AttioButton>
+          )}
+          {filterDate && slots.length > 0 && (
+            <>
+              <AttioButton variant="secondary" onClick={handleToggleDate}>
+                {slots.filter((s) => s.date === filterDate).every((s) => s.status === "blocked") ? "Unblock date" : "Block date"}
+              </AttioButton>
+              <AttioButton variant="secondary" onClick={handleClearByDate}>
+                <Trash2 className="size-3.5 mr-1.5" />
+                Clear date
+              </AttioButton>
+            </>
+          )}
+        </div>
+      </Panel>
+
       {showBulkForm && (
         <Panel title="Bulk create slots">
           <div className="space-y-4">

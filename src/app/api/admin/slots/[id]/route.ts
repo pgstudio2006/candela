@@ -56,9 +56,18 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       return NextResponse.json({ ok: false, error: "Slot not found" }, { status: 404 });
     }
 
-    // Check if slot has bookings
+    // If slot has bookings, cancel linked appointments and reset booked count
     if (slot.booked > 0) {
-      return NextResponse.json({ ok: false, error: "Cannot delete slot with bookings" }, { status: 400 });
+      await prisma.appointment.updateMany({
+        where: {
+          branchId: scope.branchId,
+          doctorId: slot.doctorId ?? undefined,
+          date: slot.date,
+          time: slot.startTime,
+          status: { not: "cancelled" },
+        },
+        data: { status: "cancelled" },
+      });
     }
 
     await prisma.slot.delete({
@@ -68,6 +77,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("Error deleting slot:", error);
-    return NextResponse.json({ ok: false, error: "Failed to delete slot" }, { status: 500 });
+    const msg = error instanceof Error ? error.message : "Failed to delete slot";
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }

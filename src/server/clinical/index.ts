@@ -1154,6 +1154,8 @@ async function assertSlotAvailable(
   excludeAppointmentId?: string,
 ) {
   const scope = branchScope(ctx);
+
+  // Check for conflicting appointments
   const conflict = await prisma.appointment.findFirst({
     where: {
       tenantId: scope.tenantId,
@@ -1169,6 +1171,28 @@ async function assertSlotAvailable(
     throw new ServerActionError(
       "SLOT_TAKEN",
       `This doctor already has an appointment at ${time} on ${date}. Choose another slot.`,
+    );
+  }
+
+  // Check if the slot exists and is blocked in the Slot table
+  const slot = await prisma.slot.findFirst({
+    where: {
+      ...scope,
+      doctorId,
+      date,
+      startTime: time,
+    },
+  });
+  if (slot && slot.status === "blocked") {
+    throw new ServerActionError(
+      "SLOT_BLOCKED",
+      `This slot has been blocked by admin. Choose another slot.`,
+    );
+  }
+  if (slot && slot.booked >= slot.capacity) {
+    throw new ServerActionError(
+      "SLOT_FULL",
+      `This slot is fully booked (capacity: ${slot.capacity}). Choose another slot.`,
     );
   }
 }

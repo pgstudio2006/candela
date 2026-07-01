@@ -62,3 +62,46 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Failed to create slot" }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const ctx = await requireAuth();
+    const scope = branchScope(ctx);
+    const { searchParams } = new URL(req.url);
+    const date = searchParams.get("date");
+    const doctorId = searchParams.get("doctorId");
+    const clearAll = searchParams.get("all") === "true";
+
+    const where: any = { ...scope };
+    if (date) where.date = date;
+    if (doctorId) where.doctorId = doctorId;
+    if (!clearAll && !date) {
+      return NextResponse.json({ ok: false, error: "Specify date or all=true" }, { status: 400 });
+    }
+
+    // Cancel linked appointments for booked slots
+    const slotsToDelete = await prisma.slot.findMany({ where });
+    for (const slot of slotsToDelete) {
+      if (slot.booked > 0) {
+        await prisma.appointment.updateMany({
+          where: {
+            branchId: scope.branchId,
+            doctorId: slot.doctorId ?? undefined,
+            date: slot.date,
+            time: slot.startTime,
+            status: { not: "cancelled" },
+          },
+          data: { status: "cancelled" },
+        });
+      }
+    }
+
+    const result = await prisma.slot.deleteMany({ where });
+
+    return NextResponse.json({ ok: true, deleted: result.count });
+  } catch (error) {
+    console.error("Error bulk deleting slots:", error);
+    const msg = error instanceof Error ? error.message : "Failed to delete slots";
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+  }
+}
