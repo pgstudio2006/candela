@@ -29,6 +29,8 @@ type BulkSlotConfig = {
   intervalMinutes: number;
   capacity: number;
   weekdays: string[];
+  breakStartTime: string;
+  breakEndTime: string;
 };
 
 export default function SlotManagementPage() {
@@ -63,6 +65,8 @@ export default function SlotManagementPage() {
     intervalMinutes: 30,
     capacity: 1,
     weekdays: ["mon", "tue", "wed", "thu", "fri"],
+    breakStartTime: "",
+    breakEndTime: "",
   });
 
   const calcEndTime = (start: string, durationMin: number) => {
@@ -90,8 +94,22 @@ export default function SlotManagementPage() {
     const [eh, em] = bulkConfig.endTime.split(":").map(Number);
     const dayStart = sh * 60 + sm;
     const dayEnd = eh * 60 + em;
-    const perDay = Math.floor((dayEnd - dayStart) / bulkConfig.intervalMinutes);
+    let perDay = Math.floor((dayEnd - dayStart) / bulkConfig.intervalMinutes);
     if (perDay <= 0) return 0;
+
+    const breakStartMin = bulkConfig.breakStartTime ? bulkConfig.breakStartTime.split(":").map(Number).reduce((h: number, m: number) => h * 60 + m, 0) : -1;
+    const breakEndMin = bulkConfig.breakEndTime ? bulkConfig.breakEndTime.split(":").map(Number).reduce((h: number, m: number) => h * 60 + m, 0) : -1;
+    if (breakStartMin >= 0 && breakEndMin > breakStartMin) {
+      let breakSlots = 0;
+      let t = dayStart;
+      while (t + bulkConfig.intervalMinutes <= dayEnd) {
+        const slotEnd = t + bulkConfig.intervalMinutes;
+        if (t < breakEndMin && slotEnd > breakStartMin) breakSlots++;
+        t += bulkConfig.intervalMinutes;
+      }
+      perDay -= breakSlots;
+    }
+
     let days = 0;
     const current = new Date(start);
     while (current <= end) {
@@ -323,7 +341,7 @@ export default function SlotManagementPage() {
   };
 
   const handleBulkCreate = async () => {
-    const { doctorId, startDate, endDate, startTime, endTime, intervalMinutes, capacity, weekdays } = bulkConfig;
+    const { doctorId, startDate, endDate, startTime, endTime, intervalMinutes, capacity, weekdays, breakStartTime, breakEndTime } = bulkConfig;
     
     console.log("Bulk create config:", bulkConfig);
     
@@ -349,6 +367,9 @@ export default function SlotManagementPage() {
     const end = new Date(endDate);
     const weekdayMap: Record<string, number> = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 0 };
 
+    const breakStartMin = breakStartTime ? breakStartTime.split(":").map(Number).reduce((h: number, m: number) => h * 60 + m, 0) : -1;
+    const breakEndMin = breakEndTime ? breakEndTime.split(":").map(Number).reduce((h: number, m: number) => h * 60 + m, 0) : -1;
+
     const slotsToCreate: any[] = [];
     let current = new Date(start);
 
@@ -364,15 +385,25 @@ export default function SlotManagementPage() {
         const endTimeMinutes = endHour * 60 + endMin;
 
         while (slotTime + intervalMinutes <= endTimeMinutes) {
+          const slotEnd = slotTime + intervalMinutes;
+
+          if (breakStartMin >= 0 && breakEndMin > breakStartMin) {
+            const overlapsBreak = slotTime < breakEndMin && slotEnd > breakStartMin;
+            if (overlapsBreak) {
+              slotTime += intervalMinutes;
+              continue;
+            }
+          }
+
           const slotStart = `${String(Math.floor(slotTime / 60)).padStart(2, "0")}:${String(slotTime % 60).padStart(2, "0")}`;
-          const slotEnd = `${String(Math.floor((slotTime + intervalMinutes) / 60)).padStart(2, "0")}:${String((slotTime + intervalMinutes) % 60).padStart(2, "0")}`;
+          const slotEndStr = `${String(Math.floor(slotEnd / 60)).padStart(2, "0")}:${String(slotEnd % 60).padStart(2, "0")}`;
 
           slotsToCreate.push({
             doctorId,
             doctorName,
             date: current.toISOString().slice(0, 10),
             startTime: slotStart,
-            endTime: slotEnd,
+            endTime: slotEndStr,
             capacity,
             booked: 0,
             status: "available",
@@ -643,6 +674,26 @@ export default function SlotManagementPage() {
                 />
               </div>
               <div>
+                <label className="block text-[12px] font-medium mb-1">Break Start (optional)</label>
+                <input
+                  type="time"
+                  value={bulkConfig.breakStartTime}
+                  onChange={(e) => setBulkConfig({ ...bulkConfig, breakStartTime: e.target.value })}
+                  className="h-9 w-full rounded border px-3 text-[13px]"
+                  disabled={bulkCreating}
+                />
+              </div>
+              <div>
+                <label className="block text-[12px] font-medium mb-1">Break End (optional)</label>
+                <input
+                  type="time"
+                  value={bulkConfig.breakEndTime}
+                  onChange={(e) => setBulkConfig({ ...bulkConfig, breakEndTime: e.target.value })}
+                  className="h-9 w-full rounded border px-3 text-[13px]"
+                  disabled={bulkCreating}
+                />
+              </div>
+              <div>
                 <label className="block text-[12px] font-medium mb-1">Slot Duration (minutes)</label>
                 <div className="flex gap-2">
                   {[15, 20, 30, 45, 60].map((d) => (
@@ -702,7 +753,10 @@ export default function SlotManagementPage() {
             </div>
             {previewSlotCount > 0 && (
               <div className="rounded-md bg-blue-50 p-3 text-[13px] text-blue-800">
-                <strong>{previewSlotCount}</strong> slots will be created · Each slot is <strong>{bulkConfig.intervalMinutes} minutes</strong> long · {Math.floor((bulkConfig.intervalMinutes * 0 + (parseInt(bulkConfig.endTime.split(":")[0]) * 60 + parseInt(bulkConfig.endTime.split(":")[1]) - parseInt(bulkConfig.startTime.split(":")[0]) * 60 - parseInt(bulkConfig.startTime.split(":")[1])) / bulkConfig.intervalMinutes))} slots per day
+                <strong>{previewSlotCount}</strong> slots will be created · Each slot is <strong>{bulkConfig.intervalMinutes} minutes</strong> long
+                {bulkConfig.breakStartTime && bulkConfig.breakEndTime && (
+                  <> · Break: <strong>{bulkConfig.breakStartTime}–{bulkConfig.breakEndTime}</strong> (no slots during break)</>
+                )}
               </div>
             )}
             <div className="flex gap-2">

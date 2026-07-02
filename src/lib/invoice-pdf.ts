@@ -447,7 +447,7 @@ function drawBillingTable(
     drawWrappedLines(page, serviceLines, LAYOUT.colRight[0] + 4, rowTop + rowHeight, rowHeight, font, FONT.table);
     drawText(page, line.sacCode ?? receipt.gst.sacCode, LAYOUT.colRight[1] + 4, y, font, FONT.caption);
     drawText(page, String(line.quantity), LAYOUT.colRight[2] + 4, y, font, FONT.table);
-    drawRightText(page, formatInrForPdf(line.lineTotal), LAYOUT.colRight[4], y, font, FONT.table);
+    drawRightText(page, formatInrForPdf(line.taxableAmount ?? line.lineTotal), LAYOUT.colRight[4], y, font, FONT.table);
   });
 
   if (receipt.lines.length > LAYOUT.maxLineRows) {
