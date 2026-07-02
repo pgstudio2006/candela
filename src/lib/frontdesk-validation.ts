@@ -42,6 +42,7 @@ export function normalizeRegisterPatientInput(
     state: asString(data.state),
     district: asString(data.district),
     city: asString(data.city),
+    society: asString(data.society),
     address: asString(data.address),
     country: asString(data.country) || "India",
     appointmentCentre: asString(data.appointmentCentre),

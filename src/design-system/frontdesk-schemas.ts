@@ -28,6 +28,7 @@ export type FieldType =
   | "package-picker"
   | "discount-percent"
   | "payment-mode"
+  | "society-search"
   | "file"
   | "image"
   | "signature"
@@ -150,6 +151,7 @@ export const REGISTRATION_SCHEMA: FormSchema = {
           defaultValue: "Gurugram",
           options: [],
         },
+        { id: "society", type: "society-search", label: "Society", span: 2, placeholder: "Search Gurgaon society…" },
         { id: "address", type: "textarea", label: "Address", span: 2, placeholder: "House no, street, locality…" },
         { id: "pincode", type: "text", label: "Pincode", placeholder: "122001" },
       ],

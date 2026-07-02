@@ -14,6 +14,7 @@ export type PatientRegistrationMeta = {
   state?: string;
   district?: string;
   city?: string;
+  society?: string;
   address?: string;
   pincode?: string;
 };
@@ -23,6 +24,7 @@ export function buildPatientRegistrationPayload(data: RegistrationInput) {
 
   if (data.pincode) tags.push(`pincode:${String(data.pincode)}`);
   if (data.city) tags.push(`city:${String(data.city)}`);
+  if (data.society) tags.push(`society:${String(data.society)}`);
   if (data.state) tags.push(`state:${String(data.state)}`);
   if (data.district) tags.push(`district:${String(data.district)}`);
   if (data.referrer) tags.push(`ref:${String(data.referrer)}`);
@@ -49,6 +51,7 @@ export function buildPatientRegistrationPayload(data: RegistrationInput) {
     consentData: Boolean(data.consentData),
     registrationNotes: data.notes ? String(data.notes) : undefined,
     city: data.city ? String(data.city) : undefined,
+    society: data.society ? String(data.society) : undefined,
     address: data.address ? String(data.address) : undefined,
     pincode: data.pincode ? String(data.pincode) : undefined,
   };
@@ -77,6 +80,7 @@ export function parsePatientRegistrationMeta(meta: unknown): PatientRegistration
     consentData: row.consentData === true,
     registrationNotes: row.registrationNotes ? String(row.registrationNotes) : undefined,
     city: row.city ? String(row.city) : undefined,
+    society: row.society ? String(row.society) : undefined,
     address: row.address ? String(row.address) : undefined,
     pincode: row.pincode ? String(row.pincode) : undefined,
   };

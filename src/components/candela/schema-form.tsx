@@ -28,6 +28,7 @@ import {
   cascadeIndiaLocationChange,
   resolveIndiaLocationOptions,
 } from "@/lib/india-locations";
+import { searchSocieties } from "@/lib/gurgaon-societies";
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -37,6 +38,81 @@ function humanizeSelectValue(value: string, fieldId: string, roster?: ClinicalRo
   }
   if (fieldId === "doctor" || value.startsWith("dr_")) return resolveDoctorName(value, roster);
   return value.replace(/_/g, " ");
+}
+
+function SocietySearchInput({
+  value,
+  onChange,
+  placeholder,
+  base,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  base: string;
+}) {
+  const [query, setQuery] = useState(String(value ?? ""));
+  const [open, setOpen] = useState(false);
+  const [results, setResults] = useState<string[]>([]);
+  const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setQuery(String(value ?? ""));
+  }, [value]);
+
+  const doSearch = (q: string) => {
+    setQuery(q);
+    setResults(searchSocieties(q, 8));
+    setOpen(true);
+  };
+
+  const pick = (s: string) => {
+    setQuery(s);
+    onChange(s);
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative">
+      <Input
+        type="text"
+        value={query}
+        onChange={(e) => doSearch(e.target.value)}
+        onFocus={() => {
+          if (blurTimer.current) clearTimeout(blurTimer.current);
+          setResults(searchSocieties(query, 8));
+          setOpen(true);
+        }}
+        onBlur={() => {
+          blurTimer.current = setTimeout(() => setOpen(false), 200);
+        }}
+        placeholder={placeholder ?? "Search society…"}
+        className={cn(base, "h-9")}
+      />
+      {open && results.length > 0 && (
+        <div className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-[var(--attio-border)] bg-white shadow-lg">
+          {results.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                pick(s);
+              }}
+              className="block w-full px-3 py-2 text-left text-[12px] hover:bg-[var(--attio-hover)]"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+      {open && results.length === 0 && query.trim() && (
+        <div className="absolute z-50 mt-1 w-full rounded-md border border-[var(--attio-border)] bg-white px-3 py-2 text-[12px] text-[var(--attio-text-tertiary)] shadow-lg">
+          No matching society — type manually
+        </div>
+      )}
+    </div>
+  );
 }
 
 function SchemaFieldInput({
@@ -179,6 +255,17 @@ function SchemaFieldInput({
           ))}
         </SelectContent>
       </Select>
+    );
+  }
+
+  if (field.type === "society-search") {
+    return (
+      <SocietySearchInput
+        value={String(value ?? "")}
+        onChange={(v) => onChange(v)}
+        placeholder={field.placeholder}
+        base={base}
+      />
     );
   }
 
